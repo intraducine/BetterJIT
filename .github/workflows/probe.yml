@@ -1,0 +1,30 @@
+name: Probe tests and unsigned iOS build
+on:
+  push:
+    branches: [main, 'prototype/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: probe-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift core tests
+        run: swift test
+      - name: Independent UDP wire test
+        run: python3 scripts/wire_smoke.py
+      - name: Install project generator
+        run: brew install xcodegen
+      - name: Build unsigned iOS app
+        run: bash scripts/build-ios.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BetterJIT-unsigned
+          path: build/BetterJIT-unsigned.ipa
+          if-no-files-found: error
