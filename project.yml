@@ -8,10 +8,11 @@ settings:
     SWIFT_VERSION: '5.0'
     SWIFT_STRICT_CONCURRENCY: minimal
     CODE_SIGN_STYLE: Automatic
-    CURRENT_PROJECT_VERSION: 1
-    MARKETING_VERSION: 0.1.0
+    CURRENT_PROJECT_VERSION: 3
+    MARKETING_VERSION: 0.2.0
     TARGETED_DEVICE_FAMILY: '1,2'
     SUPPORTS_MACCATALYST: 'NO'
+    ENABLE_DEBUG_DYLIB: 'NO'
 targets:
   BetterJIT:
     type: application
@@ -26,6 +27,9 @@ targets:
       path: build/Info.plist
       properties:
         CFBundleDisplayName: BetterJIT Probe
+        NSLocalNetworkUsageDescription: Tests an IKEv2 responder at a selected address of this device. No remote service or network scan is used.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
@@ -33,6 +37,11 @@ targets:
         LSSupportsOpeningDocumentsInPlace: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
 schemes:

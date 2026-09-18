@@ -30,134 +30,256 @@ public struct PortBinding: Codable {
     public let encapsulated: Bool
 }
 
-/// Owns both UDP sockets on one serial queue. A failed bind never enables port reuse.
-/// Event callbacks run on that queue; callers must dispatch UI updates themselves.
-public final class LoopbackProbe {
-    private let queue = DispatchQueue(label: "BetterJIT.UDP")
-    private var sources: [DispatchSourceRead] = []
-    private let closed = DispatchGroup()
-    private var engine = CookieProbe()
-    private let onEvent: (ProbeEvent) -> Void
-    public init(onEvent: @escaping (ProbeEvent) -> Void) { self.onEvent = onEvent }
-
-    @discardableResult
-    public func start(address: LoopbackAddress, ikePort: UInt16 = 500, natPort: UInt16 = 4500) -> [PortBinding] {
-        stop()
-        return queue.sync {
-            engine = CookieProbe()
-            return [(ikePort, false), (natPort, true)].map { requested, encapsulated in
-                do {
-                    let fd = try Self.bind(address: address.rawValue, port: requested)
-                    var local = sockaddr_in()
-                    var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-                    let status = withUnsafeMutablePointer(to: &local) {
-                        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &length) }
-                    }
-                    guard status == 0 else { let code = errno; close(fd); throw SocketFailure(code: code) }
-                    let port = UInt16(bigEndian: local.sin_port)
-                    let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
-                    source.setEventHandler { [weak self] in self?.read(fd, localPort: port, encapsulated: encapsulated) }
-                    let closed = self.closed
-                    closed.enter()
-                    source.setCancelHandler { close(fd); closed.leave() }
-                    sources.append(source)
-                    source.resume()
-                    onEvent(ProbeEvent("bound", "Bound exclusively to \(address.rawValue):\(port)", port: port))
-                    return PortBinding(requestedPort: requested, boundPort: port, errorCode: nil, encapsulated: encapsulated)
-                } catch {
-                    let code = (error as? SocketFailure)?.code ?? -1
-                    onEvent(ProbeEvent("bindFailed", "\(address.rawValue):\(requested): errno \(code) (\(String(cString: strerror(code))))", port: requested))
-                    return PortBinding(requestedPort: requested, boundPort: nil, errorCode: code, encapsulated: encapsulated)
-                }
-            }
-        }
-    }
-
-    /// Call start/stop serially, and never from the event callback.
-    public func stop() {
-        queue.sync { stopOnQueue() }
-        closed.wait() // Cancellation must close old descriptors before a restart binds.
-    }
-    deinit { sources.forEach { $0.cancel() } }
-
-    private func stopOnQueue() {
-        let hadSources = !sources.isEmpty
-        sources.forEach { $0.cancel() }
-        sources.removeAll()
-        engine = CookieProbe()
-        if hadSources { onEvent(ProbeEvent("stopped", "UDP probe stopped")) }
-    }
-
-    private static func bind(address: String, port: UInt16) throws -> Int32 {
-        #if canImport(Darwin)
-        let fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
-        #else
-        let fd = socket(AF_INET, Int32(SOCK_DGRAM.rawValue), Int32(IPPROTO_UDP))
-        #endif
-        guard fd >= 0 else { throw SocketFailure(code: errno) }
-        var success = false
-        defer { if !success { close(fd) } }
-        let flags = fcntl(fd, F_GETFL, 0)
-        guard flags >= 0, fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0,
-              fcntl(fd, F_SETFD, FD_CLOEXEC) == 0 else { throw SocketFailure(code: errno) }
-        var local = sockaddr_in()
-        #if canImport(Darwin)
-        local.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        #endif
-        local.sin_family = sa_family_t(AF_INET)
-        local.sin_port = port.bigEndian
-        guard inet_pton(AF_INET, address, &local.sin_addr) == 1 else { throw SocketFailure(code: EINVAL) }
-        let result = withUnsafePointer(to: &local) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                #if canImport(Darwin)
-                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-                #else
-                Glibc.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-                #endif
-            }
-        }
-        guard result == 0 else { throw SocketFailure(code: errno) }
-        success = true
-        return fd
-    }
-
-    private func read(_ fd: Int32, localPort: UInt16, encapsulated: Bool) {
-        // Yield periodically even if a loopback client sends continuously.
-        for _ in 0..<16 {
-            var bytes = [UInt8](repeating: 0, count: 65535)
-            var remote = sockaddr_in()
-            var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-            let count = withUnsafeMutablePointer(to: &remote) { pointer in
-                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { address in
-                    bytes.withUnsafeMutableBytes { recvfrom(fd, $0.baseAddress, $0.count, 0, address, &length) }
-                }
-            }
-            if count < 0 {
-                let code = errno
-                if code == EINTR { continue }
-                if code != EAGAIN && code != EWOULDBLOCK {
-                    onEvent(ProbeEvent("receiveFailed", "recvfrom errno \(code)", port: localPort))
-                }
-                return
-            }
-            guard length == MemoryLayout<sockaddr_in>.size, remote.sin_family == AF_INET,
-                  UInt32(bigEndian: remote.sin_addr.s_addr) >> 24 == 127 else { continue }
-            let peerPort = UInt16(bigEndian: remote.sin_port)
-            let peer = "\(remote.sin_addr.s_addr):\(peerPort):\(localPort)"
-            let result = engine.receive(Data(bytes.prefix(count)), peer: peer, encapsulated: encapsulated)
-            onEvent(ProbeEvent(result.event, result.detail, port: localPort, peerPort: peerPort))
-            if let reply = result.reply {
-                let sent = withUnsafePointer(to: &remote) { pointer in
-                    pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { address in
-                        reply.withUnsafeBytes { sendto(fd, $0.baseAddress, $0.count, 0, address, length) }
-                    }
-                }
-                if sent != reply.count {
-                    onEvent(ProbeEvent("sendFailed", "sendto errno \(errno)", port: localPort, peerPort: peerPort))
-                }
-            }
-        }
+public struct TransportCounters: Codable {
+    public fileprivate(set) var nonSelfTestDatagrams = 0
+    public fileprivate(set) var filteredDatagrams = 0
+    public fileprivate(set) var selfTestDatagrams = 0
+    public fileprivate(set) var selfTestsPassed = 0
+    public fileprivate(set) var selfTestsFailed = 0
+    public fileprivate(set) var cookieRoundTrips = 0
+    public fileprivate(set) var repliesSent = 0
+    public fileprivate(set) var sendFailures = 0
+    public fileprivate(set) var receiveFailures = 0
+    public fileprivate(set) var rateLimitedDatagrams = 0
+    public init() {}
+    var description: String {
+        "nonSelfTestDatagrams=\(nonSelfTestDatagrams); filtered=\(filteredDatagrams); selfTestsPassed=\(selfTestsPassed); selfTestsFailed=\(selfTestsFailed); cookieRoundTrips=\(cookieRoundTrips); repliesSent=\(repliesSent); sendFailures=\(sendFailures); receiveFailures=\(receiveFailures)"
     }
 }
 
-private struct SocketFailure: Error { let code: Int32 }
+/// Owns all UDP sources on one serial queue. No address/port reuse is enabled.
+/// Call start/stop/snapshot serially and never from an event callback.
+public final class LoopbackProbe {
+    private let queue = DispatchQueue(label: "BetterJIT.UDP")
+    private var sources: [DispatchSourceRead] = []
+    private var heartbeat: DispatchSourceTimer?
+    private let closed = DispatchGroup()
+    private var engine = CookieProbe()
+    private var counters = TransportCounters()
+    private var selfTests: [UUID: SelfTest] = [:]
+    private var target: InterfaceTarget?
+    private var validateAssignment = false
+    private let onEvent: (ProbeEvent) -> Void
+    public init(onEvent: @escaping (ProbeEvent) -> Void) { self.onEvent = onEvent }
+
+    private struct SelfTest {
+        let source: DispatchSourceRead
+        let address: String
+        let family: IPFamily
+        let clientPort: UInt16
+        let serverPort: UInt16
+        let token: Data
+    }
+
+    public func snapshot() -> TransportCounters { queue.sync { counters } }
+
+    @discardableResult
+    public func start(address: LoopbackAddress, ikePort: UInt16 = 500, natPort: UInt16 = 4500,
+                      runSelfTests: Bool = false) -> [PortBinding] {
+        let legacy = InterfaceTarget(name: "loopback", index: 0, address: address.rawValue, family: .ipv4, isUp: true)
+        return startImpl(target: legacy, validate: false, ikePort: ikePort, natPort: natPort, runSelfTests: runSelfTests)
+    }
+
+    /// Binds only a currently assigned, explicitly selected address; no wildcard or port reuse.
+    @discardableResult
+    public func start(target: InterfaceTarget, ikePort: UInt16 = 500, natPort: UInt16 = 4500,
+                      runSelfTests: Bool = true) -> [PortBinding] {
+        startImpl(target: target, validate: true, ikePort: ikePort, natPort: natPort, runSelfTests: runSelfTests)
+    }
+
+    private func startImpl(target: InterfaceTarget, validate: Bool, ikePort: UInt16, natPort: UInt16,
+                           runSelfTests: Bool) -> [PortBinding] {
+        stop()
+        return queue.sync {
+            self.target = target; validateAssignment = validate
+            engine = CookieProbe()
+            counters = TransportCounters()
+            let bindings: [PortBinding] = [(ikePort, false), (natPort, true)].map { requested, encapsulated in
+                do {
+                    if validate {
+                        guard target.isPresent(in: try LocalInterfaces.snapshot()) else {
+                            throw SocketFailure(code: EADDRNOTAVAIL)
+                        }
+                    }
+                    let fd = try SocketEndpoint.bind(host: target.address, port: requested, family: target.family)
+                    let port: UInt16
+                    do { port = try SocketEndpoint.local(fd).port }
+                    catch { close(fd); throw error }
+                    let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
+                    source.setEventHandler { [weak self] in self?.read(fd, localPort: port, encapsulated: encapsulated) }
+                    trackClose(source, fd: fd)
+                    sources.append(source)
+                    source.resume()
+                    onEvent(ProbeEvent("bound", "Bound exclusively to [\(target.address)]:\(port); selected interface \(target.name)[\(target.index)]. Native interface selection is not controlled.", port: port))
+                    return PortBinding(requestedPort: requested, boundPort: port, errorCode: nil, encapsulated: encapsulated)
+                } catch {
+                    let code = (error as? SocketFailure)?.code ?? -1
+                    onEvent(ProbeEvent("bindFailed", "[\(target.address)]:\(requested): errno \(code) (\(String(cString: strerror(code))))", port: requested))
+                    return PortBinding(requestedPort: requested, boundPort: nil, errorCode: code, encapsulated: encapsulated)
+                }
+            }
+            if !sources.isEmpty {
+                let timer = DispatchSource.makeTimerSource(queue: queue)
+                timer.schedule(deadline: .now() + 2, repeating: 2)
+                timer.setEventHandler { [weak self] in
+                    guard let self else { return }
+                    if self.validateAssignment && !target.isPresent(in: (try? LocalInterfaces.snapshot()) ?? []) {
+                        self.onEvent(ProbeEvent("targetAddressLost", "Selected address is no longer available; stopped rather than switching addresses"))
+                        self.stopOnQueue()
+                        return
+                    }
+                    self.onEvent(ProbeEvent("probeHeartbeat", "UDP queue executing; \(self.counters.description)"))
+                }
+                heartbeat = timer; timer.resume()
+            }
+            if runSelfTests {
+                for binding in bindings {
+                    if let port = binding.boundPort {
+                        startSelfTest(target: target, port: port, encapsulated: binding.encapsulated)
+                    }
+                }
+            }
+            return bindings
+        }
+    }
+
+    public func stop() {
+        queue.sync { stopOnQueue() }
+        closed.wait()
+    }
+    private func stopOnQueue() {
+        let hadSources = !sources.isEmpty
+        heartbeat?.cancel(); heartbeat = nil
+        for id in Array(selfTests.keys) { finishSelfTest(id, passed: false, detail: "Probe stopped before health check completed") }
+        sources.forEach { $0.cancel() }; sources.removeAll()
+        engine = CookieProbe()
+        if hadSources {
+            onEvent(ProbeEvent("transportSummary", counters.description))
+            onEvent(ProbeEvent("stopped", "UDP probe stopped"))
+        }
+    }
+    deinit {
+        heartbeat?.cancel()
+        selfTests.values.forEach { $0.source.cancel() }
+        sources.forEach { $0.cancel() }
+    }
+
+    private func trackClose(_ source: DispatchSourceRead, fd: Int32) {
+        let group = closed
+        group.enter()
+        source.setCancelHandler { close(fd); group.leave() }
+    }
+
+    static func healthPayload(encapsulated: Bool) -> Data {
+        // UDP/4500 needs the four-zero Non-ESP Marker, even for this non-IKE self-test.
+        (encapsulated ? Data(repeating: 0, count: 4) : Data())
+            + Data("BETTERJIT-HEALTH-V1:".utf8) + randomBytes(count: 32)
+    }
+
+    /// Non-IKE nonce echo over the actual bound socket. It NEVER enters CookieProbe.
+    /// The exact source tuple AND random token must match an active self-test.
+    private func startSelfTest(target: InterfaceTarget, port: UInt16, encapsulated: Bool) {
+        do {
+            let fd = try SocketEndpoint.bind(host: target.address, port: 0, family: target.family)
+            let clientPort: UInt16
+            let remote: SocketEndpoint
+            do { clientPort = try SocketEndpoint.local(fd).port; remote = try SocketEndpoint(host: target.address, port: port, family: target.family) }
+            catch { close(fd); throw error }
+            let id = UUID()
+            let token = Self.healthPayload(encapsulated: encapsulated)
+            let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
+            source.setEventHandler { [weak self] in self?.readSelfTest(id, fd: fd) }
+            trackClose(source, fd: fd)
+            selfTests[id] = SelfTest(source: source, address: target.address, family: target.family, clientPort: clientPort, serverPort: port, token: token)
+            source.resume()
+            onEvent(ProbeEvent("selfTestStarted", "App-generated UDP nonce echo; framing=\(encapsulated ? "nonESPMarker" : "plain"); not native IKE", port: port, peerPort: clientPort))
+            if let code = remote.send(token, fd: fd) {
+                finishSelfTest(id, passed: false, detail: "Health-check sendto errno \(code)")
+            } else {
+                queue.asyncAfter(deadline: .now() + 2) { [weak self] in
+                    self?.finishSelfTest(id, passed: false, detail: "No matching echo within 2 seconds; scheduling delay or transport failure")
+                }
+            }
+        } catch {
+            counters.selfTestsFailed += 1
+            onEvent(ProbeEvent("selfTestFailed", "Health-check client setup failed: \(error)", port: port))
+        }
+    }
+
+    private func finishSelfTest(_ id: UUID, passed: Bool, detail: String) {
+        guard let test = selfTests.removeValue(forKey: id) else { return }
+        test.source.cancel()
+        if passed { counters.selfTestsPassed += 1 } else { counters.selfTestsFailed += 1 }
+        onEvent(ProbeEvent(passed ? "selfTestPassed" : "selfTestFailed", detail, port: test.serverPort, peerPort: test.clientPort))
+    }
+
+    private func readSelfTest(_ id: UUID, fd: Int32) {
+        guard let test = selfTests[id] else { return }
+        do {
+            for _ in 0..<16 {
+                guard let (data, peer) = try SocketEndpoint.receive(fd) else { return }
+                if let peer, peer.host == test.address, peer.family == test.family,
+                   peer.port == test.serverPort, data == test.token {
+                    finishSelfTest(id, passed: true, detail: "App-generated nonce echoed through the listener and back; local UDP only, NOT native IKE/VPN/JIT")
+                    return
+                }
+            }
+        } catch {
+            finishSelfTest(id, passed: false, detail: "Health-check receive failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func read(_ fd: Int32, localPort: UInt16, encapsulated: Bool) {
+        do {
+            for _ in 0..<16 {
+                guard let (data, peer) = try SocketEndpoint.receive(fd) else { return }
+                if let peer, let test = selfTests.values.first(where: {
+                    $0.address == peer.host && $0.family == peer.family && $0.clientPort == peer.port
+                        && $0.serverPort == localPort && $0.token == data
+                }) {
+                    counters.selfTestDatagrams += 1
+                    onEvent(ProbeEvent("selfTestDatagram", "Received app-generated health check; excluded from IKE and non-self-test counters", port: localPort, peerPort: test.clientPort))
+                    if let code = peer.send(data, fd: fd) {
+                        onEvent(ProbeEvent("selfTestEchoFailed", "Health-check echo sendto errno \(code)", port: localPort))
+                    }
+                    continue
+                }
+                counters.nonSelfTestDatagrams += 1
+                // Bound log/CPU amplification as well as the CookieProbe's challenge cache.
+                guard counters.nonSelfTestDatagrams <= 128 else {
+                    counters.rateLimitedDatagrams += 1
+                    if counters.rateLimitedDatagrams == 1 {
+                        onEvent(ProbeEvent("packetLimit", "Per-run non-self-test limit reached; further packets counted, not parsed or answered"))
+                    }
+                    continue
+                }
+                onEvent(ProbeEvent("datagramReceived", "\(data.count) bytes from \(peer?.host ?? "invalid sockaddr"):\(peer?.port.description ?? "unknown"); source identity not authenticated", port: localPort, peerPort: peer?.port))
+                guard let peer, let target, target.accepts(source: peer.host, family: peer.family) else {
+                    counters.filteredDatagrams += 1
+                    onEvent(ProbeEvent("datagramFiltered", "Source is neither the selected local address nor allowed loopback; metadata logged, no reply", port: localPort, peerPort: peer?.port))
+                    continue
+                }
+                if validateAssignment && !target.isPresent(in: (try? LocalInterfaces.snapshot()) ?? []) {
+                    onEvent(ProbeEvent("targetAddressLost", "Address changed before reply; probe stopped"))
+                    stopOnQueue(); return
+                }
+                let key = "\(peer.family.rawValue):\(peer.host):\(peer.port):\(localPort)"
+                let result = engine.receive(data, peer: key, encapsulated: encapsulated)
+                if result.event == "cookieRoundTrip" { counters.cookieRoundTrips += 1 }
+                onEvent(ProbeEvent(result.event, result.detail, port: localPort, peerPort: peer.port))
+                if let reply = result.reply {
+                    if let code = peer.send(reply, fd: fd) {
+                        counters.sendFailures += 1
+                        onEvent(ProbeEvent("sendFailed", "sendto errno \(code)", port: localPort, peerPort: peer.port))
+                    } else {
+                        counters.repliesSent += 1
+                        onEvent(ProbeEvent("replySent", "\(reply.count) response bytes accepted by sendto; receipt not proven", port: localPort, peerPort: peer.port))
+                    }
+                }
+            }
+        } catch {
+            counters.receiveFailures += 1
+            onEvent(ProbeEvent("receiveFailed", "recvfrom: \(error.localizedDescription)", port: localPort))
+        }
+    }
+}

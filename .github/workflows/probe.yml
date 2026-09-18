@@ -19,6 +19,8 @@ jobs:
         run: swift test
       - name: Independent UDP wire test
         run: python3 scripts/wire_smoke.py
+      - name: Assigned-interface IPv4 and IPv6 wire tests
+        run: python3 scripts/interface_wire_smoke.py
       - name: Install project generator
         run: brew install xcodegen
       - name: Build unsigned iOS app
@@ -27,4 +29,11 @@ jobs:
         with:
           name: BetterJIT-unsigned
           path: build/BetterJIT-unsigned.ipa
+          if-no-files-found: error
+      - name: Archive exact source
+        run: git archive --format=zip --prefix=BetterJIT/ HEAD > build/BetterJIT-source.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BetterJIT-source
+          path: build/BetterJIT-source.zip
           if-no-files-found: error
