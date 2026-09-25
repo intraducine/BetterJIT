@@ -37,11 +37,12 @@ def main():
     parser.add_argument('--large', action='store_true')
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='betterjit-web-') as temp:
-        directory = pathlib.Path(temp)
+        directory = pathlib.Path(temp) / 'site'
+        directory.mkdir()
         for source in (ROOT / 'Web').iterdir():
             shutil.copy(source, directory / source.name)
         shutil.copy(ROOT / '.build/fixtures/fixtures.json', directory / 'fixtures.json')
-        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Handler, directory=temp))
+        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Handler, directory=str(directory)))
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -51,22 +52,29 @@ def main():
                     launch['executable_path'] = args.executable
                 if args.browser == 'chromium':
                     launch['args'] = ['--no-sandbox', '--disable-dev-shm-usage']
-                browser = getattr(playwright, args.browser).launch(**launch)
-                page = browser.new_page()
-                page.set_default_timeout(120000)
-                page.goto(f'http://127.0.0.1:{server.server_port}/')
-                page.wait_for_function('window.betterjit !== undefined')
-                report = page.evaluate('(large) => window.betterjit.run({large})', args.large)
-                output = ROOT / f'.build/browser-report-{args.browser}.json'
-                output.write_text(json.dumps(report, indent=2) + '\n')
-                print(json.dumps(report, indent=2))
-                assert report['passed'], 'Probe reported a failure'
-                assert not report['nativeTransportVerified'], 'Browser must not falsely claim native success'
-                for stage in ['native-translated-wasm', 'linear-memory', 'wasm-opfs-memory', 'cleanup']:
-                    assert any(r['stage'] == stage and r['status'] == 'PASS' for r in report['records']), stage
-                if args.large:
-                    assert any(r['stage'] == 'high-offset-memory' and r['status'] == 'PASS' for r in report['records'])
-                browser.close()
+                # Match WKWebsiteDataStore.default(), not Playwright's ephemeral
+                # new_page() context. WebKit OPFS may reject ephemeral storage.
+                # This isolated profile is removed after the browser closes.
+                context = getattr(playwright, args.browser).launch_persistent_context(
+                    user_data_dir=str(pathlib.Path(temp) / 'profile'), **launch)
+                try:
+                    page = context.pages[0] if context.pages else context.new_page()
+                    page.set_default_timeout(120000)
+                    page.goto(f'http://127.0.0.1:{server.server_port}/')
+                    page.wait_for_function('window.betterjit !== undefined')
+                    report = page.evaluate('(large) => window.betterjit.run({large})', args.large)
+                    report['browserContext'] = 'persistent'
+                    output = ROOT / f'.build/browser-report-{args.browser}.json'
+                    output.write_text(json.dumps(report, indent=2) + '\n')
+                    print(json.dumps(report, indent=2))
+                    assert report['passed'], 'Probe reported a failure'
+                    assert not report['nativeTransportVerified'], 'Browser must not falsely claim native success'
+                    for stage in ['native-translated-wasm', 'linear-memory', 'wasm-opfs-memory', 'cleanup']:
+                        assert any(r['stage'] == stage and r['status'] == 'PASS' for r in report['records']), stage
+                    if args.large:
+                        assert any(r['stage'] == 'high-offset-memory' and r['status'] == 'PASS' for r in report['records'])
+                finally:
+                    context.close()
         finally:
             server.shutdown()
             server.server_close()

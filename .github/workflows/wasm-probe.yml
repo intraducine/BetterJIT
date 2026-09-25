@@ -37,6 +37,7 @@ jobs:
           name: browser-probe-reports
           path: .build/browser-report-*.json
           if-no-files-found: warn
+          include-hidden-files: true
   ios:
     runs-on: macos-15
     timeout-minutes: 25
@@ -51,3 +52,4 @@ jobs:
           name: BetterJITProbe-unsigned
           path: .build/BetterJITProbe-unsigned.ipa
           if-no-files-found: error
+          include-hidden-files: true
