@@ -1,8 +1,11 @@
 .DS_Store
-/FEX
-WasmProbe/build/
-WasmProbe/WasmProbe.xcodeproj/
-WasmProbe/*.xcworkspace/
+.build/
+.swiftpm/
+*.xcodeproj/
+*.xcworkspace/
+FEX/
 fexwasm/out/
-fexwasm/guest/out/
-*.xcuserdata/
+WasmProbe/build/
+artifacts/
+__pycache__/
+*.pyc
