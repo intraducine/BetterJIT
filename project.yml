@@ -1,0 +1,49 @@
+name: BetterJITProbe
+options:
+  bundleIdPrefix: software.intraducine
+  deploymentTarget:
+    iOS: '17.0'
+packages:
+  BetterJIT:
+    path: .
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    MARKETING_VERSION: '0.2.0'
+    CURRENT_PROJECT_VERSION: '1'
+targets:
+  BetterJITProbe:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+      - path: Web
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: BetterJIT
+        product: BetterJITCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: software.intraducine.BetterJITProbe
+        TARGETED_DEVICE_FAMILY: '1,2'
+        GENERATE_INFOPLIST_FILE: NO
+    info:
+      path: .build/Info.plist
+      properties:
+        CFBundleDisplayName: BetterJIT Probe
+        BetterJITCommit: $(BETTERJIT_COMMIT)
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+schemes:
+  BetterJITProbe:
+    build:
+      targets:
+        BetterJITProbe: all
+    run:
+      config: Release

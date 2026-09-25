@@ -1,0 +1,53 @@
+name: Wasm OPFS probe
+on:
+  push:
+    branches: [main, 'prototype/wkwebview-wasm-opfs']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: wasm-probe-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  portable:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Native and translated execution tests
+        run: bash scripts/check.sh
+      - name: Browser dependencies
+        run: |
+          python -m pip install playwright==1.57.0
+          python -m playwright install chromium webkit
+      - name: Real Chromium OPFS test
+        run: python scripts/browser_smoke.py --browser chromium
+      - name: Real desktop WebKit OPFS test (not an iOS device test)
+        run: python scripts/browser_smoke.py --browser webkit
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-probe-reports
+          path: .build/browser-report-*.json
+          if-no-files-found: warn
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: XcodeGen
+        run: brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+      - name: Build Release iOS app without signing
+        run: bash scripts/build-ios.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BetterJITProbe-unsigned
+          path: .build/BetterJITProbe-unsigned.ipa
+          if-no-files-found: error
