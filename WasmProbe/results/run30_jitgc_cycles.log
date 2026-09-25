@@ -1,0 +1,14 @@
+@@R {"appAvailableMB":8185,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["page:localhost","w:jitgc:{\"cycles\":4;\"cycleMB\":90}"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:47113\/index.html?ws=47114"}
+@@R {"ms":122.60037499666214,"name":"page:localhost","suite":"timing"}
+@@S running w:jitgc:{"cycles":4;"cycleMB":90}
+@@R {"cumulativeMB":90,"cycle":0,"cycleMB":90,"engine":"webview","modules":1956,"origin":"localhost","phase":"cycle","slowModules":0,"suite":"jitgc"}
+@@R {"cumulativeMB":180,"cycle":1,"cycleMB":90,"engine":"webview","modules":1956,"origin":"localhost","phase":"cycle","slowModules":0,"suite":"jitgc"}
+@@R {"cumulativeMB":270,"cycle":2,"cycleMB":90,"engine":"webview","modules":1956,"origin":"localhost","phase":"cycle","slowModules":1,"suite":"jitgc"}
+@@R {"cumulativeMB":360,"cycle":3,"cycleMB":90,"engine":"webview","modules":1956,"origin":"localhost","phase":"cycle","slowModules":0,"suite":"jitgc"}
+@@R {"name":"jitgc","origin":"localhost","return":"done","suite":"call"}
+@@R {"ms":70517.796917006373,"name":"w:jitgc:{\"cycles\":4;\"cycleMB\":90}","suite":"timing"}
+@@S done
+@@DONE

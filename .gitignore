@@ -1,0 +1,8 @@
+.DS_Store
+/FEX
+WasmProbe/build/
+WasmProbe/WasmProbe.xcodeproj/
+WasmProbe/*.xcworkspace/
+fexwasm/out/
+fexwasm/guest/out/
+*.xcuserdata/

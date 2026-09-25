@@ -1,0 +1,21 @@
+@@R {"appAvailableMB":8185,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["url:js\/probe\/modshare.html?mode=separate&n=16&funcs=20000&reps=100&mods=1"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running url:js/probe/modshare.html?mode=separate&n=16&funcs=20000&reps=100&mods=1
+@@L [modshare] mode separate, 16 workers, 1 modules of 20000 functions, 8.88 MB
+@@L [app] 0s memory in use elsewhere +-164 MB (system 4939 MB, app 12 MB)
+@@L [app] 2s memory in use elsewhere +-334 MB (system 4769 MB, app 12 MB)
+@@L [modshare] phase: workers start
+@@L [app] 4s memory in use elsewhere +-11 MB (system 5092 MB, app 12 MB)
+@@L [app] 6s memory in use elsewhere +-75 MB (system 5027 MB, app 11 MB)
+@@L [app] 8s memory in use elsewhere +-27 MB (system 5075 MB, app 11 MB)
+@@L [app] 10s memory in use elsewhere +40 MB (system 5142 MB, app 11 MB)
+@@L [app] 12s memory in use elsewhere +52 MB (system 5154 MB, app 11 MB)
+@@L [modshare] all ran in 10427 ms; compile 64 4972 43 4931 4922 47 74 4964 9751 5012 97 25 9759 11 4939 4999 ms; run 575 693 630 865 811 627 807 787 485 646 761 667 611 677 829 693 ms
+@@L [app] 14s memory in use elsewhere +128 MB (system 5230 MB, app 11 MB)
+@@L [app] 16s memory in use elsewhere +99 MB (system 5201 MB, app 11 MB)
+@@L [app] 19s memory in use elsewhere +87 MB (system 5189 MB, app 11 MB)
+@@L [page] exit 0
+@@R {"appAvailableMB":8180,"appFootprintMB":11,"cpuCount":6,"elsewhereMaxRiseMB":128,"exit":0,"ms":20637.400916993618,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"query":"js\/probe\/modshare.html?mode=separate&n=16&funcs=20000&reps=100&mods=1","suite":"linux","webContentLastMB":-1,"webContentMaxMB":0,"webcontentTerminated":false}
+@@R {"ms":20874.049667000771,"name":"url:js\/probe\/modshare.html?mode=separate&n=16&funcs=20000&reps=100&mods=1","suite":"timing"}
+@@S done
+@@DONE

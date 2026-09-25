@@ -1,0 +1,36 @@
+@@R {"appAvailableMB":6137,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["native_cleanup","page:localhost","opfs_share","opfs_bigmem","opfs_cleanup"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running native_cleanup
+@@R {"removed":["Default\/vM9Kc3U_MdN4F7bC6_6M9NHFlK9-Uf_5XlvI5xOnpVo\/vM9Kc3U_MdN4F7bC6_6M9NHFlK9-Uf_5XlvI5xOnpVo\/FileSystem\/probe.bin"],"suite":"native_cleanup"}
+@@R {"ms":3.1466249972581863,"name":"native_cleanup","suite":"timing"}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:47113\/index.html?ws=47114"}
+@@R {"ms":175.37887500226498,"name":"page:localhost","suite":"timing"}
+@@S running opfs_share
+@@R {"engine":"webview","op":"open","origin":"localhost","result":{"openMs":0.12000000000000011,"proto":["constructor","truncate","getSize","flush","close","read","write"],"size":0},"suite":"opfs","worker":"A"}
+@@R {"engine":"webview","op":"estimate","origin":"localhost","result":{"quota":10307921511,"usage":0},"suite":"opfs","worker":"A"}
+@@R {"engine":"webview","op":"openOther","origin":"localhost","result":"refused: InvalidStateError: The object is in an invalid state.","suite":"opfs","worker":"B"}
+@@R {"engine":"webview","op":"openOther","origin":"localhost","result":"refused: InvalidStateError: The object is in an invalid state.","suite":"opfs","worker":"B"}
+@@R {"engine":"webview","op":"header","origin":"localhost","result":{"size":2147483648},"suite":"opfs","worker":"A"}
+@@R {"event":"found","path":"~\/Library\/WebKit\/WebsiteData\/Default\/RXpCRCA4z7wQclNtq4yiQVfJhThZs-mjlnAQtzUH2Do\/RXpCRCA4z7wQclNtq4yiQVfJhThZs-mjlnAQtzUH2Do\/FileSystem\/probe.bin","protection":"NSFileProtectionCompleteUntilFirstUserAuthentication","scannedFiles":12,"searchMs":3.6081250011920929,"size":"2147483648","suite":"opfs_share"}
+@@R {"bytes":2147483648,"event":"mapped","headerMatches":true,"suite":"opfs_share"}
+@@R {"engine":"webview","op":"writeAt","origin":"localhost","result":{"hash":485568930,"MBps":6517.3116089613031,"ms":9.8200000000000003},"suite":"opfs","worker":"A"}
+@@R {"appHash":485568930,"appReadMBps":4096.9615108120288,"jsHash":485568930,"jsWriteMBps":6517.3116089613031,"match":true,"suite":"opfs_share","test":"webview-writes-app-reads"}
+@@R {"engine":"webview","op":"checkAt","origin":"localhost","result":{"got":67108864,"hash":1064471374,"MBps":18604.651162790709,"ms":3.4399999999999977},"suite":"opfs","worker":"A"}
+@@R {"appHash":1064471374,"appWriteMBps":2707.4619131923951,"jsHash":1064471374,"jsReadMBps":18604.651162790709,"match":true,"suite":"opfs_share","test":"app-writes-webview-reads"}
+@@R {"engine":"webview","op":"tinyread","origin":"localhost","result":{"avg":0.51333333333334019,"max":20.000000000010232,"min":0,"n":3000,"p50":0,"p90":0,"p99":20.000000000010232,"unit":"us"},"suite":"opfs","worker":"A"}
+@@R {"engine":"webview","op":"pingpong","origin":"localhost","result":{"avg":3.2680000000000509,"avgFromTotal":3.2680000000000304,"avgReadsPerTrip":1.0004,"max":100.00000000002274,"min":0,"n":5000,"p50":0,"p90":20.000000000010232,"p99":20.000000000010232,"timeouts":0,"unit":"us"},"suite":"opfs","worker":"A"}
+@@R {"appAvailableMB":6131,"appFootprintMB":12,"cpuCount":6,"event":"app-memory","os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"opfs_share"}
+@@R {"ms":161.66033299267292,"name":"opfs_share","suite":"timing"}
+@@S running opfs_bigmem
+@@R {"engine":"webview","op":"bigmem","origin":"localhost","result":{"backing":"file","direct":{"nsPerAccess":6.9000000000000004},"hotMB":512,"hotPct":100,"n":5000000,"residentMB":1024,"rounds":[{"chk":"-1549242501039769633","minor":0,"ms":133,"nsPerAccess":26.699999999999999,"pageIns":32768,"round":0,"usPerPageIn":2.25,"writeBacks":0},{"chk":"1845511934035363687","minor":0,"ms":56,"nsPerAccess":11.1,"pageIns":0,"round":1,"usPerPageIn":0,"writeBacks":0}],"spanGB":0.5},"suite":"opfs","worker":"A"}
+@@R {"appAvailableMB":6131,"appFootprintMB":12,"cpuCount":6,"origin":"localhost","os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"webcontent-terminated"}
+@@R {"appAvailableMB":8179,"appFootprintMB":12,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"served":0,"suite":"app_pager"}
+@@R {"appAvailableMB":8179,"appFootprintMB":12,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"served":0,"suite":"app_pager"}
+@@R {"appAvailableMB":8179,"appFootprintMB":12,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"opfs_bigmem","webcontentAliveAfter":"error: Error Domain=WKErrorDomain Code=5 \"JavaScript execution returned a result of an unsupported type\" UserInfo={NSLocalizedDescription=JavaScript execution returned a result of an unsupported type}"}
+@@R {"ms":501.24666701257229,"name":"opfs_bigmem","suite":"timing"}
+@@S running opfs_cleanup
+@@R {"estimateAfter":"?","suite":"opfs_cleanup"}
+@@R {"ms":10.938666000962257,"name":"opfs_cleanup","suite":"timing"}
+@@S done
+@@DONE

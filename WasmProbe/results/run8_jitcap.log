@@ -1,0 +1,73 @@
+@@R {"appAvailableMB":3369,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["page:localhost","w:jitcap:{\"max\":6000}","meminfo"]}
+@@R {"http":50304,"suite":"servers","ws":50305}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:50304\/index.html?ws=50305"}
+@@R {"ms":136.88099999725819,"name":"page:localhost","suite":"timing"}
+@@S running w:jitcap:{"max":6000}
+@@R {"elapsedMs":614,"engine":"webview","event":"progress","modules":100,"nsPerOp_max":1.411,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":0.97999999999999998}
+@@R {"elapsedMs":1227,"engine":"webview","event":"progress","modules":200,"nsPerOp_max":1.389,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":1.97}
+@@R {"elapsedMs":1841,"engine":"webview","event":"progress","modules":300,"nsPerOp_max":1.367,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":2.96}
+@@R {"elapsedMs":2454,"engine":"webview","event":"progress","modules":400,"nsPerOp_max":1.389,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":3.9500000000000002}
+@@R {"elapsedMs":3066,"engine":"webview","event":"progress","modules":500,"nsPerOp_max":1.3779999999999999,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":4.9299999999999997}
+@@R {"elapsedMs":3684,"engine":"webview","event":"progress","modules":600,"nsPerOp_max":1.367,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":5.9199999999999999}
+@@R {"elapsedMs":4297,"engine":"webview","event":"progress","modules":700,"nsPerOp_max":1.367,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":6.9100000000000001}
+@@R {"elapsedMs":4908,"engine":"webview","event":"progress","modules":800,"nsPerOp_max":1.367,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":7.8899999999999997}
+@@R {"elapsedMs":5520,"engine":"webview","event":"progress","modules":900,"nsPerOp_max":1.367,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":8.8800000000000008}
+@@R {"elapsedMs":6132,"engine":"webview","event":"progress","modules":1000,"nsPerOp_max":1.3560000000000001,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":9.8699999999999992}
+@@R {"elapsedMs":6749,"engine":"webview","event":"progress","modules":1100,"nsPerOp_max":1.367,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":10.85}
+@@R {"elapsedMs":7371,"engine":"webview","event":"progress","modules":1200,"nsPerOp_max":1.367,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":11.84}
+@@R {"elapsedMs":7998,"engine":"webview","event":"progress","modules":1300,"nsPerOp_max":1.411,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":12.83}
+@@R {"elapsedMs":8619,"engine":"webview","event":"progress","modules":1400,"nsPerOp_max":1.3560000000000001,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":13.81}
+@@R {"elapsedMs":9236,"engine":"webview","event":"progress","modules":1500,"nsPerOp_max":1.367,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":14.800000000000001}
+@@R {"elapsedMs":9851,"engine":"webview","event":"progress","modules":1600,"nsPerOp_max":1.367,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":15.789999999999999}
+@@R {"elapsedMs":10463,"engine":"webview","event":"progress","modules":1700,"nsPerOp_max":1.367,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":16.77}
+@@R {"elapsedMs":11081,"engine":"webview","event":"progress","modules":1800,"nsPerOp_max":1.367,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":17.760000000000002}
+@@R {"elapsedMs":11696,"engine":"webview","event":"progress","modules":1900,"nsPerOp_max":1.367,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":18.75}
+@@R {"elapsedMs":12313,"engine":"webview","event":"progress","modules":2000,"nsPerOp_max":1.367,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":19.73}
+@@R {"elapsedMs":12927,"engine":"webview","event":"progress","modules":2100,"nsPerOp_max":1.367,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":20.719999999999999}
+@@R {"elapsedMs":13543,"engine":"webview","event":"progress","modules":2200,"nsPerOp_max":1.367,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":21.710000000000001}
+@@R {"elapsedMs":14162,"engine":"webview","event":"progress","modules":2300,"nsPerOp_max":1.389,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":22.690000000000001}
+@@R {"elapsedMs":14783,"engine":"webview","event":"progress","modules":2400,"nsPerOp_max":1.367,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":23.68}
+@@R {"elapsedMs":15401,"engine":"webview","event":"progress","modules":2500,"nsPerOp_max":1.367,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":24.670000000000002}
+@@R {"elapsedMs":16023,"engine":"webview","event":"progress","modules":2600,"nsPerOp_max":1.3560000000000001,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":25.649999999999999}
+@@R {"elapsedMs":16647,"engine":"webview","event":"progress","modules":2700,"nsPerOp_max":1.367,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":26.640000000000001}
+@@R {"elapsedMs":17267,"engine":"webview","event":"progress","modules":2800,"nsPerOp_max":1.3779999999999999,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":27.629999999999999}
+@@R {"elapsedMs":17891,"engine":"webview","event":"progress","modules":2900,"nsPerOp_max":1.367,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":28.609999999999999}
+@@R {"elapsedMs":18512,"engine":"webview","event":"progress","modules":3000,"nsPerOp_max":1.367,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":29.600000000000001}
+@@R {"elapsedMs":19135,"engine":"webview","event":"progress","modules":3100,"nsPerOp_max":1.367,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":30.59}
+@@R {"elapsedMs":19759,"engine":"webview","event":"progress","modules":3200,"nsPerOp_max":1.367,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":31.57}
+@@R {"elapsedMs":20379,"engine":"webview","event":"progress","modules":3300,"nsPerOp_max":1.3560000000000001,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":32.560000000000002}
+@@R {"elapsedMs":21004,"engine":"webview","event":"progress","modules":3400,"nsPerOp_max":1.367,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":33.549999999999997}
+@@R {"elapsedMs":21627,"engine":"webview","event":"progress","modules":3500,"nsPerOp_max":1.3560000000000001,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":34.530000000000001}
+@@R {"elapsedMs":22247,"engine":"webview","event":"progress","modules":3600,"nsPerOp_max":1.367,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":35.520000000000003}
+@@R {"elapsedMs":22872,"engine":"webview","event":"progress","modules":3700,"nsPerOp_max":1.367,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":36.509999999999998}
+@@R {"elapsedMs":23496,"engine":"webview","event":"progress","modules":3800,"nsPerOp_max":1.367,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":37.490000000000002}
+@@R {"elapsedMs":24120,"engine":"webview","event":"progress","modules":3900,"nsPerOp_max":1.367,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":38.479999999999997}
+@@R {"elapsedMs":24744,"engine":"webview","event":"progress","modules":4000,"nsPerOp_max":1.367,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":39.469999999999999}
+@@R {"elapsedMs":25369,"engine":"webview","event":"progress","modules":4100,"nsPerOp_max":1.367,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":40.450000000000003}
+@@R {"elapsedMs":25992,"engine":"webview","event":"progress","modules":4200,"nsPerOp_max":1.367,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":41.439999999999998}
+@@R {"elapsedMs":26616,"engine":"webview","event":"progress","modules":4300,"nsPerOp_max":1.3560000000000001,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":42.43}
+@@R {"elapsedMs":27240,"engine":"webview","event":"progress","modules":4400,"nsPerOp_max":1.3560000000000001,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":43.420000000000002}
+@@R {"elapsedMs":27858,"engine":"webview","event":"progress","modules":4500,"nsPerOp_max":1.3779999999999999,"nsPerOp_p50":1.278,"origin":"localhost","suite":"jitcap","wasmMB":44.399999999999999}
+@@R {"elapsedMs":28476,"engine":"webview","event":"progress","modules":4600,"nsPerOp_max":1.367,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":45.390000000000001}
+@@R {"elapsedMs":29096,"engine":"webview","event":"progress","modules":4700,"nsPerOp_max":1.367,"nsPerOp_p50":1.3,"origin":"localhost","suite":"jitcap","wasmMB":46.380000000000003}
+@@R {"elapsedMs":29713,"engine":"webview","event":"progress","modules":4800,"nsPerOp_max":1.3779999999999999,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":47.359999999999999}
+@@R {"elapsedMs":30330,"engine":"webview","event":"progress","modules":4900,"nsPerOp_max":1.3779999999999999,"nsPerOp_p50":1.2889999999999999,"origin":"localhost","suite":"jitcap","wasmMB":48.350000000000001}
+@@R {"elapsedMs":30948,"engine":"webview","event":"progress","modules":5000,"nsPerOp_max":1.3779999999999999,"nsPerOp_p50":1.3,"origin":"localhost","suite":"jitcap","wasmMB":49.340000000000003}
+@@R {"elapsedMs":31569,"engine":"webview","event":"progress","modules":5100,"nsPerOp_max":1.3779999999999999,"nsPerOp_p50":1.3,"origin":"localhost","suite":"jitcap","wasmMB":50.32}
+@@R {"elapsedMs":32189,"engine":"webview","event":"progress","modules":5200,"nsPerOp_max":1.3779999999999999,"nsPerOp_p50":1.3,"origin":"localhost","suite":"jitcap","wasmMB":51.310000000000002}
+@@R {"elapsedMs":32809,"engine":"webview","event":"progress","modules":5300,"nsPerOp_max":1.3779999999999999,"nsPerOp_p50":1.3,"origin":"localhost","suite":"jitcap","wasmMB":52.299999999999997}
+@@R {"elapsedMs":33428,"engine":"webview","event":"progress","modules":5400,"nsPerOp_max":1.3779999999999999,"nsPerOp_p50":1.3,"origin":"localhost","suite":"jitcap","wasmMB":53.280000000000001}
+@@R {"elapsedMs":34049,"engine":"webview","event":"progress","modules":5500,"nsPerOp_max":1.3779999999999999,"nsPerOp_p50":1.3,"origin":"localhost","suite":"jitcap","wasmMB":54.270000000000003}
+@@R {"elapsedMs":34669,"engine":"webview","event":"progress","modules":5600,"nsPerOp_max":1.3779999999999999,"nsPerOp_p50":1.3,"origin":"localhost","suite":"jitcap","wasmMB":55.259999999999998}
+@@R {"elapsedMs":35288,"engine":"webview","event":"progress","modules":5700,"nsPerOp_max":1.389,"nsPerOp_p50":1.3,"origin":"localhost","suite":"jitcap","wasmMB":56.240000000000002}
+@@R {"elapsedMs":35909,"engine":"webview","event":"progress","modules":5800,"nsPerOp_max":1.389,"nsPerOp_p50":1.3,"origin":"localhost","suite":"jitcap","wasmMB":57.229999999999997}
+@@R {"elapsedMs":36529,"engine":"webview","event":"progress","modules":5900,"nsPerOp_max":1.389,"nsPerOp_p50":1.3,"origin":"localhost","suite":"jitcap","wasmMB":58.219999999999999}
+@@R {"elapsedMs":37148,"engine":"webview","event":"progress","modules":6000,"nsPerOp_max":1.3779999999999999,"nsPerOp_p50":1.3,"origin":"localhost","suite":"jitcap","wasmMB":59.200000000000003}
+@@R {"name":"jitcap","origin":"localhost","return":"done","suite":"call"}
+@@R {"ms":37163.116374999285,"name":"w:jitcap:{\"max\":6000}","suite":"timing"}
+@@S running meminfo
+@@R {"appAvailableMB":3364,"appFootprintMB":11,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"meminfo"}
+@@R {"ms":0.061292007565498352,"name":"meminfo","suite":"timing"}
+@@S done
+@@DONE

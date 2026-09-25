@@ -1,0 +1,42 @@
+@@R {"appAvailableMB":8185,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["linux:argv=\/opt\/wine\/bin\/wine|explorer|\/desktop=shell%2C1024x768|notepad&env={\"WINEDEBUG\":\"-all\"}&timeout=90&traceExec=1&snapshot=desk1&snapshotAt=32&snapshotExit=1"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running linux:argv=/opt/wine/bin/wine|explorer|/desktop=shell%2C1024x768|notepad&env={"WINEDEBUG":"-all"}&timeout=90&traceExec=1&snapshot=desk1&snapshotAt=32&snapshotExit=1
+@@L [app] 0s memory in use elsewhere +-115 MB (system 4373 MB, app 12 MB)
+@@L [page] engine ready: 2018 files in the index, 357 ms
+@@L [pid 101] unimplemented syscall 323 (?)
+@@L [1.24s] [pid 102] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\wineboot.exe","--init"] (space 1)
+@@L [app] 2s memory in use elsewhere +-153 MB (system 4354 MB, app 31 MB)
+@@L [3.80s] [pid 103] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\services.exe"] (space 1)
+@@L [app] 4s memory in use elsewhere +-126 MB (system 4409 MB, app 59 MB)
+@@L [5.63s] [pid 105] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\winedevice.exe"] (space 1)
+@@L [app] 6s memory in use elsewhere +-163 MB (system 4368 MB, app 55 MB)
+@@L [app] 8s memory in use elsewhere +-155 MB (system 4383 MB, app 62 MB)
+@@L [9.07s] [pid 113] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\winedevice.exe"] (space 1)
+@@L [app] 10s memory in use elsewhere +-87 MB (system 4457 MB, app 68 MB)
+@@L [app] 12s memory in use elsewhere +-64 MB (system 4490 MB, app 78 MB)
+@@L [app] 14s memory in use elsewhere +60 MB (system 4656 MB, app 120 MB)
+@@L [14.58s] [pid 102] exit 0 (C:\windows\system32\wineboot.exe)
+@@L [15.20s] [pid 125] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\conhost.exe","--unix"] (space 1)
+@@L wine: could not open working directory L"unix\\", starting in the Windows directory.
+@@L [app] 16s memory in use elsewhere +155 MB (system 4736 MB, app 105 MB)
+@@L [17.23s] [pid 126] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\explorer.exe","/desktop=shell,1024x768"] (space 1)
+@@L wine: could not open working directory L"unix\\", starting in the Windows directory.
+@@L [app] 18s memory in use elsewhere +199 MB (system 4782 MB, app 107 MB)
+@@L [19.00s] [pid 127] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\explorer.exe","/desktop"] (space 1)
+@@L [app] 21s memory in use elsewhere +184 MB (system 4777 MB, app 117 MB)
+@@L [app] 23s memory in use elsewhere +257 MB (system 4868 MB, app 135 MB)
+@@L [app] 25s memory in use elsewhere +306 MB (system 4922 MB, app 140 MB)
+@@L [25.80s] [pid 136] execve /opt/wine/lib/wine/x86_64-unix/wine ["notepad"] (space 1)
+@@L [pid 100] unimplemented syscall 294 (inotify_init1)
+@@L [pid 100] unimplemented syscall 253 (inotify_init)
+@@L [app] 27s memory in use elsewhere +395 MB (system 5021 MB, app 150 MB)
+@@L [app] 29s memory in use elsewhere +386 MB (system 5030 MB, app 168 MB)
+@@L [app] 31s memory in use elsewhere +457 MB (system 5134 MB, app 201 MB)
+@@L [snapshot] 31 threads frozen in 2 ms; saved 212.4 MB (50409 memory pages, 211.3 MB of data) in 440 ms
+@@L [page] units: 57762 requests, 12912 modules compiled (72.0 MB)
+@@L [page] 219126 kernel syscalls; handlers 1465 ms, shared-memory sync 618 ms, idle 29203 ms; files fetched 170 (74.4 MB, 239 ms)
+@@L [page] exit 0 after 32818 ms
+@@R {"appAvailableMB":7992,"appFootprintMB":199,"cpuCount":6,"elsewhereMaxRiseMB":457,"exit":0,"ms":33036.96120801568,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"query":"argv=\/opt\/wine\/bin\/wine|explorer|\/desktop=shell%2C1024x768|notepad&env={\"WINEDEBUG\":\"-all\"}&timeout=90&traceExec=1&snapshot=desk1&snapshotAt=32&snapshotExit=1","suite":"linux","webContentLastMB":-1,"webContentMaxMB":0,"webcontentTerminated":false}
+@@R {"ms":33214.429707974195,"name":"linux:argv=\/opt\/wine\/bin\/wine|explorer|\/desktop=shell%2C1024x768|notepad&env={\"WINEDEBUG\":\"-all\"}&timeout=90&traceExec=1&snapshot=desk1&snapshotAt=32&snapshotExit=1","suite":"timing"}
+@@S done
+@@DONE

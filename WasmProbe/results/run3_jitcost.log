@@ -1,0 +1,27 @@
+@@R {"appAvailableMB":3369,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["page:localhost","w:jitcost","w:dispatch:{\"only\":[\"permodule-tail\"];\"steps\":0;\"reps\":1}","w:dispatch:{\"only\":[\"permodule-tail\"];\"steps\":1;\"reps\":1}"]}
+@@R {"http":50294,"suite":"servers","ws":50295}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:50294\/index.html?ws=50295"}
+@@R {"ms":137.26891699433327,"name":"page:localhost","suite":"timing"}
+@@S running w:jitcost
+@@R {"avgBytes":360.28515625,"avgUs":21.249999999999986,"engine":"webview","modules":512,"origin":"localhost","p50Us":19.999999999999574,"p99Us":40.000000000006253,"suite":"jitcost","test":"module-per-block-sync","totalMs":11.020000000000003}
+@@R {"blocksPerModule":8,"bytesPerBlock":320.78515625,"engine":"webview","modules":64,"origin":"localhost","suite":"jitcost","test":"batched-sync","totalMs":1.4599999999999795,"usPerBlock":2.85156249999996}
+@@R {"blocksPerModule":64,"bytesPerBlock":308.98828125,"engine":"webview","modules":8,"origin":"localhost","suite":"jitcost","test":"batched-sync","totalMs":0.79999999999999716,"usPerBlock":1.5624999999999944}
+@@R {"blocksPerModule":512,"bytesPerBlock":308.265625,"engine":"webview","modules":1,"origin":"localhost","suite":"jitcost","test":"batched-sync","totalMs":0.35999999999999943,"usPerBlock":0.70312499999999889}
+@@R {"chunkSteps":20000,"engine":"webview","nsPerBlockByChunk":[39,7,12,20,24,10,12,14,26,13,8,10,14,4,10,11,11,10,4,10,3,4,3,9,5,3,7,12,4,3,4,3,6,2,5,10,5,4,5,3,4,4,5,3,4,5,4,4,4,6,4,4,3,3,4,3,8,3,5,3],"origin":"localhost","suite":"jitcost","test":"tierup-curve","totalMs":9.3399999999999963}
+@@R {"name":"jitcost","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":57.063999995589256,"name":"w:jitcost","suite":"timing"}
+@@S running w:dispatch:{"only":["permodule-tail"];"steps":0;"reps":1}
+@@R {"engine":"webview","event":"start","origin":"localhost","suite":"dispatch","variant":"permodule-tail"}
+@@R {"appAvailableMB":3362,"appFootprintMB":13,"cpuCount":6,"origin":"localhost","os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"webcontent-terminated"}
+@@R {"name":"dispatch","origin":"localhost","return":"error: Error Domain=WKErrorDomain Code=5 \"JavaScript execution returned a result of an unsupported type\" UserInfo={NSLocalizedDescription=JavaScript execution returned a result of an unsupported type}","suite":"call"}
+@@R {"ms":26.958417013287544,"name":"w:dispatch:{\"only\":[\"permodule-tail\"];\"steps\":0;\"reps\":1}","suite":"timing"}
+@@S running w:dispatch:{"only":["permodule-tail"];"steps":1;"reps":1}
+@@R {"event":"reloading after WebContent termination","suite":"page"}
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:50294\/index.html?ws=50295"}
+@@R {"engine":"webview","event":"start","origin":"localhost","suite":"dispatch","variant":"permodule-tail"}
+@@R {"blocks":512,"chk":354019361,"coldMs":0.020000000000003126,"compileMs":19.539999999999999,"engine":"webview","modules":513,"ms":0,"nsPerBlock":0,"origin":"localhost","steps":1,"suite":"dispatch","variant":"permodule-tail","wasmBytes":198802}
+@@R {"name":"dispatch","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":98.94004200398922,"name":"w:dispatch:{\"only\":[\"permodule-tail\"];\"steps\":1;\"reps\":1}","suite":"timing"}
+@@S done
+@@DONE

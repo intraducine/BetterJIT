@@ -1,0 +1,61 @@
+@@R {"appAvailableMB":8185,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["linux:argv=\/opt\/wine\/bin\/wine|explorer|\/desktop=shell%2C1024x768|cmd|\/c|echo|desktop-ok&env={\"WINEDEBUG\":\"err+all\"}&timeout=120&traceExec=1"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running linux:argv=/opt/wine/bin/wine|explorer|/desktop=shell%2C1024x768|cmd|/c|echo|desktop-ok&env={"WINEDEBUG":"err+all"}&timeout=120&traceExec=1
+@@L [page] engine ready: 2018 files in the index, 347 ms
+@@L [pid 101] unimplemented syscall 323 (?)
+@@L [1.62s] [pid 102] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\wineboot.exe","--init"] (space 1)
+@@L 002c:fixme:ntdll:init_logical_proc_info Failed to get logical processor information, status 0xc0000002.
+@@L 002c:err:winediag:getaddrinfo Failed to resolve your host name IP
+@@L [4.78s] [pid 103] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\services.exe"] (space 1)
+@@L [7.75s] [pid 105] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\winedevice.exe"] (space 1)
+@@L [13.74s] [pid 113] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\winedevice.exe"] (space 1)
+@@L 006c:err:ntoskrnl:ZwLoadDriver failed to create driver L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\winebth": c00000e5
+@@L 0034:fixme:service:scmdatabase_autostart_services Auto-start service L"winebth" failed to start: 1359
+@@L [22.12s] [pid 102] exit 0 (C:\windows\system32\wineboot.exe)
+@@L [23.25s] [pid 125] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\conhost.exe","--unix"] (space 1)
+@@L wine: could not open working directory L"unix\\", starting in the Windows directory.
+@@L [26.72s] [pid 126] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\explorer.exe","/desktop=shell,1024x768"] (space 1)
+@@L wine: could not open working directory L"unix\\", starting in the Windows directory.
+@@L [29.83s] [pid 127] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\explorer.exe","/desktop"] (space 1)
+@@L 00a8:err:vulkan:vulkan_init_once Wine was built without Vulkan support.
+@@L 00a8:err:ole:start_rpcss Failed to open RpcSs service
+@@L 00a0:err:vulkan:vulkan_init_once Wine was built without Vulkan support.
+@@L 00a0:err:system:lock_display_devices Failed to read display config.
+@@L 00a0:err:explorer:initialize_display_settings Failed to set primary display settings.
+@@L [45.21s] [pid 136] execve /opt/wine/lib/wine/x86_64-unix/wine ["cmd","/c"] (space 1)
+@@L [pid 100] unimplemented syscall 294 (inotify_init1)
+@@L [pid 100] unimplemented syscall 253 (inotify_init)
+@@L [47.38s] [pid 140] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\conhost.exe","--server"] (space 1)
+@@L 00a0:err:ole:start_rpcss Failed to open RpcSs service
+@@L 00e4:err:vulkan:vulkan_init_once Wine was built without Vulkan support.
+@@L 00e4:err:system:lock_display_devices Failed to read display config.
+@@L 00a0:err:system:lock_display_devices Failed to read display config.
+@@L 00e4:err:system:lock_display_devices Failed to read display config.
+@@L 00a0:err:system:lock_display_devices Failed to read display config.
+@@L 00e4:err:system:lock_display_devices Failed to read display config.
+@@L 00a0:err:system:lock_display_devices Failed to read display config.
+@@L 00e4:err:system:lock_display_devices Failed to read display config.
+@@L 00a0:err:system:lock_display_devices Failed to read display config.
+@@L 00e4:err:system:lock_display_devices Failed to read display config.
+@@L 00a0:err:system:lock_display_devices Failed to read display config.
+@@L 00e4:err:system:lock_display_devices Failed to read display config.
+@@L [55.91s] [pid 136] exit 0 (cmd)
+@@L [56.01s] [pid 140] exit 0 (C:\windows\system32\conhost.exe)
+@@L 00a0:err:system:lock_display_devices Failed to read display config.
+@@L 00a0:err:ole:start_rpcss Failed to open RpcSs service
+@@L [57.44s] [pid 126] exit 0 (C:\windows\system32\explorer.exe)
+@@L [57.54s] [pid 101] exit 0 (explorer)
+@@L [pid 101] exited with status 0
+@@L [57.61s] [pid 125] exit 0 (C:\windows\system32\conhost.exe)
+@@L 00a8:err:ole:start_rpcss Failed to open RpcSs service
+@@L [59.00s] [pid 127] exit 0 (C:\windows\system32\explorer.exe)
+@@L [62.20s] [pid 105] exit 0 (C:\windows\system32\winedevice.exe)
+@@L [62.26s] [pid 113] exit 0 (C:\windows\system32\winedevice.exe)
+@@L [62.55s] [pid 103] exit 0 (C:\windows\system32\services.exe)
+@@L [62.61s] [pid 100] exit 0 (-f)
+@@L [page] 245123 kernel syscalls; handlers 5051 ms, shared-memory sync 1002 ms, idle 55365 ms; files fetched 168 (73.6 MB, 2260 ms)
+@@L [page] exit 0 after 62971 ms
+@@R {"appAvailableMB":7571,"appFootprintMB":620,"cpuCount":6,"exit":0,"ms":63069.804791003466,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"query":"argv=\/opt\/wine\/bin\/wine|explorer|\/desktop=shell%2C1024x768|cmd|\/c|echo|desktop-ok&env={\"WINEDEBUG\":\"err+all\"}&timeout=120&traceExec=1","suite":"linux","webContentLastMB":-1,"webContentMaxMB":0,"webcontentTerminated":false}
+@@R {"ms":63250.207249999046,"name":"linux:argv=\/opt\/wine\/bin\/wine|explorer|\/desktop=shell%2C1024x768|cmd|\/c|echo|desktop-ok&env={\"WINEDEBUG\":\"err+all\"}&timeout=120&traceExec=1","suite":"timing"}
+@@S done
+@@DONE

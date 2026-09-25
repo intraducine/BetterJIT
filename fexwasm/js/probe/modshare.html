@@ -1,0 +1,92 @@
+<!doctype html><meta charset="utf-8"><title>module sharing probe</title><pre id="o"></pre>
+<script>
+// Do workers that run one compiled WebAssembly.Module (compiled once, posted
+// to them) take less memory than workers that each compile the same bytes?
+// (The app samples WebContent's footprint every 2 s; the phases pause so
+// that the samples catch each plateau.)
+//   modshare.html?mode=shared|separate&n=8&funcs=3000&reps=300&mods=1
+// (mods: split the functions over that many modules, like the translator's
+// thousands of small unit modules)
+const q = new URLSearchParams(location.search);
+const mode = q.get('mode') || 'shared', n = Number(q.get('n') || 8), reps = Number(q.get('reps') || 300), mods = Number(q.get('mods') || 1);
+const funcs = Math.max(1, Math.floor(Number(q.get('funcs') || 3000) / mods));
+const out = document.getElementById('o');
+let pending = '';
+const log = (s) => { out.textContent += s + '\n'; pending += s + '\n'; };
+const flush = () => { if (pending) { fetch('/log', { method: 'POST', body: pending }); pending = ''; } };
+setInterval(flush, 250);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// A module of `funcs` functions (i32) -> i32, each a run of arithmetic, and
+// all(reps): calls each of them reps times through the table.
+function build(salt = 0) {
+  // a byte writer; pieces are joined with loops (spreading MBs into push() overflows)
+  const W = () => {
+    const b = [];
+    b.u = (v) => { do { let x = v & 0x7f; v >>>= 7; if (v) x |= 0x80; b.push(x); } while (v); return b; };
+    b.s = (v) => { for (;;) { const x = v & 0x7f; v >>= 7; if ((v === 0 && !(x & 0x40)) || (v === -1 && (x & 0x40))) { b.push(x); return b; } b.push(x | 0x80); } };
+    b.add = (o) => { for (let i = 0; i < o.length; i++) b.push(o[i]); return b; };
+    return b;
+  };
+  const out = W();
+  out.push(0, 0x61, 0x73, 0x6d, 1, 0, 0, 0);
+  const section = (id, body) => { out.push(id); out.u(body.length); out.add(body); };
+  section(1, W().u(2).add([0x60, 1, 0x7f, 1, 0x7f, 0x60, 1, 0x7f, 0]));
+  const fs = W().u(funcs + 1);
+  for (let i = 0; i < funcs; i++) fs.u(0);
+  section(3, fs.u(1));
+  section(4, W().u(1).add([0x70, 0]).u(funcs));
+  section(7, W().u(1).u(3).add([...'all'].map((c) => c.charCodeAt(0))).add([0]).u(funcs));
+  const el = W().u(1).add([0, 0x41]).s(0).add([0x0b]).u(funcs);
+  for (let i = 0; i < funcs; i++) el.u(i);
+  section(9, el);
+  const code = W().u(funcs + 1);
+  for (let i = 0; i < funcs; i++) {
+    const f = W().u(0).add([0x20, 0]);
+    for (let k = 0; k < 40; k++) { f.push(0x41); f.s((i * 31 + k * 7 + salt * 131) & 0xffff); f.push(0x6a, 0x41); f.s(3 + (k & 7)); f.push(0x6c, 0x41); f.s(k + 1); f.push(0x73); }
+    f.push(0x0b);
+    code.u(f.length).add(f);
+  }
+  // all(reps): for r < reps: for i < funcs: acc = f[i](acc)
+  const a = W().u(1).u(3).add([0x7f]);
+  a.add([0x02, 0x40, 0x03, 0x40, 0x20, 1, 0x20, 0, 0x4e, 0x0d, 1, 0x41, 0, 0x21, 2]);
+  a.add([0x02, 0x40, 0x03, 0x40, 0x20, 2, 0x41]).s(funcs).add([0x4e, 0x0d, 1]);
+  a.add([0x20, 3, 0x20, 2, 0x11, 0, 0, 0x21, 3]);
+  a.add([0x20, 2, 0x41, 1, 0x6a, 0x21, 2, 0x0c, 0, 0x0b, 0x0b]);
+  a.add([0x20, 1, 0x41, 1, 0x6a, 0x21, 1, 0x0c, 0, 0x0b, 0x0b, 0x0b]);
+  code.u(a.length).add(a);
+  section(10, code);
+  return new Uint8Array(out);
+}
+
+const workerSrc = `onmessage = async (e) => {
+  const t0 = performance.now();
+  const ms = e.data.modules || e.data.bytes.map((b) => new WebAssembly.Module(b));
+  const t1 = performance.now();
+  self.insts = ms.map((m) => new WebAssembly.Instance(m, {})); // kept alive
+  for (const i of self.insts) i.exports.all(e.data.reps);
+  postMessage({ compileMs: t1 - t0, runMs: performance.now() - t1 });
+};`;
+
+(async () => {
+  // (each module a little different, as units are)
+  const all = [...Array(mods)].map((_, k) => build(k));
+  const bytes = all[0];
+  log(`[modshare] mode ${mode}, ${n} workers, ${mods} modules of ${funcs} functions, ${(all.reduce((a, b) => a + b.length, 0) / 1e6).toFixed(2)} MB`);
+  await sleep(4000);
+  log('[modshare] phase: workers start');
+  const shared = mode === 'shared' ? all.map((b) => new WebAssembly.Module(b)) : null;
+  const url = URL.createObjectURL(new Blob([workerSrc], { type: 'text/javascript' }));
+  const t0 = performance.now();
+  const results = await Promise.all([...Array(n)].map(() => new Promise((res) => {
+    const w = new Worker(url);
+    (self.keep = self.keep || []).push(w);
+    w.onmessage = (e) => res(e.data);
+    w.postMessage(shared ? { modules: shared, reps } : { bytes: all, reps });
+  })));
+  log(`[modshare] all ran in ${(performance.now() - t0).toFixed(0)} ms; compile ${results.map((r) => r.compileMs.toFixed(0)).join(' ')} ms; run ${results.map((r) => r.runMs.toFixed(0)).join(' ')} ms`);
+  await sleep(6000);
+  log('[page] exit 0');
+  flush();
+})().catch((e) => { log('[modshare] ' + (e.stack || e)); log('[page] exit 1'); flush(); });
+</script>

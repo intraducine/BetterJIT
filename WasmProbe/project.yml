@@ -1,0 +1,57 @@
+name: WasmProbe
+options:
+  bundleIdPrefix: audio.volta
+  deploymentTarget:
+    iOS: "18.0"
+settings:
+  base:
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+  configs:
+    Release:
+      GCC_OPTIMIZATION_LEVEL: "2"
+      SWIFT_OPTIMIZATION_LEVEL: "-O"
+targets:
+  WasmProbe:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+        excludes: ["Info.plist", "*.entitlements"]
+      - path: Kernels
+        excludes: ["bigmem.c", "coremark/**", "box2d/**"]
+      # Box2D v3 (MIT): deterministic setup shared with the x86 guest build.
+      - path: Kernels/box2d
+        excludes: ["LICENSE", "VERSION", "**/*.h", "**/*.inl"]
+        compilerFlags: "-ffp-contract=off -DNDEBUG -Dsinf=det_sinf -Dcosf=det_cosf -Dqsort=det_qsort -I$(SRCROOT)/Kernels/box2d/include -I$(SRCROOT)/Kernels/box2d/src -I$(SRCROOT)/Kernels/box2d/shared"
+      - path: Web
+        type: folder
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: audio.volta.wasmprobe
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/Bridging.h
+        # fexwasm (FEX's frontend + the wasm backend), built by ../fexwasm/build_ios.sh
+        HEADER_SEARCH_PATHS: ["$(SRCROOT)/../fexwasm/src"]
+        OTHER_LDFLAGS: ["$(SRCROOT)/../fexwasm/out/ios/libfexwasm.a", "$(SRCROOT)/../FEX/build-ios/FEXCore/Source/libFEXCore.a", "$(SRCROOT)/../FEX/build-ios/FEXCore/Source/libFEXCore_Base.a", "$(SRCROOT)/../FEX/build-ios/FEXCore/Source/libJemallocLibs.a", "$(SRCROOT)/../FEX/build-ios/External/fmt/libfmt.a", "$(SRCROOT)/../FEX/build-ios/External/xxhash/cmake_unofficial/libxxhash.a", "$(SRCROOT)/../FEX/build-ios/External/cephes/libcephes_128bit.a", "$(SRCROOT)/../FEX/build-ios/External/SoftFloat-3e/libsoftfloat_3e.a", "-lc++"]
+        TARGETED_DEVICE_FAMILY: "1"
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: WasmProbe
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        LSApplicationCategoryType: public.app-category.games
+        LSSupportsGameMode: true
+        GCSupportsGameMode: true
+    entitlements:
+      path: Sources/WasmProbe.entitlements
+      properties:
+        com.apple.developer.kernel.increased-memory-limit: true
+        com.apple.developer.kernel.extended-virtual-addressing: true

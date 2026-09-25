@@ -1,0 +1,24 @@
+@@R {"appAvailableMB":8185,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["page:localhost","hidden"]}
+@@R {"http":50312,"suite":"servers","ws":50313}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:50312\/index.html?ws=50313"}
+@@R {"ms":126.34583300352097,"name":"page:localhost","suite":"timing"}
+@@S running hidden
+@@R {"engine":"webview","intmix20M_ms":49.100000000000001,"origin":"localhost","rAF":{"count":61,"ms":1004},"setTimeout0":{"count":135,"ms":1001},"state":"visible","suite":"liveness","visibility":"visible"}
+@@R {"return":"ok","state":"visible","suite":"liveness-call"}
+@@R {"engine":"webview","intmix20M_ms":48.600000000000001,"origin":"localhost","rAF":{"count":61,"ms":1004},"setTimeout0":{"count":136,"ms":1006},"state":"alpha0","suite":"liveness","visibility":"visible"}
+@@R {"return":"ok","state":"alpha0","suite":"liveness-call"}
+@@R {"engine":"webview","intmix20M_ms":50.399999999999999,"origin":"localhost","rAF":{"count":61,"ms":1003},"setTimeout0":{"count":136,"ms":1007},"state":"isHidden","suite":"liveness","visibility":"visible"}
+@@R {"return":"ok","state":"isHidden","suite":"liveness-call"}
+@@R {"engine":"webview","intmix20M_ms":48.399999999999999,"origin":"localhost","rAF":{"count":61,"ms":1003},"setTimeout0":{"count":136,"ms":1005},"state":"offscreen","suite":"liveness","visibility":"visible"}
+@@R {"return":"ok","state":"offscreen","suite":"liveness-call"}
+@@R {"engine":"webview","intmix20M_ms":48.799999999999997,"origin":"localhost","rAF":{"count":62,"ms":1003},"setTimeout0":{"count":136,"ms":1008},"state":"tiny1x1","suite":"liveness","visibility":"visible"}
+@@R {"return":"ok","state":"tiny1x1","suite":"liveness-call"}
+@@R {"engine":"webview","intmix20M_ms":48.100000000000001,"origin":"localhost","rAF":{"count":0,"ms":2000},"setTimeout0":{"count":12,"ms":1857},"state":"detached","suite":"liveness","visibility":"hidden"}
+@@R {"return":"ok","state":"detached","suite":"liveness-call"}
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:50312\/index.html?ws=50313"}
+@@R {"engine":"webview","intmix20M_ms":48.899999999999999,"origin":"localhost","rAF":{"count":0,"ms":2000},"setTimeout0":{"count":12,"ms":1330},"state":"never-attached","suite":"liveness","visibility":"hidden"}
+@@R {"return":"ok","state":"never-attached","suite":"liveness-call"}
+@@R {"ms":39893.567083001137,"name":"hidden","suite":"timing"}
+@@S done
+@@DONE

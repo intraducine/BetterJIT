@@ -1,0 +1,17 @@
+@@R {"appAvailableMB":6137,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["url:js\/probe\/modshare.html?mode=shared&n=16&funcs=20000&reps=100&mods=2000"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running url:js/probe/modshare.html?mode=shared&n=16&funcs=20000&reps=100&mods=2000
+@@L [modshare] mode shared, 16 workers, 2000 modules of 10 functions, 9.09 MB
+@@L [app] 0s memory in use elsewhere +-138 MB (system 4692 MB, app 12 MB)
+@@L [app] 2s memory in use elsewhere +-272 MB (system 4558 MB, app 12 MB)
+@@L [modshare] phase: workers start
+@@L [app] 4s memory in use elsewhere +-204 MB (system 4626 MB, app 12 MB)
+@@L [modshare] all ran in 1429 ms; compile 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ms; run 1328 1278 1220 1292 1333 1327 1402 1419 1342 1359 1276 1359 1220 1318 1381 1395 ms
+@@L [app] 6s memory in use elsewhere +-236 MB (system 4593 MB, app 11 MB)
+@@L [app] 8s memory in use elsewhere +-272 MB (system 4557 MB, app 11 MB)
+@@L [app] 10s memory in use elsewhere +-281 MB (system 4548 MB, app 11 MB)
+@@L [page] exit 0
+@@R {"appAvailableMB":8180,"appFootprintMB":11,"cpuCount":6,"elsewhereMaxRiseMB":0,"exit":0,"ms":11748.311458975077,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"query":"js\/probe\/modshare.html?mode=shared&n=16&funcs=20000&reps=100&mods=2000","suite":"linux","webContentLastMB":-1,"webContentMaxMB":0,"webcontentTerminated":false}
+@@R {"ms":11949.232416987419,"name":"url:js\/probe\/modshare.html?mode=shared&n=16&funcs=20000&reps=100&mods=2000","suite":"timing"}
+@@S done
+@@DONE

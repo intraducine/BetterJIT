@@ -1,0 +1,23 @@
+@@R {"appAvailableMB":3369,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["page:localhost","w:threads","w:threads:{\"kernel\":\"qsort\";\"n\":2;\"counts\":[1;2;4;6]}"]}
+@@R {"http":50308,"suite":"servers","ws":50309}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:50308\/index.html?ws=50309"}
+@@R {"ms":118.09937499463558,"name":"page:localhost","suite":"timing"}
+@@S running w:threads
+@@R {"engine":"webview","kernel":"intmix","n":50000000,"origin":"localhost","perWorkerMs":[63.299999999999997],"speedupVs1":null,"suite":"threads","throughputPerSec":790388871.32469177,"wallMs":65.920000000000002,"workers":1}
+@@R {"engine":"webview","kernel":"intmix","n":50000000,"origin":"localhost","perWorkerMs":[65.299999999999997,64.799999999999997],"speedupVs1":null,"suite":"threads","throughputPerSec":1531862745.0980392,"wallMs":67.740000000000009,"workers":2}
+@@R {"engine":"webview","kernel":"intmix","n":50000000,"origin":"localhost","perWorkerMs":[68.299999999999997,69,66.099999999999994],"speedupVs1":null,"suite":"threads","throughputPerSec":2173283106.3459864,"wallMs":72.04000000000002,"workers":3}
+@@R {"engine":"webview","kernel":"intmix","n":50000000,"origin":"localhost","perWorkerMs":[69,69.599999999999994,70.700000000000003,69.799999999999997],"speedupVs1":null,"suite":"threads","throughputPerSec":2828854314.0028296,"wallMs":73.819999999999993,"workers":4}
+@@R {"engine":"webview","kernel":"intmix","n":50000000,"origin":"localhost","perWorkerMs":[123.40000000000001,91.200000000000003,127.5,126.09999999999999,148.19999999999999,97.5],"speedupVs1":null,"suite":"threads","throughputPerSec":2023745277.9276848,"wallMs":153.62,"workers":6}
+@@R {"engine":"webview","kernel":"intmix","n":50000000,"origin":"localhost","perWorkerMs":[188.19999999999999,179.80000000000001,215.30000000000001,230,211.30000000000001,210.30000000000001,186.80000000000001,228.40000000000001],"speedupVs1":null,"suite":"threads","throughputPerSec":1738828029.9078419,"wallMs":237.34000000000003,"workers":8}
+@@R {"name":"threads","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":674.19437500834465,"name":"w:threads","suite":"timing"}
+@@S running w:threads:{"kernel":"qsort";"n":2;"counts":[1;2;4;6]}
+@@R {"engine":"webview","kernel":"qsort","n":2,"origin":"localhost","perWorkerMs":[84.400000000000006],"speedupVs1":null,"suite":"threads","throughputPerSec":23.696682464454568,"wallMs":41597.080000000002,"workers":1}
+@@R {"engine":"webview","kernel":"qsort","n":2,"origin":"localhost","perWorkerMs":[105.8,105.5],"speedupVs1":null,"suite":"threads","throughputPerSec":37.81433163168883,"wallMs":50791.859999999993,"workers":2}
+@@R {"engine":"webview","kernel":"qsort","n":2,"origin":"localhost","perWorkerMs":[125.7,86.200000000000003,129.59999999999999,130.19999999999999],"speedupVs1":null,"suite":"threads","throughputPerSec":61.462814996928643,"wallMs":65984.720000000001,"workers":4}
+@@R {"engine":"webview","kernel":"qsort","n":2,"origin":"localhost","perWorkerMs":[140.90000000000001,140.09999999999999,104.59999999999999,123.2,126.8,133.80000000000001],"speedupVs1":null,"suite":"threads","throughputPerSec":85.154697700824229,"wallMs":73957.260000000009,"workers":6}
+@@R {"name":"threads","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":232335.3057499975,"name":"w:threads:{\"kernel\":\"qsort\";\"n\":2;\"counts\":[1;2;4;6]}","suite":"timing"}
+@@S done
+@@DONE

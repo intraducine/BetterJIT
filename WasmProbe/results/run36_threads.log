@@ -1,0 +1,26 @@
+@@R {"appAvailableMB":6137,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["page:localhost","w:env","w:fexthreads"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:47113\/index.html?ws=47114"}
+@@R {"ms":148.26112499833107,"name":"page:localhost","suite":"timing"}
+@@S running w:env
+@@R {"crossOriginIsolated":true,"engine":"webview","features":{"atomics":true,"bulk_memory":true,"compileStreaming":true,"custom_page_sizes":false,"exceptions_exnref":true,"exceptions_legacy":true,"extended_const":true,"function_references":true,"gc_struct":true,"js_string_builtins":true,"jspi":true,"memory64":false,"memory64_js_api":{"basic":"ok:65536","over4GB":"RangeError: WebAssembly.Memory 'maximum' page count is too large"},"multi_memory":false,"multi_value":true,"reference_types":true,"relaxed_simd":false,"shared_memory_js_api":"SharedArrayBuffer","SharedArrayBuffer":true,"simd128":true,"tail_call":true,"threads_shared_memory":true},"hardwareConcurrency":4,"origin":"http:\/\/127.0.0.1:47113","secureContext":true,"suite":"env","timerResolutionMs":0.019999999999999574,"u8ToBase64":true,"ua":"Mozilla\/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit\/605.1.15 (KHTML, like Gecko) Mobile\/15E148","webgpu":true}
+@@R {"name":"env","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":13.070208013057709,"name":"w:env","suite":"timing"}
+@@S running w:fexthreads
+@@R {"chk":3769722444,"created":0,"engine":"webview","kernel":"box2d_mt4","macNativeMs":209.84,"macWasmMs":1095.0599999999999,"match":true,"ms":582.27999999999997,"n":300,"origin":"localhost","suite":"fexthreads","threads":1,"warmMs":181.31999999999999}
+@@R {"chk":4176968306,"created":0,"engine":"webview","kernel":"box2d_joints_mt4","macNativeMs":223.52000000000001,"macWasmMs":1900.52,"match":true,"ms":1073.6599999999999,"n":200,"origin":"localhost","suite":"fexthreads","threads":1,"warmMs":128.30000000000007}
+@@R {"engine":"webview","origin":"localhost","suite":"fexthreads","threads":1,"workerStats":[{"compileMs":26.699999999999999,"futexWaits":0,"misses":294,"regionMisses":0,"regions":105,"units":294}]}
+@@R {"chk":3769722444,"created":1,"engine":"webview","kernel":"box2d_mt4","macNativeMs":209.84,"macWasmMs":1095.0599999999999,"match":true,"ms":367.28000000000009,"n":300,"origin":"localhost","suite":"fexthreads","threads":2,"warmMs":168.51999999999998}
+@@R {"chk":4176968306,"created":1,"engine":"webview","kernel":"box2d_joints_mt4","macNativeMs":223.52000000000001,"macWasmMs":1900.52,"match":true,"ms":725.96000000000004,"n":200,"origin":"localhost","suite":"fexthreads","threads":2,"warmMs":99.459999999999923}
+@@R {"engine":"webview","origin":"localhost","suite":"fexthreads","threads":2,"workerStats":[{"compileMs":28.899999999999999,"futexWaits":4,"misses":293,"regionMisses":6,"regions":98,"units":293},{"compileMs":9.5999999999999996,"futexWaits":1756,"misses":122,"regionMisses":3,"regions":35,"units":122}]}
+@@R {"chk":3769722444,"created":2,"engine":"webview","kernel":"box2d_mt4","macNativeMs":209.84,"macWasmMs":1095.0599999999999,"match":true,"ms":378.30000000000001,"n":300,"origin":"localhost","suite":"fexthreads","threads":3,"warmMs":199.39999999999998}
+@@R {"chk":4176968306,"created":2,"engine":"webview","kernel":"box2d_joints_mt4","macNativeMs":223.52000000000001,"macWasmMs":1900.52,"match":true,"ms":742.54000000000008,"n":200,"origin":"localhost","suite":"fexthreads","threads":3,"warmMs":102.77999999999997}
+@@R {"engine":"webview","origin":"localhost","suite":"fexthreads","threads":3,"workerStats":[{"compileMs":31.100000000000001,"futexWaits":4,"misses":292,"regionMisses":1,"regions":98,"units":292},{"compileMs":11,"futexWaits":1923,"misses":118,"regionMisses":3,"regions":32,"units":118},{"compileMs":14.1,"futexWaits":1907,"misses":125,"regionMisses":3,"regions":32,"units":125}]}
+@@R {"chk":3769722444,"created":3,"engine":"webview","kernel":"box2d_mt4","macNativeMs":209.84,"macWasmMs":1095.0599999999999,"match":true,"ms":353.91999999999996,"n":300,"origin":"localhost","suite":"fexthreads","threads":4,"warmMs":227.42000000000002}
+@@R {"chk":4176968306,"created":3,"engine":"webview","kernel":"box2d_joints_mt4","macNativeMs":223.52000000000001,"macWasmMs":1900.52,"match":true,"ms":626.77999999999997,"n":200,"origin":"localhost","suite":"fexthreads","threads":4,"warmMs":98.960000000000036}
+@@R {"engine":"webview","origin":"localhost","suite":"fexthreads","threads":4,"workerStats":[{"compileMs":35.399999999999999,"futexWaits":4,"misses":292,"regionMisses":1,"regions":94,"units":292},{"compileMs":24,"futexWaits":1948,"misses":120,"regionMisses":3,"regions":32,"units":120},{"compileMs":17.5,"futexWaits":1948,"misses":122,"regionMisses":3,"regions":32,"units":122},{"compileMs":15,"futexWaits":1949,"misses":123,"regionMisses":3,"regions":32,"units":123}]}
+@@R {"name":"fexthreads","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":7125.165374994278,"name":"w:fexthreads","suite":"timing"}
+@@S done
+@@DONE

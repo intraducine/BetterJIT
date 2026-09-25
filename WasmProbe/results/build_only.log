@@ -1,0 +1,7 @@
+@@R {"appAvailableMB":8185,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["device"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running device
+@@R {"error":"unknown suite","suite":"device"}
+@@R {"ms":0.065167009830474854,"name":"device","suite":"timing"}
+@@S done
+@@DONE

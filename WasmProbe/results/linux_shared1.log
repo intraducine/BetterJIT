@@ -1,0 +1,34 @@
+@@R {"appAvailableMB":8185,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["linux:argv=\/opt\/wine\/bin\/wine|cmd|\/c|echo|hello-iphone&env={\"WINEDEBUG\":\"err+all\"}&timeout=240&traceExec=1"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running linux:argv=/opt/wine/bin/wine|cmd|/c|echo|hello-iphone&env={"WINEDEBUG":"err+all"}&timeout=240&traceExec=1
+@@L [page] engine ready: 2018 files in the index, 328 ms
+@@L [pid 101] unimplemented syscall 323 (?)
+@@L [1.10s] [pid 102] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\wineboot.exe","--init"] (space 1)
+@@L 002c:fixme:ntdll:init_logical_proc_info Failed to get logical processor information, status 0xc0000002.
+@@L 002c:err:winediag:getaddrinfo Failed to resolve your host name IP
+@@L [3.70s] [pid 103] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\services.exe"] (space 1)
+@@L [6.39s] [pid 105] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\winedevice.exe"] (space 1)
+@@L [10.87s] [pid 113] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\winedevice.exe"] (space 1)
+@@L 006c:err:ntoskrnl:ZwLoadDriver failed to create driver L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\winebth": c00000e5
+@@L 0034:fixme:service:scmdatabase_autostart_services Auto-start service L"winebth" failed to start: 1359
+@@L [17.62s] [pid 102] exit 0 (C:\windows\system32\wineboot.exe)
+@@L [19.04s] [pid 126] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\conhost.exe","--unix"] (space 1)
+@@L wine: could not open working directory L"unix\\", starting in the Windows directory.
+@@L [22.26s] [pid 127] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\cmd.exe","/c"] (space 1)
+@@L wine: could not open working directory L"unix\\", starting in the Windows directory.
+@@L [?25lhello-iphone[?25h
+@@L 
+@@L [25.37s] [pid 127] exit 0 (C:\windows\system32\cmd.exe)
+@@L [25.44s] [pid 101] exit 0 (cmd)
+@@L [pid 101] exited with status 0
+@@L [25.50s] [pid 126] exit 0 (C:\windows\system32\conhost.exe)
+@@L [28.68s] [pid 105] exit 0 (C:\windows\system32\winedevice.exe)
+@@L [29.78s] [pid 113] exit 0 (C:\windows\system32\winedevice.exe)
+@@L [30.36s] [pid 103] exit 0 (C:\windows\system32\services.exe)
+@@L [30.43s] [pid 100] exit 0 (-f)
+@@L [page] 125871 kernel syscalls; handlers 2276 ms, shared-memory sync 402 ms, idle 26983 ms; files fetched 158 (67.3 MB, 191 ms)
+@@L [page] exit 0 after 30762 ms
+@@R {"appAvailableMB":7641,"appFootprintMB":550,"cpuCount":6,"exit":0,"ms":30860.237125009298,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"query":"argv=\/opt\/wine\/bin\/wine|cmd|\/c|echo|hello-iphone&env={\"WINEDEBUG\":\"err+all\"}&timeout=240&traceExec=1","suite":"linux","webcontentTerminated":false}
+@@R {"ms":30979.761750012636,"name":"linux:argv=\/opt\/wine\/bin\/wine|cmd|\/c|echo|hello-iphone&env={\"WINEDEBUG\":\"err+all\"}&timeout=240&traceExec=1","suite":"timing"}
+@@S done
+@@DONE

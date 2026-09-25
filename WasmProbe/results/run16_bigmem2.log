@@ -1,0 +1,42 @@
+@@R {"appAvailableMB":6137,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["native_cleanup","page:localhost","opfs_share","opfs_bigmem","opfs_cleanup"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running native_cleanup
+@@R {"removed":["Default\/RXpCRCA4z7wQclNtq4yiQVfJhThZs-mjlnAQtzUH2Do\/RXpCRCA4z7wQclNtq4yiQVfJhThZs-mjlnAQtzUH2Do\/FileSystem\/probe.bin"],"suite":"native_cleanup"}
+@@R {"ms":5.3127080053091049,"name":"native_cleanup","suite":"timing"}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:47113\/index.html?ws=47114"}
+@@R {"ms":116.12291699647903,"name":"page:localhost","suite":"timing"}
+@@S running opfs_share
+@@R {"engine":"webview","op":"open","origin":"localhost","result":{"openMs":0.060000000000000497,"proto":["constructor","truncate","getSize","flush","close","read","write"],"size":0},"suite":"opfs","worker":"A"}
+@@R {"engine":"webview","op":"estimate","origin":"localhost","result":{"quota":10307921511,"usage":0},"suite":"opfs","worker":"A"}
+@@R {"engine":"webview","op":"openOther","origin":"localhost","result":"refused: InvalidStateError: The object is in an invalid state.","suite":"opfs","worker":"B"}
+@@R {"engine":"webview","op":"openOther","origin":"localhost","result":"refused: InvalidStateError: The object is in an invalid state.","suite":"opfs","worker":"B"}
+@@R {"engine":"webview","op":"header","origin":"localhost","result":{"size":2147483648},"suite":"opfs","worker":"A"}
+@@R {"event":"found","path":"~\/Library\/WebKit\/WebsiteData\/Default\/RXpCRCA4z7wQclNtq4yiQVfJhThZs-mjlnAQtzUH2Do\/RXpCRCA4z7wQclNtq4yiQVfJhThZs-mjlnAQtzUH2Do\/FileSystem\/probe.bin","protection":"NSFileProtectionCompleteUntilFirstUserAuthentication","scannedFiles":12,"searchMs":5.0686250030994415,"size":"2147483648","suite":"opfs_share"}
+@@R {"bytes":2147483648,"event":"mapped","headerMatches":true,"suite":"opfs_share"}
+@@R {"engine":"webview","op":"writeAt","origin":"localhost","result":{"hash":485568930,"MBps":6736.8421052631584,"ms":9.5},"suite":"opfs","worker":"A"}
+@@R {"appHash":485568930,"appReadMBps":4201.5314464934636,"jsHash":485568930,"jsWriteMBps":6736.8421052631584,"match":true,"suite":"opfs_share","test":"webview-writes-app-reads"}
+@@R {"engine":"webview","op":"checkAt","origin":"localhost","result":{"got":67108864,"hash":1064471374,"MBps":17391.304347826121,"ms":3.6799999999999926},"suite":"opfs","worker":"A"}
+@@R {"appHash":1064471374,"appWriteMBps":2756.1655631621934,"jsHash":1064471374,"jsReadMBps":17391.304347826121,"match":true,"suite":"opfs_share","test":"app-writes-webview-reads"}
+@@R {"engine":"webview","op":"tinyread","origin":"localhost","result":{"avg":0.52666666666667084,"max":20.000000000010232,"min":0,"n":3000,"p50":0,"p90":0,"p99":20.000000000010232,"unit":"us"},"suite":"opfs","worker":"A"}
+@@R {"engine":"webview","op":"pingpong","origin":"localhost","result":{"avg":2.8520000000000381,"avgFromTotal":2.8520000000000216,"avgReadsPerTrip":1.0002,"max":20.000000000010232,"min":0,"n":5000,"p50":0,"p90":19.99999999998181,"p99":20.000000000010232,"timeouts":0,"unit":"us"},"suite":"opfs","worker":"A"}
+@@R {"appAvailableMB":6131,"appFootprintMB":12,"cpuCount":6,"event":"app-memory","os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"opfs_share"}
+@@R {"ms":152.8192500025034,"name":"opfs_share","suite":"timing"}
+@@S running opfs_bigmem
+@@R {"engine":"webview","op":"bigmem","origin":"localhost","result":{"backing":"file","direct":{"nsPerAccess":7},"hotMB":512,"hotPct":100,"n":5000000,"residentMB":1024,"rounds":[{"chk":"-1549242501039769633","minor":0,"ms":126,"nsPerAccess":25.100000000000001,"pageIns":32768,"round":0,"usPerPageIn":1.98,"writeBacks":0},{"chk":"1845511934035363687","minor":0,"ms":56,"nsPerAccess":11.1,"pageIns":0,"round":1,"usPerPageIn":0,"writeBacks":0}],"spanGB":0.5},"suite":"opfs","worker":"A"}
+@@R {"engine":"webview","op":"bigmem","origin":"localhost","result":{"backing":"file","direct":null,"hotMB":512,"hotPct":95,"n":1000000,"residentMB":1024,"rounds":[{"chk":"-5769557089335049740","minor":54255,"ms":169,"nsPerAccess":168.59999999999999,"pageIns":77878,"round":0,"usPerPageIn":1.8799999999999999,"writeBacks":7230},{"chk":"-6405582095836372986","minor":64364,"ms":697,"nsPerAccess":697.10000000000002,"pageIns":42133,"round":1,"usPerPageIn":16.09,"writeBacks":13068}],"spanGB":4},"suite":"opfs","worker":"A"}
+@@R {"engine":"webview","op":"bigmem","origin":"localhost","result":{"backing":"app","direct":null,"hotMB":512,"hotPct":95,"n":1000000,"residentMB":1024,"rounds":[{"chk":"-5769557089335049740","minor":54255,"ms":560,"nsPerAccess":559.79999999999995,"pageIns":77878,"round":0,"usPerPageIn":6.9100000000000001,"writeBacks":7230},{"chk":"-6405582095836372986","minor":64364,"ms":343,"nsPerAccess":343,"pageIns":42133,"round":1,"usPerPageIn":7.6799999999999997,"writeBacks":13068}],"spanGB":4},"suite":"opfs","worker":"A"}
+@@R {"appAvailableMB":7898,"appFootprintMB":293,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"served":120013,"suite":"app_pager"}
+@@R {"engine":"webview","op":"bigmem","origin":"localhost","result":{"backing":"file","direct":null,"hotMB":512,"hotPct":0,"n":30000,"residentMB":1024,"rounds":[{"chk":"-344445853733022274","minor":0,"ms":203,"nsPerAccess":6761.3000000000002,"pageIns":28321,"round":0,"usPerPageIn":7.0499999999999998,"writeBacks":0}],"spanGB":4},"suite":"opfs","worker":"A"}
+@@R {"engine":"webview","op":"bigmem","origin":"localhost","result":{"backing":"app","direct":null,"hotMB":512,"hotPct":0,"n":30000,"residentMB":1024,"rounds":[{"chk":"0","minor":0,"ms":184,"nsPerAccess":6144.6999999999998,"pageIns":28321,"round":0,"usPerPageIn":6.4199999999999999,"writeBacks":0}],"spanGB":4},"suite":"opfs","worker":"A"}
+@@R {"appAvailableMB":8179,"appFootprintMB":12,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"served":28321,"suite":"app_pager"}
+@@R {"crossOriginIsolated":true,"engine":"webview","features":{"atomics":true,"bulk_memory":true,"compileStreaming":true,"custom_page_sizes":false,"exceptions_exnref":true,"exceptions_legacy":true,"extended_const":true,"function_references":true,"gc_struct":true,"js_string_builtins":true,"jspi":true,"memory64":false,"memory64_js_api":{"basic":"ok:65536","over4GB":"RangeError: WebAssembly.Memory 'maximum' page count is too large"},"multi_memory":false,"multi_value":true,"reference_types":true,"relaxed_simd":false,"shared_memory_js_api":"SharedArrayBuffer","SharedArrayBuffer":true,"simd128":true,"tail_call":true,"threads_shared_memory":true},"hardwareConcurrency":4,"origin":"http:\/\/127.0.0.1:47113","secureContext":true,"suite":"env","timerResolutionMs":0.01999999999998181,"u8ToBase64":true,"ua":"Mozilla\/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit\/605.1.15 (KHTML, like Gecko) Mobile\/15E148","webgpu":true}
+@@R {"appAvailableMB":8179,"appFootprintMB":12,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"opfs_bigmem","webcontentAliveAfter":"ok"}
+@@R {"ms":2542.8228749930859,"name":"opfs_bigmem","suite":"timing"}
+@@S running opfs_cleanup
+@@R {"engine":"webview","op":"remove","origin":"localhost","result":"removed","suite":"opfs","worker":"A"}
+@@R {"engine":"webview","op":"estimate","origin":"localhost","result":{"quota":20615843022,"usage":8589934592},"suite":"opfs","worker":"A"}
+@@R {"estimateAfter":{"quota":20615843022,"usage":8589934592},"suite":"opfs_cleanup"}
+@@R {"ms":407.8118330091238,"name":"opfs_cleanup","suite":"timing"}
+@@S done
+@@DONE

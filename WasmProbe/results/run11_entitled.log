@@ -1,0 +1,55 @@
+@@R {"appAvailableMB":8185,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["meminfo","page:localhost","w:memres","page:localhost","w:memtouch","meminfo"]}
+@@R {"http":50310,"suite":"servers","ws":50311}
+@@S running meminfo
+@@R {"appAvailableMB":8185,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"meminfo"}
+@@R {"ms":0.10795800387859344,"name":"meminfo","suite":"timing"}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:50310\/index.html?ws=50311"}
+@@R {"ms":146.14308300614357,"name":"page:localhost","suite":"timing"}
+@@S running w:memres
+@@R {"engine":"webview","hash_ms_by_instance":[14.6,14.5,14.6,14.5,14.5,14.6,14.6,14.6,14.699999999999999,14.6,14.5,14.5,14.5,14.5,14.5,14.5],"initial_1024MB":"ok","initial_2048MB":"ok","initial_3072MB":"ok","initial_4096MB":"ok","instances":16,"origin":"localhost","shared_max4GB":"ok","suite":"memres"}
+@@R {"name":"memres","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":785.74662500619888,"name":"w:memres","suite":"timing"}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:50310\/index.html?ws=50311"}
+@@R {"ms":64.66287499666214,"name":"page:localhost","suite":"timing"}
+@@S running w:memtouch
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":64.0625,"origin":"localhost","suite":"memtouch","totalMB":64,"touchMs":2.5}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":128.0625,"origin":"localhost","suite":"memtouch","totalMB":128,"touchMs":2.7000000000000002}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":192.0625,"origin":"localhost","suite":"memtouch","totalMB":192,"touchMs":3.1000000000000001}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":256.0625,"origin":"localhost","suite":"memtouch","totalMB":256,"touchMs":3.7999999999999998}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":320.0625,"origin":"localhost","suite":"memtouch","totalMB":320,"touchMs":4.5999999999999996}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":384.0625,"origin":"localhost","suite":"memtouch","totalMB":384,"touchMs":6.2000000000000002}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":448.0625,"origin":"localhost","suite":"memtouch","totalMB":448,"touchMs":12.199999999999999}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":512.0625,"origin":"localhost","suite":"memtouch","totalMB":512,"touchMs":10.300000000000001}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":576.0625,"origin":"localhost","suite":"memtouch","totalMB":576,"touchMs":10.300000000000001}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":640.0625,"origin":"localhost","suite":"memtouch","totalMB":640,"touchMs":10}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":704.0625,"origin":"localhost","suite":"memtouch","totalMB":704,"touchMs":10}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":768.0625,"origin":"localhost","suite":"memtouch","totalMB":768,"touchMs":10}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":832.0625,"origin":"localhost","suite":"memtouch","totalMB":832,"touchMs":12}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":896.0625,"origin":"localhost","suite":"memtouch","totalMB":896,"touchMs":9.8000000000000007}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":960.0625,"origin":"localhost","suite":"memtouch","totalMB":960,"touchMs":10.300000000000001}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1024.0625,"origin":"localhost","suite":"memtouch","totalMB":1024,"touchMs":10.300000000000001}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1088.0625,"origin":"localhost","suite":"memtouch","totalMB":1088,"touchMs":10.4}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1152.0625,"origin":"localhost","suite":"memtouch","totalMB":1152,"touchMs":10.9}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1216.0625,"origin":"localhost","suite":"memtouch","totalMB":1216,"touchMs":12.300000000000001}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1280.0625,"origin":"localhost","suite":"memtouch","totalMB":1280,"touchMs":11.6}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1344.0625,"origin":"localhost","suite":"memtouch","totalMB":1344,"touchMs":10}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1408.0625,"origin":"localhost","suite":"memtouch","totalMB":1408,"touchMs":10.5}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1472.0625,"origin":"localhost","suite":"memtouch","totalMB":1472,"touchMs":9.8000000000000007}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1536.0625,"origin":"localhost","suite":"memtouch","totalMB":1536,"touchMs":7.7999999999999998}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1600.0625,"origin":"localhost","suite":"memtouch","totalMB":1600,"touchMs":11}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1664.0625,"origin":"localhost","suite":"memtouch","totalMB":1664,"touchMs":10.1}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1728.0625,"origin":"localhost","suite":"memtouch","totalMB":1728,"touchMs":8.6999999999999993}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1792.0625,"origin":"localhost","suite":"memtouch","totalMB":1792,"touchMs":10.699999999999999}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1856.0625,"origin":"localhost","suite":"memtouch","totalMB":1856,"touchMs":10}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1920.0625,"origin":"localhost","suite":"memtouch","totalMB":1920,"touchMs":10.1}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1984.0625,"origin":"localhost","suite":"memtouch","totalMB":1984,"touchMs":10.300000000000001}
+@@R {"appAvailableMB":8179,"appFootprintMB":12,"cpuCount":6,"origin":"localhost","os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"webcontent-terminated"}
+@@R {"name":"memtouch","origin":"localhost","return":"error: Error Domain=WKErrorDomain Code=5 \"JavaScript execution returned a result of an unsupported type\" UserInfo={NSLocalizedDescription=JavaScript execution returned a result of an unsupported type}","suite":"call"}
+@@R {"ms":1632.8542499989271,"name":"w:memtouch","suite":"timing"}
+@@S running meminfo
+@@R {"appAvailableMB":8179,"appFootprintMB":12,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"meminfo"}
+@@R {"ms":0.15674999356269836,"name":"meminfo","suite":"timing"}
+@@S done
+@@DONE
