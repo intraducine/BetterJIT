@@ -16,6 +16,7 @@ targets:
     type: application
     platform: iOS
     sources:
+      - path: ../Sources/BetterJITCore/ProbeHTTP.swift
       - path: Sources
         excludes: ["Info.plist", "*.entitlements"]
       - path: Kernels

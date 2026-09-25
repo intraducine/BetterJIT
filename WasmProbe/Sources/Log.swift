@@ -1,12 +1,18 @@
 import Foundation
 
 /// Results go to stdout (captured by `devicectl ... --console`) as `@@R {json}`
-/// lines, and are mirrored to Documents/results.jsonl.
+/// lines, mirrored to a separate BetterJITPrivate directory in the add-on.
 enum Log {
     private static let lock = NSLock()
     private static let fileURL: URL = {
         let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        #if BETTERJIT_PRIVATE_ADDON
+        let privateDir = dir.appendingPathComponent("BetterJITPrivate", isDirectory: true)
+        try? FileManager.default.createDirectory(at: privateDir, withIntermediateDirectories: true)
+        return privateDir.appendingPathComponent("results.jsonl")
+        #else
         return dir.appendingPathComponent("results.jsonl")
+        #endif
     }()
 
     static func line(_ s: String) {
@@ -20,6 +26,14 @@ enum Log {
                 try? data.write(to: fileURL)
             }
         }
+    }
+
+    /// Snapshot under the logging lock, so sharing never exports a half-written line.
+    static func snapshot() -> URL? {
+        lock.lock(); defer { lock.unlock() }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("BetterJIT-\(UUID().uuidString).jsonl")
+        do { try FileManager.default.copyItem(at: fileURL, to: url); return url }
+        catch { return nil }
     }
 
     static func result(_ dict: [String: Any]) {

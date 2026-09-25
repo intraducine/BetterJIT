@@ -9,3 +9,8 @@ WasmProbe/build/
 artifacts/
 __pycache__/
 *.pyc
+
+.private/
+.betterjit-addon/
+fexwasm/guest/out/
+*.xcuserdata/

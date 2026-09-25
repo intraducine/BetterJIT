@@ -1,59 +1,22 @@
-name: FEX Wasm probe
+name: Manual private FEX probe
 on:
-  push:
-    branches: [main, prototype/fex-wasm-probe]
-  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: fex-probe-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
 jobs:
-  source:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - name: Archive exact source for reproducibility
-        run: |
-          mkdir -p artifacts
-          git archive --format=tar.gz HEAD > artifacts/BetterJIT-source.tar.gz
-          git rev-parse HEAD > artifacts/source-commit.txt
-          sha256sum artifacts/BetterJIT-source.tar.gz > artifacts/source-sha256.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: BetterJIT-source
-          path: artifacts/
-          if-no-files-found: error
   fex-ios:
+    if: github.event.repository.private && github.repository_owner == 'intraducine' && github.actor == 'intraducine'
     runs-on: macos-15
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Install build tools
         run: brew install cmake ninja xcodegen
-      - name: Prepare pinned FEX source
+      - name: Build FEX diagnostics only (not an Iridium add-on device test)
         run: |
-          git clone https://github.com/willfaust/FEX.git FEX
-          git -C FEX checkout --detach 0f8edf8f6383ae8085e0ffac511c789cdae97514
-          git -C FEX submodule update --init --recursive
-          git -C FEX apply --check ../patches/fex-wasm.patch
-          git -C FEX apply ../patches/fex-wasm.patch
-      - name: Build translator and Release iOS app
-        run: |
+          bash scripts/prepare-fex.sh
           bash fexwasm/build_ios.sh
           cd WasmProbe
           xcodegen generate
-          xcodebuild -project WasmProbe.xcodeproj -scheme WasmProbe -configuration Release -destination 'generic/platform=iOS' -derivedDataPath ../.build/fex-ios CODE_SIGNING_ALLOWED=NO build
-      - name: Package unsigned FEX probe
-        run: |
-          mkdir -p .build/fex-package/Payload artifacts
-          cp -R .build/fex-ios/Build/Products/Release-iphoneos/WasmProbe.app .build/fex-package/Payload/
-          (cd .build/fex-package && zip -qry ../../artifacts/WasmProbe-FEX-unsigned.ipa Payload)
-          git rev-parse HEAD > artifacts/fex-build-commit.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: WasmProbe-FEX-unsigned
-          path: artifacts/
-          if-no-files-found: error
+          xcodebuild -project WasmProbe.xcodeproj -scheme WasmProbe -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+# Deliberately no automatic runs, publishing, source archives or IPA uploads.

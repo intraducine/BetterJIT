@@ -18,6 +18,17 @@ final class FexTranslator {
         return dir.path
     }()
 
+    // The embedded lab has a bounded lifetime; release all translated code
+    // when it closes, without changing Iridium's normal runtime.
+    func reset() {
+        lock.lock(); defer { lock.unlock() }
+        if let translator { fexwasm_destroy(translator) }
+        translator = nil
+        for t in spaces.values { fexwasm_destroy(t) }
+        spaces.removeAll()
+    }
+    deinit { reset() }
+
     /// Handles /xlat/* (nil for other paths).
     func handle(path: String, query: [String: String], body: Data?, webRoot: URL) -> (status: Int, type: String, data: Data)? {
         guard path.hasPrefix("/xlat/") else { return nil }
@@ -86,7 +97,9 @@ final class FexTranslator {
     /// the address config.json gives).
     private func start(dir: String, options: String, webRoot: URL) -> (status: Int, type: String, data: Data) {
         if let t = translator { fexwasm_destroy(t); translator = nil }
-        let root = webRoot.appendingPathComponent(dir)
+        guard let root = ProbeHTTP.file(dir, beneath: webRoot) else {
+            return (403, "text/plain", Data("invalid fixture directory".utf8))
+        }
         guard let cfgData = try? Data(contentsOf: root.appendingPathComponent("config.json")),
               let cfg = (try? JSONSerialization.jsonObject(with: cfgData)) as? [String: Any],
               let hi = (cfg["windowHi"] as? NSNumber)?.uint64Value, let lo = (cfg["imageLow"] as? NSNumber)?.uint64Value,
@@ -104,7 +117,8 @@ final class FexTranslator {
     }
 
     private func json(_ s: UnsafePointer<CChar>?) -> (status: Int, type: String, data: Data) {
-        (200, "application/json", Data(String(cString: s!).utf8))
+        guard let s else { return (500, "text/plain", Data("translator returned no JSON".utf8)) }
+        return (200, "application/json", Data(String(cString: s).utf8))
     }
     private func bytes(_ b: fexwasm_bytes) -> (status: Int, type: String, data: Data) {
         (200, "application/octet-stream", b.size > 0 ? Data(bytes: b.data, count: b.size) : Data())

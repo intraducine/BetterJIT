@@ -17,9 +17,11 @@ fi
 ninja -C "$B" FEXCore FEXCore_Base JemallocLibs fmt xxhash cephes_128bit softfloat_3e >/dev/null
 SDK=$(xcrun --sdk iphoneos --show-sdk-path)
 O=out/ios
-mkdir -p $O
+mkdir -p "$O"
+rm -f "$O/libfexwasm.a" "$O/libs.txt" "$O/libfexwasm.a.tmp"
+trap 'rm -f "$O/libfexwasm.a.tmp"' EXIT
 # The translation cache's key includes this: a different backend never reuses old units.
-BUILD_ID=$(cat src/*.cpp src/*.h | shasum | cut -c1-16)
+BUILD_ID=$(bash ./build_id.sh "$FEX")
 CXXFLAGS=(
   "-DFEXWASM_BUILD_ID=\"$BUILD_ID\""
   -arch arm64 -isysroot "$SDK" -miphoneos-version-min=17.0
@@ -27,20 +29,25 @@ CXXFLAGS=(
   -DARCHITECTURE_arm64=1 -DJIT_ARM64 -D_LARGEFILE64_SOURCE -DFEX_DISABLE_TELEMETRY=1
   -DFEXCORE_HAS_PRESERVE_ALL_ATTR=1 '-DFEXCORE_PRESERVE_ALL_ATTR=__attribute__((preserve_all))'
   -DFEX_HAS_PRESERVE_ALL_ATTR=1 '-DFEX_PRESERVE_ALL_ATTR=__attribute__((preserve_all))'
-  -I$B/FEXCore/Source -I$FEX/FEXCore/Source -I$FEX/FEXCore/Source/IncludePrivate -I$FEX/FEXCore/include
-  -I$B/include -I$B/generated -I$FEX/External/fmt/include -I$FEX/External/xxhash
-  -I$FEX/FEXHeaderUtils -I$FEX/CodeEmitter -I$FEX/External/unordered_dense/include
-  -I$FEX/External/cephes/include -I$FEX/External/SoftFloat-3e/include -Isrc
+  "-I$B/FEXCore/Source" "-I$FEX/FEXCore/Source" "-I$FEX/FEXCore/Source/IncludePrivate" "-I$FEX/FEXCore/include"
+  "-I$B/include" "-I$B/generated" "-I$FEX/External/fmt/include" "-I$FEX/External/xxhash"
+  "-I$FEX/FEXHeaderUtils" "-I$FEX/CodeEmitter" "-I$FEX/External/unordered_dense/include"
+  "-I$FEX/External/cephes/include" "-I$FEX/External/SoftFloat-3e/include" -Isrc
 )
 OBJS=()
+PIDS=()
 for f in src/*.cpp; do
   o=$O/$(basename "${f%.cpp}").o
+  rm -f "$o"
   clang++ "${CXXFLAGS[@]}" -c -o "$o" "$f" &
+  PIDS+=("$!")
   OBJS+=("$o")
 done
-wait
-rm -f $O/libfexwasm.a
-xcrun ar rcs $O/libfexwasm.a "${OBJS[@]}"
+status=0
+for pid in "${PIDS[@]}"; do wait "$pid" || status=1; done
+if (( status != 0 )); then echo "translator compilation failed; no archive published" >&2; exit 1; fi
+xcrun ar rcs "$O/libfexwasm.a.tmp" "${OBJS[@]}"
+mv "$O/libfexwasm.a.tmp" "$O/libfexwasm.a"
 # The archives the app links, in order.
 printf '%s\n' "$PWD/$O/libfexwasm.a" "$B/FEXCore/Source/libFEXCore.a" "$B/FEXCore/Source/libFEXCore_Base.a" "$B/FEXCore/Source/libJemallocLibs.a" \
   "$B/External/fmt/libfmt.a" "$B/External/xxhash/cmake_unofficial/libxxhash.a" "$B/External/cephes/libcephes_128bit.a" \

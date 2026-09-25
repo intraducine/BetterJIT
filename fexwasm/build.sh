@@ -16,17 +16,17 @@ fi
 ninja -C "$B" FEXCore FEXCore_Base JemallocLibs fmt xxhash cephes_128bit softfloat_3e >/dev/null
 mkdir -p out
 # The translation cache's key includes this: a different backend never reuses old units.
-BUILD_ID=$(cat src/*.cpp src/*.h | shasum | cut -c1-16)
+BUILD_ID=$(bash ./build_id.sh "$FEX")
 CXXFLAGS=(
   "-DFEXWASM_BUILD_ID=\"$BUILD_ID\""
   -std=gnu++20 -O2 -g -fno-exceptions -fno-strict-aliasing -fwrapv -Wall -Wno-unused-function
   -DARCHITECTURE_arm64=1 -DASSERTIONS_ENABLED=1 -DJIT_ARM64 -D_LARGEFILE64_SOURCE
   -DFEXCORE_HAS_PRESERVE_ALL_ATTR=1 '-DFEXCORE_PRESERVE_ALL_ATTR=__attribute__((preserve_all))'
   -DFEX_HAS_PRESERVE_ALL_ATTR=1 '-DFEX_PRESERVE_ALL_ATTR=__attribute__((preserve_all))'
-  -I$B/FEXCore/Source -I$FEX/FEXCore/Source -I$FEX/FEXCore/Source/IncludePrivate -I$FEX/FEXCore/include
-  -I$B/include -I$B/generated -I$FEX/External/fmt/include -I$FEX/External/xxhash
-  -I$FEX/FEXHeaderUtils -I$FEX/CodeEmitter -I$FEX/External/unordered_dense/include
-  -I$FEX/External/cephes/include -I$FEX/External/SoftFloat-3e/include -I$WASMPROBE/Kernels
+  "-I$B/FEXCore/Source" "-I$FEX/FEXCore/Source" "-I$FEX/FEXCore/Source/IncludePrivate" "-I$FEX/FEXCore/include"
+  "-I$B/include" "-I$B/generated" "-I$FEX/External/fmt/include" "-I$FEX/External/xxhash"
+  "-I$FEX/FEXHeaderUtils" "-I$FEX/CodeEmitter" "-I$FEX/External/unordered_dense/include"
+  "-I$FEX/External/cephes/include" "-I$FEX/External/SoftFloat-3e/include" "-I$WASMPROBE/Kernels"
 )
 LIBS=(
   $B/FEXCore/Source/libFEXCore.a $B/FEXCore/Source/libFEXCore_Base.a $B/FEXCore/Source/libJemallocLibs.a
@@ -46,11 +46,17 @@ for tool in "$@"; do
     mkdir -p out/box2d_native
     B2=(-O2 -ffp-contract=off -DNDEBUG -Dsinf=det_sinf -Dcosf=det_cosf -Dqsort=det_qsort -Iguest/box2d/include -Iguest/box2d/src
       -Iguest/box2d/shared)
+    PIDS=()
     for f in guest/box2d/src/*.c guest/box2d/shared/benchmarks.c guest/box2d/shared/human.c guest/box2d/timer_native.c \
       guest/box2d/box2d_driver.c guest/box2d/native_stub.c; do
-      clang "${B2[@]}" -c -o "out/box2d_native/$(basename "${f%.c}").o" "$f" &
+      object="out/box2d_native/$(basename "${f%.c}").o"
+      rm -f "$object"
+      clang "${B2[@]}" -c -o "$object" "$f" &
+      PIDS+=("$!")
     done
-    wait
+    status=0
+    for pid in "${PIDS[@]}"; do wait "$pid" || status=1; done
+    if (( status != 0 )); then echo "native reference compilation failed" >&2; exit 1; fi
     EXTRA=(out/kernels_native.o out/calls_native.o out/coremark_native.o out/box2d_native/*.o -framework JavaScriptCore)
   elif [[ $tool == fextest ]]; then
     EXTRA=(-framework JavaScriptCore)
