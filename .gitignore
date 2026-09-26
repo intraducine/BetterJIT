@@ -14,3 +14,13 @@ __pycache__/
 .betterjit-addon/
 fexwasm/guest/out/
 *.xcuserdata/
+
+# Local identities, credentials and generated distribution artifacts.
+*.local.json
+.env
+.env.*
+*.p12
+*.pfx
+*.mobileprovision
+*.ipa
+dist/

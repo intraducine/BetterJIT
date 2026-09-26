@@ -1,11 +1,10 @@
-name: Manual private source checks
+name: Manual research source checks
 on:
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   source-checks:
-    if: github.event.repository.private && github.repository_owner == 'intraducine' && github.actor == 'intraducine'
     runs-on: macos-15
     timeout-minutes: 15
     steps:
@@ -14,4 +13,6 @@ jobs:
         with:
           node-version: '22'
       - run: bash scripts/check.sh
-# Local experiments are the default. This optional workflow uploads nothing.
+      - run: bash scripts/check-addon.sh
+# Dispatch requires repository permissions; no hard-coded user or visibility gate.
+# Local experiments remain the default. This workflow uploads nothing.

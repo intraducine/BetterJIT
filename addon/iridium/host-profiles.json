@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "default": "madeira-20260926",
+  "profiles": [
+    {
+      "id": "madeira-20260926",
+      "branch": "update/madeira-upstream",
+      "reference": "f89099fa8810261fdffd334b2d4cd87e98b92ad1",
+      "blobs": {
+        "iridium/apps/ios/Iridium/Views/RootTabView.swift": "1a5941432633d6886f19da895b0432722d83494f",
+        "ci/build-local-ipa.sh": "f98c102fdbaffda25f09f13b1265f54d1078442a",
+        "iridium/apps/ios/stikjit.yml": "eb83eb4c45e3088a6fe54db1d003af0770700229"
+      }
+    },
+    {
+      "id": "main-20260925",
+      "branch": "main",
+      "reference": "31ca8f113b842d4c995474438f14c04ef50b7110",
+      "blobs": {
+        "iridium/apps/ios/Iridium/Views/RootTabView.swift": "1a5941432633d6886f19da895b0432722d83494f",
+        "ci/build-local-ipa.sh": "dea459e61e1ee3c3256ca6bbb4a3766cb5d1e6e2",
+        "iridium/apps/ios/stikjit.yml": "eb83eb4c45e3088a6fe54db1d003af0770700229"
+      }
+    }
+  ]
+}

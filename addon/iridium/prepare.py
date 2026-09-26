@@ -6,6 +6,7 @@ submodule working trees, build caches or Git remotes are copied into the lab.
 """
 from __future__ import annotations
 import argparse
+import importlib.util
 import hashlib
 import json
 import os
@@ -18,23 +19,13 @@ ROOT = Path(__file__).resolve().parents[2]
 IOS = Path('iridium/apps/ios')
 VIEW = IOS / 'Iridium/Views/RootTabView.swift'
 BUILD = Path('ci/build-local-ipa.sh')
-HOST_BRANCH = 'update/madeira-upstream'
-HOST_REFERENCE = 'f89099fa8810261fdffd334b2d4cd87e98b92ad1'
 INTEGRATION_PATHS = (str(VIEW), str(BUILD), str(IOS / 'stikjit.yml'))
-# Compare complete sets, not independent per-file allowlists. A future host
-# change must be reviewed before its integration points can be copied.
-HOST_PROFILES = (
-    {'branch': HOST_BRANCH, 'reference': HOST_REFERENCE, 'blobs': {
-        str(VIEW): '1a5941432633d6886f19da895b0432722d83494f',
-        str(BUILD): 'f98c102fdbaffda25f09f13b1265f54d1078442a',
-        str(IOS / 'stikjit.yml'): 'eb83eb4c45e3088a6fe54db1d003af0770700229',
-    }},
-    {'branch': 'main', 'reference': '31ca8f113b842d4c995474438f14c04ef50b7110', 'blobs': {
-        str(VIEW): '1a5941432633d6886f19da895b0432722d83494f',
-        str(BUILD): 'dea459e61e1ee3c3256ca6bbb4a3766cb5d1e6e2',
-        str(IOS / 'stikjit.yml'): 'eb83eb4c45e3088a6fe54db1d003af0770700229',
-    }},
-)
+_config_spec = importlib.util.spec_from_file_location('betterjit_configuration', Path(__file__).with_name('configuration.py'))
+configuration = importlib.util.module_from_spec(_config_spec)
+_config_spec.loader.exec_module(configuration)
+DEFAULT_PROFILE, HOST_PROFILES = configuration.load_profiles(Path(__file__).with_name('host-profiles.json'), INTEGRATION_PATHS)
+_default = next(p for p in HOST_PROFILES if p['id'] == DEFAULT_PROFILE)
+HOST_BRANCH, HOST_REFERENCE = _default['branch'], _default['reference']
 ANCHOR = '            LibraryView(viewModel: viewModel)\n'
 INSERT = ANCHOR + '''                #if BETTERJIT_PRIVATE_ADDON
                 .toolbar {
@@ -86,7 +77,8 @@ def build_script(data: str) -> str:
             .replace('IridiumStikJIT.xcodeproj', 'IridiumBetterJITPrivate.xcodeproj'))
 
 
-def project_spec(host_commit: str, addon_commit: str) -> dict:
+def project_spec(host_commit: str, addon_commit: str, config: dict | None = None) -> dict:
+    config = configuration.app_config(config)
     prefix = '$(SRCROOT)/../../../.betterjit-addon'
     return {
         'include': ['stikjit.yml'], 'name': 'IridiumBetterJITPrivate',
@@ -95,32 +87,39 @@ def project_spec(host_commit: str, addon_commit: str) -> dict:
                         {'path': '../../../.betterjit-addon/BetterJITWeb', 'type': 'folder', 'buildPhase': 'resources'},
                         {'path': '../../../.betterjit-addon/Notices', 'type': 'folder', 'buildPhase': 'resources'}],
             'settings': {'base': {
-                'PRODUCT_BUNDLE_IDENTIFIER': 'software.iridium.betterjit-local',
+                'PRODUCT_BUNDLE_IDENTIFIER': config['appBundleIdentifier'],
                 'SWIFT_OBJC_BRIDGING_HEADER': prefix + '/Bridging.h',
                 'SWIFT_ACTIVE_COMPILATION_CONDITIONS': ['$(inherited)', 'BETTERJIT_PRIVATE_ADDON'],
                 'OTHER_LDFLAGS': ['$(inherited)', '-lc++'] + [prefix + '/lib/' + n for n in LIBRARIES],
             }},
-            'info': {'properties': {'CFBundleDisplayName': 'Iridium Lab',
+            'info': {'properties': {'CFBundleDisplayName': config['appDisplayName'],
                 'BetterJITSourceCommit': addon_commit, 'BetterJITHostCommit': host_commit,
                 'BetterJITPrivateAddon': True}},
             'dependencies': [{'sdk': 'WebKit.framework'}, {'sdk': 'Network.framework'}],
         }, 'IridiumJITHelper': {'settings': {'base': {
-            'PRODUCT_BUNDLE_IDENTIFIER': 'software.iridium.betterjit-local.jit-helper'
+            'PRODUCT_BUNDLE_IDENTIFIER': config['appBundleIdentifier'] + '.jit-helper'
         }}}},
     }
 
 
-def prepare(source: Path, output: Path, ref: str | None = None) -> dict:
+def prepare(source: Path, output: Path, ref: str | None = None, *,
+            config: dict | None = None, profile_id: str | None = None) -> dict:
+    config = configuration.app_config(config)
+    requested_profile = next((p for p in HOST_PROFILES if p.get('id') == profile_id), None)
+    if profile_id is not None and requested_profile is None:
+        raise ValueError(f'Unknown reviewed host profile: {profile_id}')
     source, output = source.resolve(), output.resolve()
     if output.exists():
         raise ValueError('Output already exists; choose a new directory. Existing work will not be overwritten.')
     if output == source or source in output.parents or output in source.parents:
         raise ValueError('Private output must be outside the public Iridium checkout.')
+    if output == ROOT.resolve() or ROOT.resolve() in output.parents or output in ROOT.resolve().parents:
+        raise ValueError('Output must also be outside the BetterJIT source tree.')
     if any(c in str(output) for c in '\n\r"'):
         raise ValueError('Unsupported output path characters.')
     # Pin the reviewed upstream commit by default, even when the source's
     # working branch is still main. Never fetch or switch the user's checkout.
-    selected_ref = HOST_REFERENCE if ref is None else ref
+    selected_ref = (requested_profile['reference'] if requested_profile else HOST_REFERENCE) if ref is None else ref
     try:
         revision = git(source, 'rev-parse', '--verify', '--end-of-options', selected_ref + '^{commit}')
     except subprocess.CalledProcessError as error:
@@ -130,6 +129,11 @@ def prepare(source: Path, output: Path, ref: str | None = None) -> dict:
             'No changes made.') from error
     files = {name: commit_file(source, revision, name) for name in INTEGRATION_PATHS}
     profile = host_profile(files)
+    if requested_profile and profile['blobs'] != requested_profile['blobs']:
+        raise ValueError('Selected revision does not match the requested host profile.')
+    if requested_profile:
+        profile = requested_profile
+    identity = configuration.source_identity(ROOT)
     # Validate all substitutions before creating the private destination.
     view = patch_view(files[str(VIEW)].decode())
     wrapper = build_script(files[str(BUILD)].decode())
@@ -173,15 +177,16 @@ def prepare(source: Path, output: Path, ref: str | None = None) -> dict:
     for source_file, target in [('COPYING', 'BetterJIT-COPYING'), ('WasmProbe/Kernels/box2d/LICENSE', 'Box2D-LICENSE'),
                                 ('WasmProbe/Kernels/coremark/LICENSE.md', 'CoreMark-LICENSE.md')]:
         shutil.copy2(ROOT / source_file, notices / target)
-    addon_commit = git(ROOT, 'rev-parse', 'HEAD')
+    addon_commit = identity['commit']
     manifest = {'schema': 1, 'hostCommit': revision, 'addonCommit': addon_commit,
-                'addonWorkingTreeDirty': bool(git(ROOT, 'status', '--porcelain', '--untracked-files=normal')),
+                'addonWorkingTreeDirty': identity['dirty'],
+                'addonSourceKind': identity['kind'], 'configuration': config,
                 'hostCompatibilityReference': profile['reference'],
                 'hostCompatibilityBranch': profile['branch'],
                 'normalGameBackendChanged': False, 'files': {}}
     (output / VIEW).write_text(view)
     (output / 'ci/build-betterjit-private.sh').write_text(wrapper)
-    (output / IOS / 'betterjit-private.json').write_text(json.dumps(project_spec(revision, addon_commit), indent=2) + '\n')
+    (output / IOS / 'betterjit-private.json').write_text(json.dumps(project_spec(revision, addon_commit, config), indent=2) + '\n')
     with (output / '.git/info/exclude').open('a') as f:
         f.write('\n# Private BetterJIT overlay; never stage for the public repository.\n/.betterjit-addon/\n')
     for file in sorted(vendor.rglob('*')):
@@ -199,9 +204,14 @@ def main() -> int:
     parser.add_argument('--iridium', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--ref', help=f'Committed Iridium revision to copy (default: {HOST_REFERENCE} on {HOST_BRANCH}); use HEAD explicitly to copy the current source revision')
+    parser.add_argument('--config', type=Path, help='Local JSON app identity settings; never signing credentials')
+    parser.add_argument('--bundle-id', help='Override the lab app bundle ID; helper ID is derived automatically')
+    parser.add_argument('--display-name', help='Override the installed app display name')
+    parser.add_argument('--host-profile', choices=[p['id'] for p in HOST_PROFILES], help='Select a reviewed profile and its pinned default revision')
     args = parser.parse_args()
     try:
-        prepare(args.iridium, args.output, args.ref)
+        config = configuration.load_config(args.config, bundle_id=args.bundle_id, display_name=args.display_name)
+        prepare(args.iridium, args.output, args.ref, config=config, profile_id=args.host_profile)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         print(f'Preparation stopped: {error}', file=sys.stderr)
         return 1

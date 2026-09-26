@@ -36,6 +36,7 @@ def sync(destination):
         path = vendor / name
         if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != checksum:
             raise ValueError(f'Private snapshot changed locally: {name}. Keep that edit or create a fresh checkout.')
+    identity = prepare.configuration.source_identity(ROOT)
     for p in (ROOT / 'addon/iridium/Sources').glob('*.swift'):
         shutil.copy2(p, vendor / 'Sources' / p.name)
     for p in ['WasmProbe/Sources/FexTranslator.swift', 'WasmProbe/Sources/Log.swift', 'Sources/BetterJITCore/ProbeHTTP.swift']:
@@ -50,8 +51,9 @@ def sync(destination):
             shutil.copy2(ROOT / 'WasmProbe/Web' / directory / name, vendor / 'BetterJITWeb' / directory / name)
     (vendor / 'lib').mkdir(exist_ok=True)
     for library in libraries: shutil.copy2(library, vendor / 'lib' / library.name)
-    manifest['addonCommit'] = prepare.git(ROOT, 'rev-parse', 'HEAD')
-    manifest['addonWorkingTreeDirty'] = bool(prepare.git(ROOT, 'status', '--porcelain', '--untracked-files=normal'))
+    manifest['addonCommit'] = identity['commit']
+    manifest['addonWorkingTreeDirty'] = identity['dirty']
+    manifest['addonSourceKind'] = identity['kind']
     manifest['files'] = {str(p.relative_to(vendor)): hashlib.sha256(p.read_bytes()).hexdigest()
                          for p in sorted(vendor.rglob('*')) if p.is_file() and p.name != 'manifest.json'}
     project = destination / prepare.IOS / 'betterjit-private.json'

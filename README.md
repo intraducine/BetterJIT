@@ -1,53 +1,117 @@
-# BetterJIT — private Iridium add-on
+# BetterJIT for Iridium
 
-This branch is for **intraducine's local Iridium experiments**. Keep this repository private. Do not open a PR against public Iridium, push the generated host checkout, upload lab IPAs, or include game files, signing material or personal logs here.
+An experimental **source add-on** for locally rebuilt Iridium. FEX runs natively,
+translates selected x86-64 code to WebAssembly, and the bundled lab executes it
+in WKWebView. No native-process JIT activation is performed by the lab.
 
-## What the add-on does
+**Current scope: CPU fixtures and integration research, not a replacement game
+backend.** Normal Iridium game launches are unchanged. This repository does not
+include the complete Wine/rootfs/DXMT WebView game runtime. A passing CPU test
+is not evidence of working games, App Store acceptance, or a performance target.
 
-The local build adds a **BetterJIT Lab** button to Iridium's library toolbar. It runs the real FEX frontend and Wasm backend natively, executes the generated Wasm in WKWebView, and checks the bundled x86-64 and Win64 CPU fixtures. Translation is on-device; it does not use StikDebug, a VPN or an external execution server. The lab is idle until a test is selected. Closing it stops its loopback server and drops its translator. Logs live under `Documents/BetterJITPrivate` and are shared only when you select **Share lab log**.
+## Local setup
 
-**This is a source add-on for your own rebuilt Iridium, not an installable extension for an existing IPA. It is not yet a replacement game backend.** Iridium's normal game launch path is not switched to Wasm. PR #4 did not include the complete Wine/rootfs/DXMT game runtime, and a CPU checksum test must not be described as running Windows games. The OPFS and software-pager research remains available for that later integration; it is not wired into the private lab's game path.
+Use Python 3.9+, Git, and a committed Iridium checkout. Building requires a Mac
+with Xcode, CMake, Ninja and XcodeGen. Native FEX tooling targets Apple silicon.
+The first build fetches pinned dependencies; bundled lab execution is local.
 
-## Set up locally on your Mac
-
-Use an existing committed Iridium checkout. Setup copies committed source into a **different directory**; it does not change the original, copy its untracked/signing files or share its submodule working trees.
+From this source directory:
 
 ```sh
-# Run from the BetterJIT checkout.
-git fetch origin
-git switch private/iridium-addon
-git pull --ff-only origin private/iridium-addon
-# Fetch without switching or modifying the host working tree.
-git -C /path/to/iridium-full fetch origin update/madeira-upstream
 python3 addon/iridium/prepare.py \
-  --iridium /path/to/iridium-full \
-  --ref f89099fa8810261fdffd334b2d4cd87e98b92ad1 \
-  --output "$HOME/Developer/Private/Iridium-BetterJIT-f89099fa8810"
-bash addon/iridium/build-local.sh "$HOME/Developer/Private/Iridium-BetterJIT-f89099fa8810"
+  --iridium /path/to/iridium \
+  --output /path/to/Iridium-Lab \
+  --bundle-id org.example.iridium.betterjit \
+  --display-name "Iridium Lab"
+bash addon/iridium/build-local.sh /path/to/Iridium-Lab
 ```
 
-macOS, Xcode, CMake, Ninja, Python 3 and XcodeGen are needed. The first build also needs network access to fetch pinned source dependencies; execution of the bundled lab tests is local. The host's existing build scripts prepare its runtime dependencies and print the unsigned IPA path. Sign/install it using your own normal local workflow; these scripts do not read certificates, sign, install, push or upload anything.
+Replace the paths and example bundle ID with your own. A helper identifier is
+derived from the app identifier. The scripts do not read signing material,
+sign, install, upload or publish. Sign the resulting unsigned app separately
+using your own local workflow.
 
-The app is named **Iridium Lab**, with bundle ID `software.iridium.betterjit-local`, distinct from normal Iridium. Open **BetterJIT Lab**, then **Run x86-64** or **Run Win64**. JSPI availability is checked at runtime; an older/incompatible WebKit produces a failure report rather than a fake pass. These tests require no games. Close any active game before opening the lab.
+For repeatable settings, copy `addon/iridium/config.example.json` outside the
+repository (or to an ignored `*.local.json` file), then pass `--config PATH`.
+CLI identity options override that file. Unknown settings and invalid identifiers
+are rejected before copying the host. Signing identities are intentionally not
+accepted as configuration.
 
-The default host is **`update/madeira-upstream` at `f89099fa8810261fdffd334b2d4cd87e98b92ad1`**, reviewed on 2026-09-26. Omitting `--ref` selects that exact commit, not the source checkout's `HEAD` and not a moving remote branch. The commit must already be available locally; preparation never fetches, switches the source branch, or falls back to an older revision. Use `--ref HEAD` explicitly to select your currently checked-out committed source.
+Omitting identity options preserves the earlier `software.iridium.betterjit-local`
+and **Iridium Lab** defaults. Internal `private` class names, compilation flags
+and generated project filenames remain stable for existing local integrations;
+they are not a username restriction or a license restriction.
 
-The original `main` baseline at `31ca8f113b842d4c995474438f14c04ef50b7110` remains supported via `--ref`. Complete, reviewed hash profiles cover the library hook, host build script and StikJIT project specification. Unknown changes to those integration points are rejected before creating a destination. The generated wrapper retains the selected host's media-library validation, runtime preparation and package checks, and deployment-target policy; it changes only the private wrapper/project paths. In particular, the newer host is not forced back to iOS 27. The selected compatibility reference and actual source commit are recorded separately in the private manifest. This is source-integration validation, not a device-compatibility guarantee.
+## Reviewed host compatibility
 
-**Upgrading an existing private lab:** create the new revision-specific directory shown above. `build-local.sh` refreshes the add-on only; it does not rebase an old private host onto new Iridium. Keep the old directory for your experiments, and transfer any desired edits deliberately. Uncommitted source changes are not copied and existing destinations are never overwritten.
+`addon/iridium/host-profiles.json` contains complete, reviewed integration-file
+hash sets. The default remains `madeira-20260926`: Iridium
+`update/madeira-upstream` at `f89099fa8810261fdffd334b2d4cd87e98b92ad1`.
+The earlier `main-20260925` profile is also available. This update does not
+silently retarget a newer moving branch.
 
-## Private experiment workflow
+Use `--host-profile main-20260925` to select its pinned revision, or `--ref SHA`
+for a locally available committed revision with a matching reviewed profile.
+An explicit profile plus incompatible integration hashes is rejected. Preparation never
+fetches, switches the source working branch or falls back to another commit.
+New host support requires reviewing and committing a complete profile; there
+is no force/skip-hash option. These hashes validate integration points, not
+every transitive runtime dependency or physical-device compatibility.
 
-Edit the add-on/backend **in BetterJIT**, then run `build-local.sh` again. It rebuilds the libraries and refreshes the private snapshot, checking for local edits before overwriting add-on-owned files. A manifest records source revisions, dirty-tree status and snapshot hashes. To experiment directly in the private host snapshot, build there with `bash ci/build-betterjit-private.sh` instead of refreshing it. Keep both repositories on disk; neither one uploads your edits.
+## Isolation and iteration
 
-The generated host has **no Git remotes**, a rejecting pre-push hook and inactive workflow files. These are accidental-publication safeguards, not DRM; someone with filesystem access can remove them. Removing the private checkout/app rolls back the experiment without modifying normal Iridium. No public Iridium commit is required.
+Preparation creates a separate checkout, copies committed host source only,
+removes its remotes, blocks accidental pushes and disables its host workflows.
+The original host is untouched. Existing output directories are never replaced.
+The generated source overlay and local build script are not intended for a
+public Iridium pull request.
 
-Repository privacy and local build guards are not a verified collaborator audit. For strictly owner-only access, check BetterJIT's **Settings → Collaborators** and installed-app access; do not add collaborators. Workflow files on this branch are manual-only, require a private repository and the `intraducine` actor, and upload no binaries or source archives. No claim is made that this locks an IPA to one person/device.
+Edit BetterJIT and rerun `build-local.sh` to refresh its owned snapshot. Refresh
+preserves the configured app identity and refuses to overwrite local snapshot
+edits. It does not upgrade the underlying Iridium checkout; create another output
+directory for a host upgrade. Archive-based source distributions are supported
+through `SOURCE-MANIFEST.json` and per-file checksums instead of requiring a
+BetterJIT Git checkout. Those checksums are provenance diagnostics, not signatures.
 
-## Tests and retained research
+Open **BetterJIT Lab** in Iridium's library, close any active game, and select an
+x86-64 or Win64 test. Logs stay local unless you explicitly share them. The lab
+checks WebKit capabilities at runtime. No performance or entitlement bypass is
+promised for another device or OS.
 
-Run `bash scripts/check.sh` for Swift unit tests, local-checkout safety tests, browser orchestration tests, failed-compiler regression tests and imported FEX fixture replay. These do not replace compiling the combined Iridium target or testing it on your device.
+## Tests
 
-PR #3's isolated transport fixture remains at root `App/`, `Web/`, `Sources/`, `Tests/` and `project.yml`. PR #4's FEX research is in `fexwasm/` and `WasmProbe/`. Both are present in this branch's history. Historical device logs in `WasmProbe/results/` are retained unchanged and are not measurements of this add-on. Standalone diagnostics remain optional; the primary workflow is the local Iridium overlay.
+```sh
+bash scripts/check-addon.sh
+```
 
-No 70% performance claim, unrestricted memory claim or App Store approval is asserted. The full Madeira game runtime is not included. Preserve `COPYING`, bundled Box2D/CoreMark licenses and upstream FEX notices. The FEX source is pinned to `0f8edf8f6383ae8085e0ffac511c789cdae97514` plus `patches/fex-wasm.patch`.
+This runs configuration, checkout and distribution safety tests, including
+clean-export use without `.git`. Tests use synthetic repositories/assets; they
+do not compile or run Iridium. The full research checkout also retains
+`bash scripts/check.sh` for the existing native/translated tests. Historical
+results under `WasmProbe/results` are not measurements of this generalized add-on.
+
+## Preparing a publication later
+
+Nothing in this branch publishes automatically or changes repository access.
+Optional Actions workflows are manual, read-only and do not upload artifacts.
+They no longer depend on a particular GitHub username or private visibility.
+
+After committing your selected source changes:
+
+```sh
+python3 scripts/export-source.py --check
+python3 scripts/export-source.py --output /path/outside/repo/BetterJIT-source.tar.gz
+```
+
+The exporter uses a reviewed **exact-path allowlist**, committed bytes and pinned
+binary-fixture checksums. It excludes research logs, private settings, signing
+files, built IPAs and Git history. It refuses symlinks, unexpected binaries,
+missing notices, suspicious credentials and existing output files. Its manifest
+records the source revision and each payload hash; repeated exports of the same
+revision are byte-identical.
+
+This is a source candidate for human review, not a legal or security certification.
+See [publishing](docs/publishing.md) before changing visibility or distributing
+anything. The recommended first public release is a reviewed clean source
+snapshot in a new repository, **not making this research repository public**.
+See [THIRD_PARTY.md](THIRD_PARTY.md), `COPYING` and the retained component notices.
