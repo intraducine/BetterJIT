@@ -13,18 +13,28 @@ The local build adds a **BetterJIT Lab** button to Iridium's library toolbar. It
 Use an existing committed Iridium checkout. Setup copies committed source into a **different directory**; it does not change the original, copy its untracked/signing files or share its submodule working trees.
 
 ```sh
+# Run from the BetterJIT checkout.
+git fetch origin
 git switch private/iridium-addon
+git pull --ff-only origin private/iridium-addon
+# Fetch without switching or modifying the host working tree.
+git -C /path/to/iridium-full fetch origin update/madeira-upstream
 python3 addon/iridium/prepare.py \
   --iridium /path/to/iridium-full \
-  --output "$HOME/Developer/Private/Iridium-BetterJIT"
-bash addon/iridium/build-local.sh "$HOME/Developer/Private/Iridium-BetterJIT"
+  --ref f89099fa8810261fdffd334b2d4cd87e98b92ad1 \
+  --output "$HOME/Developer/Private/Iridium-BetterJIT-f89099fa8810"
+bash addon/iridium/build-local.sh "$HOME/Developer/Private/Iridium-BetterJIT-f89099fa8810"
 ```
 
 macOS, Xcode, CMake, Ninja, Python 3 and XcodeGen are needed. The first build also needs network access to fetch pinned source dependencies; execution of the bundled lab tests is local. The host's existing build scripts prepare its runtime dependencies and print the unsigned IPA path. Sign/install it using your own normal local workflow; these scripts do not read certificates, sign, install, push or upload anything.
 
 The app is named **Iridium Lab**, with bundle ID `software.iridium.betterjit-local`, distinct from normal Iridium. Open **BetterJIT Lab**, then **Run x86-64** or **Run Win64**. JSPI availability is checked at runtime; an older/incompatible WebKit produces a failure report rather than a fake pass. These tests require no games. Close any active game before opening the lab.
 
-The overlay was reviewed against Iridium commit `31ca8f113b842d4c995474438f14c04ef50b7110`. It checks hashes of the three integration files and refuses incompatible revisions instead of guessing. Uncommitted Iridium changes are deliberately not copied. Existing destination directories are never overwritten.
+The default host is **`update/madeira-upstream` at `f89099fa8810261fdffd334b2d4cd87e98b92ad1`**, reviewed on 2026-09-26. Omitting `--ref` selects that exact commit, not the source checkout's `HEAD` and not a moving remote branch. The commit must already be available locally; preparation never fetches, switches the source branch, or falls back to an older revision. Use `--ref HEAD` explicitly to select your currently checked-out committed source.
+
+The original `main` baseline at `31ca8f113b842d4c995474438f14c04ef50b7110` remains supported via `--ref`. Complete, reviewed hash profiles cover the library hook, host build script and StikJIT project specification. Unknown changes to those integration points are rejected before creating a destination. The generated wrapper retains the selected host's media-library validation, runtime preparation and package checks, and deployment-target policy; it changes only the private wrapper/project paths. In particular, the newer host is not forced back to iOS 27. The selected compatibility reference and actual source commit are recorded separately in the private manifest. This is source-integration validation, not a device-compatibility guarantee.
+
+**Upgrading an existing private lab:** create the new revision-specific directory shown above. `build-local.sh` refreshes the add-on only; it does not rebase an old private host onto new Iridium. Keep the old directory for your experiments, and transfer any desired edits deliberately. Uncommitted source changes are not copied and existing destinations are never overwritten.
 
 ## Private experiment workflow
 

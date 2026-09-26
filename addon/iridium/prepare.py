@@ -18,12 +18,23 @@ ROOT = Path(__file__).resolve().parents[2]
 IOS = Path('iridium/apps/ios')
 VIEW = IOS / 'Iridium/Views/RootTabView.swift'
 BUILD = Path('ci/build-local-ipa.sh')
-SUPPORTED = {
-    str(VIEW): '1a5941432633d6886f19da895b0432722d83494f',
-    str(BUILD): 'dea459e61e1ee3c3256ca6bbb4a3766cb5d1e6e2',
-    str(IOS / 'stikjit.yml'): 'eb83eb4c45e3088a6fe54db1d003af0770700229',
-}
-HOST_REFERENCE = '31ca8f113b842d4c995474438f14c04ef50b7110'
+HOST_BRANCH = 'update/madeira-upstream'
+HOST_REFERENCE = 'f89099fa8810261fdffd334b2d4cd87e98b92ad1'
+INTEGRATION_PATHS = (str(VIEW), str(BUILD), str(IOS / 'stikjit.yml'))
+# Compare complete sets, not independent per-file allowlists. A future host
+# change must be reviewed before its integration points can be copied.
+HOST_PROFILES = (
+    {'branch': HOST_BRANCH, 'reference': HOST_REFERENCE, 'blobs': {
+        str(VIEW): '1a5941432633d6886f19da895b0432722d83494f',
+        str(BUILD): 'f98c102fdbaffda25f09f13b1265f54d1078442a',
+        str(IOS / 'stikjit.yml'): 'eb83eb4c45e3088a6fe54db1d003af0770700229',
+    }},
+    {'branch': 'main', 'reference': '31ca8f113b842d4c995474438f14c04ef50b7110', 'blobs': {
+        str(VIEW): '1a5941432633d6886f19da895b0432722d83494f',
+        str(BUILD): 'dea459e61e1ee3c3256ca6bbb4a3766cb5d1e6e2',
+        str(IOS / 'stikjit.yml'): 'eb83eb4c45e3088a6fe54db1d003af0770700229',
+    }},
+)
 ANCHOR = '            LibraryView(viewModel: viewModel)\n'
 INSERT = ANCHOR + '''                #if BETTERJIT_PRIVATE_ADDON
                 .toolbar {
@@ -48,6 +59,17 @@ def commit_file(repo: Path, revision: str, path: str) -> bytes:
 
 def blob_hash(data: bytes) -> str:
     return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+
+
+def host_profile(files: dict[str, bytes]) -> dict:
+    hashes = {name: blob_hash(data) for name, data in files.items()}
+    for profile in HOST_PROFILES:
+        if hashes == profile['blobs']:
+            return profile
+    nearest = min(HOST_PROFILES, key=lambda p: sum(hashes.get(n) != h for n, h in p['blobs'].items()))
+    changed = ', '.join(n for n in INTEGRATION_PATHS if hashes.get(n) != nearest['blobs'][n])
+    reviewed = ', '.join(p['reference'] for p in HOST_PROFILES)
+    raise ValueError(f'Host integration point changed: {changed}. Reviewed hosts: {reviewed}. No changes made.')
 
 
 def patch_view(data: str) -> str:
@@ -88,7 +110,7 @@ def project_spec(host_commit: str, addon_commit: str) -> dict:
     }
 
 
-def prepare(source: Path, output: Path, ref: str = 'HEAD') -> dict:
+def prepare(source: Path, output: Path, ref: str | None = None) -> dict:
     source, output = source.resolve(), output.resolve()
     if output.exists():
         raise ValueError('Output already exists; choose a new directory. Existing work will not be overwritten.')
@@ -96,11 +118,18 @@ def prepare(source: Path, output: Path, ref: str = 'HEAD') -> dict:
         raise ValueError('Private output must be outside the public Iridium checkout.')
     if any(c in str(output) for c in '\n\r"'):
         raise ValueError('Unsupported output path characters.')
-    revision = git(source, 'rev-parse', '--verify', ref + '^{commit}')
-    files = {name: commit_file(source, revision, name) for name in SUPPORTED}
-    for name, expected in SUPPORTED.items():
-        if blob_hash(files[name]) != expected:
-            raise ValueError(f'Host integration point changed: {name}. Reviewed host: {HOST_REFERENCE}. No changes made.')
+    # Pin the reviewed upstream commit by default, even when the source's
+    # working branch is still main. Never fetch or switch the user's checkout.
+    selected_ref = HOST_REFERENCE if ref is None else ref
+    try:
+        revision = git(source, 'rev-parse', '--verify', '--end-of-options', selected_ref + '^{commit}')
+    except subprocess.CalledProcessError as error:
+        raise ValueError(
+            f'Iridium revision {selected_ref} is not available locally. '
+            f'Fetch {HOST_BRANCH} in the source checkout, or pass --ref with an available reviewed revision. '
+            'No changes made.') from error
+    files = {name: commit_file(source, revision, name) for name in INTEGRATION_PATHS}
+    profile = host_profile(files)
     # Validate all substitutions before creating the private destination.
     view = patch_view(files[str(VIEW)].decode())
     wrapper = build_script(files[str(BUILD)].decode())
@@ -147,6 +176,8 @@ def prepare(source: Path, output: Path, ref: str = 'HEAD') -> dict:
     addon_commit = git(ROOT, 'rev-parse', 'HEAD')
     manifest = {'schema': 1, 'hostCommit': revision, 'addonCommit': addon_commit,
                 'addonWorkingTreeDirty': bool(git(ROOT, 'status', '--porcelain', '--untracked-files=normal')),
+                'hostCompatibilityReference': profile['reference'],
+                'hostCompatibilityBranch': profile['branch'],
                 'normalGameBackendChanged': False, 'files': {}}
     (output / VIEW).write_text(view)
     (output / 'ci/build-betterjit-private.sh').write_text(wrapper)
@@ -159,7 +190,7 @@ def prepare(source: Path, output: Path, ref: str = 'HEAD') -> dict:
     manifest['integrationFiles'] = {str(p): hashlib.sha256((output / p).read_bytes()).hexdigest()
                                     for p in [VIEW, Path('ci/build-betterjit-private.sh'), IOS / 'betterjit-private.json']}
     (vendor / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-    print(f'Private checkout: {output}\nHost commit: {revision}\nNo remotes. Original checkout unchanged.')
+    print(f"Private checkout: {output}\nHost commit: {revision}\nReviewed integration: {profile['branch']} @ {profile['reference']}\nNo remotes. Original checkout unchanged.")
     return manifest
 
 
@@ -167,7 +198,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--iridium', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--ref', default='HEAD', help='Committed Iridium revision to copy; uncommitted work is not included')
+    parser.add_argument('--ref', help=f'Committed Iridium revision to copy (default: {HOST_REFERENCE} on {HOST_BRANCH}); use HEAD explicitly to copy the current source revision')
     args = parser.parse_args()
     try:
         prepare(args.iridium, args.output, args.ref)
