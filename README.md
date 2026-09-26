@@ -1,117 +1,91 @@
-# BetterJIT for Iridium
+# BetterJIT
 
-An experimental **source add-on** for locally rebuilt Iridium. FEX runs natively,
-translates selected x86-64 code to WebAssembly, and the bundled lab executes it
-in WKWebView. No native-process JIT activation is performed by the lab.
+**App-independent WebAssembly execution and x86-64 translation infrastructure.**
+BetterJIT is an embeddable SDK for applications that need a WebKit-backed execution
+engine, a native-service bridge, or an optional FEX translation backend. Iridium
+is one integration, not the framework's host or required dependency.
 
-**Current scope: CPU fixtures and integration research, not a replacement game
-backend.** Normal Iridium game launches are unchanged. This repository does not
-include the complete Wine/rootfs/DXMT WebView game runtime. A passing CPU test
-is not evidence of working games, App Store acceptance, or a performance target.
+This is an experimental SDK, not a system-wide JIT unlocker. An application must
+integrate it and route work through its runtime. The initial native executor is
+WKWebView on iOS/macOS; the protocol and JavaScript engine are host-independent.
+No App Store approval, unrestricted memory or performance percentage is claimed.
 
-## Local setup
+## Public products
 
-Use Python 3.9+, Git, and a committed Iridium checkout. Building requires a Mac
-with Xcode, CMake, Ninja and XcodeGen. Native FEX tooling targets Apple silicon.
-The first build fetches pinned dependencies; bundled lab execution is local.
+| Product | Responsibility |
+| --- | --- |
+| `BetterJIT` | Typed values, limits, lifecycle, versioned protocol, deadlines and request correlation. |
+| `BetterJITWebKit` | Loopback assets, per-session WebView, dedicated worker, Wasm execution and registered native services. |
+| `BetterJITFEX` | Optional serialized native translation service and FEX guest-call adapter. |
 
-From this source directory:
+The SDK does not import Iridium's models, UI, paths, renderer or build scripts.
+FEX native libraries are optional, separately linked dependencies. Ordinary Wasm
+users do not need an Iridium checkout or a FEX build.
 
-```sh
-python3 addon/iridium/prepare.py \
-  --iridium /path/to/iridium \
-  --output /path/to/Iridium-Lab \
-  --bundle-id org.example.iridium.betterjit \
-  --display-name "Iridium Lab"
-bash addon/iridium/build-local.sh /path/to/Iridium-Lab
+```swift
+let transport = try WebKitTransport()
+let runtime = try RuntimeSession(transport: transport, limits: RuntimeLimits())
+// Mount transport.webView in your own UI before starting.
+try await runtime.start()
+let module = try await runtime.load(wasmBytes)
+let answer = try await runtime.invoke(module, export: "add",
+                                      arguments: [.i32(20), .i32(22)])
+runtime.close()
 ```
 
-Replace the paths and example bundle ID with your own. A helper identifier is
-derived from the app identifier. The scripts do not read signing material,
-sign, install, upload or publish. Sign the resulting unsigned app separately
-using your own local workflow.
+Start with [SDK integration](docs/sdk/README.md), [protocol v1](docs/sdk/protocol.md)
+and the **non-Iridium** `Examples/MinimalHost` app. Use the package products from
+the root Package.swift. A clean source SDK export excludes the legacy probe products.
 
-For repeatable settings, copy `addon/iridium/config.example.json` outside the
-repository (or to an ignored `*.local.json` file), then pass `--config PATH`.
-CLI identity options override that file. Unknown settings and invalid identifiers
-are rejected before copying the host. Signing identities are intentionally not
-accepted as configuration.
+## Implemented boundaries
 
-Omitting identity options preserves the earlier `software.iridium.betterjit-local`
-and **Iridium Lab** defaults. Internal `private` class names, compilation flags
-and generated project filenames remain stable for existing local integrations;
-they are not a username restriction or a license restriction.
+Sessions have separate workers, module tables, memory and native-service allowlists.
+Calls support exact i64 values, memory reads/writes, module load/unload, bounded
+queues, deadlines, cancellation and WebContent termination handling. A timeout
+terminates the session rather than pretending an interrupted guest is safe to reuse.
+Native services require explicit registration and JSPI capability support.
 
-## Reviewed host compatibility
+The FEX driver connects the existing native translator and Wasm runtime through
+an application-independent service interface. It supports one unshared guest
+window, on-demand units/regions, and SysV/Win64 function calls. It does not include
+a full Windows/Linux environment, Wine launcher, DXMT renderer or arbitrary game
+support. The native translator and custom services require their own input-security
+review. The default message bridge copies data; OPFS/native-mmap paging remains
+experimental research, not a promoted stable or zero-copy SDK transport.
 
-`addon/iridium/host-profiles.json` contains complete, reviewed integration-file
-hash sets. The default remains `madeira-20260926`: Iridium
-`update/madeira-upstream` at `f89099fa8810261fdffd334b2d4cd87e98b92ad1`.
-The earlier `main-20260925` profile is also available. This update does not
-silently retarget a newer moving branch.
-
-Use `--host-profile main-20260925` to select its pinned revision, or `--ref SHA`
-for a locally available committed revision with a matching reviewed profile.
-An explicit profile plus incompatible integration hashes is rejected. Preparation never
-fetches, switches the source working branch or falls back to another commit.
-New host support requires reviewing and committing a complete profile; there
-is no force/skip-hash option. These hashes validate integration points, not
-every transitive runtime dependency or physical-device compatibility.
-
-## Isolation and iteration
-
-Preparation creates a separate checkout, copies committed host source only,
-removes its remotes, blocks accidental pushes and disables its host workflows.
-The original host is untouched. Existing output directories are never replaced.
-The generated source overlay and local build script are not intended for a
-public Iridium pull request.
-
-Edit BetterJIT and rerun `build-local.sh` to refresh its owned snapshot. Refresh
-preserves the configured app identity and refuses to overwrite local snapshot
-edits. It does not upgrade the underlying Iridium checkout; create another output
-directory for a host upgrade. Archive-based source distributions are supported
-through `SOURCE-MANIFEST.json` and per-file checksums instead of requiring a
-BetterJIT Git checkout. Those checksums are provenance diagnostics, not signatures.
-
-Open **BetterJIT Lab** in Iridium's library, close any active game, and select an
-x86-64 or Win64 test. Logs stay local unless you explicitly share them. The lab
-checks WebKit capabilities at runtime. No performance or entitlement bypass is
-promised for another device or OS.
-
-## Tests
+## Develop and validate
 
 ```sh
-bash scripts/check-addon.sh
+bash scripts/check-sdk.sh
+# Optional real JSPI/FEX fixture execution in a current browser:
+python3 tests/sdk/browser-sdk.py --chromium /path/to/chromium --research-fixtures
 ```
 
-This runs configuration, checkout and distribution safety tests, including
-clean-export use without `.git`. Tests use synthetic repositories/assets; they
-do not compile or run Iridium. The full research checkout also retains
-`bash scripts/check.sh` for the existing native/translated tests. Historical
-results under `WasmProbe/results` are not measurements of this generalized add-on.
+The standalone sample and WebKit target need an Apple SDK for compilation. Portable
+Swift/Node and Chromium tests do not establish physical-device behavior. Optional
+SDK CI is manual-only and does not publish artifacts or require a particular user.
+[Source provenance](docs/sdk/provenance.md) records the imported FEX runtime.
 
-## Preparing a publication later
-
-Nothing in this branch publishes automatically or changes repository access.
-Optional Actions workflows are manual, read-only and do not upload artifacts.
-They no longer depend on a particular GitHub username or private visibility.
-
-After committing your selected source changes:
+## Source distribution
 
 ```sh
-python3 scripts/export-source.py --check
-python3 scripts/export-source.py --output /path/outside/repo/BetterJIT-source.tar.gz
+python3 scripts/export-sdk.py --check
+python3 scripts/export-sdk.py --output /outside/repo/BetterJIT-SDK.tar.gz
 ```
 
-The exporter uses a reviewed **exact-path allowlist**, committed bytes and pinned
-binary-fixture checksums. It excludes research logs, private settings, signing
-files, built IPAs and Git history. It refuses symlinks, unexpected binaries,
-missing notices, suspicious credentials and existing output files. Its manifest
-records the source revision and each payload hash; repeated exports of the same
-revision are byte-identical.
+The exact-path SDK export is distinct from the older Iridium-add-on exporter.
+It is a reproducible local source candidate with licenses and checksums, not a
+release. Follow [SDK publication](docs/sdk/publishing.md) before distributing it.
+The repository remains private; new architecture does not publish old research
+history or change its licenses. See COPYING and the retained third-party notices.
 
-This is a source candidate for human review, not a legal or security certification.
-See [publishing](docs/publishing.md) before changing visibility or distributing
-anything. The recommended first public release is a reviewed clean source
-snapshot in a new repository, **not making this research repository public**.
-See [THIRD_PARTY.md](THIRD_PARTY.md), `COPYING` and the retained component notices.
+## Existing integrations and research
+
+`addon/iridium` remains an optional adapter with its reviewed host profiles and
+local build safeguards. Its earlier compatibility defaults are unchanged. The
+private experiment branch is preserved. Root App/Web/BetterJITCore and WasmProbe
+remain legacy research harnesses; consumers of the new SDK need neither.
+
+`feature/runtime-sdk` is the consolidated development lane. See [branch maintenance](docs/branches.md)
+for the exact-tip archive/prune plan, which preserves unique old experiments and
+keeps `main` and `private/iridium-addon`. No unreviewed code is merged into main.

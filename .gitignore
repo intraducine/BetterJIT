@@ -3,7 +3,7 @@
 .swiftpm/
 *.xcodeproj/
 *.xcworkspace/
-FEX/
+/FEX/
 fexwasm/out/
 WasmProbe/build/
 artifacts/
@@ -24,3 +24,4 @@ fexwasm/guest/out/
 *.mobileprovision
 *.ipa
 dist/
+Examples/**/.generated/

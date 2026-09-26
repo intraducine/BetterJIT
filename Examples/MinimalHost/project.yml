@@ -1,0 +1,30 @@
+name: BetterJITExample
+options:
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  BetterJIT:
+    path: ../..
+targets:
+  BetterJITExample:
+    type: application
+    platform: iOS
+    sources: [App.swift]
+    dependencies:
+      - package: BetterJIT
+        product: BetterJIT
+      - package: BetterJIT
+        product: BetterJITWebKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.example.betterjit.sample
+        SWIFT_VERSION: "5.0"
+        DEVELOPMENT_TEAM: ""
+        GENERATE_INFOPLIST_FILE: YES
+    info:
+      path: .generated/Info.plist
+      properties:
+        CFBundleDisplayName: BetterJIT Example
+        UILaunchScreen: {}
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true

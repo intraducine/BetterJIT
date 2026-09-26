@@ -1,0 +1,12 @@
+{
+  "repository": "intraducine/BetterJIT",
+  "active": ["main", "private/iridium-addon", "feature/runtime-sdk"],
+  "archive": {
+    "feature/publishable-iridium-addon": "8eda1a28e1098812860e24ad609b12ea82850dd3",
+    "prototype/fex-wasm-probe": "772a71a80b8f484542eda4ae6fa39849a48f991a",
+    "prototype/wkwebview-wasm-opfs": "5fe72d05f8e47cb2cafc8010cb3f9f23336498e9",
+    "prototype/interface-address-probe": "2a94d8e670567e759a97e6abfab1338a8c216d95",
+    "prototype/localhost-ikev2-probe": "3bb48eb277c5b71d6c01f776a318316a2ced97f9"
+  },
+  "tagPrefix": "archive/2026-09-26/"
+}
