@@ -1,20 +1,24 @@
 # SDK source provenance
 
-New SDK, bridge, example and test code retains this repository's GPL-3.0-or-later
-licensing. This change does not relicense any imported component. App-independent
-architecture is not a promise that every proprietary app can redistribute a linked
-build under its existing licensing terms.
+New SDK, bridge, examples and tests retain this repository's GPL-3.0-or-later
+licensing. No imported component is relicensed. App independence is not a promise
+that every proprietary app may redistribute linked code on its existing terms.
 
-`Sources/BetterJITWebKit/Resources/fex-runtime.js` is an unchanged copy of
+`Sources/BetterJITWebKit/Resources/fex-runtime.js` originated as an exact copy of
 `WasmProbe/Web/fexruntime.js` at BetterJIT commit
-`8eda1a28e1098812860e24ad609b12ea82850dd3`. Its source is the imported fexwasm
-runtime from Madeira's wasm-webview work (see the existing THIRD_PARTY.md and
-WasmProbe provenance). Preserve the root COPYING and upstream notices.
+`8eda1a28e1098812860e24ad609b12ea82850dd3`. The SDK copy now adds bounded function
+tables, bounded dispatcher hash probing and typed capacity/missing-unit failures.
+The historical research copy is unchanged. Its origin is Madeira's wasm-webview
+fexwasm runtime. Preserve COPYING and upstream component notices.
 
-The native FEX compiler is optional and continues to use pinned public FEX commit
-`0f8edf8f6383ae8085e0ffac511c789cdae97514` plus patches/fex-wasm.patch. The wrapper
-binds the existing C interface; it does not claim that an SDK-only archive contains
-the native compiler or its transitive dependencies. Build or distribute that
-backend separately from the clean default SDK package, with its applicable source
-and notices. Existing imported benchmark fixtures are test inputs only and are
-not included in the SDK-only export.
+The optional native compiler remains pinned to public FEX commit
+`0f8edf8f6383ae8085e0ffac511c789cdae97514` plus `patches/fex-wasm.patch`.
+The SDK-only source export includes the C interface header for binding tests,
+not the compiler, its native archives, or transitive dependencies. Native FEX
+builds require the full research checkout and its source/notices separately.
+Imported benchmark dumps are not included in the SDK-only export.
+
+The C guest/reference example and small Wasm test emitters are source fixtures.
+The native-binding C shim is only a failure/ownership test double. The separate
+Swift stdio service is only a desktop integration-test adapter. Neither is a
+replacement FEX compiler or a production runtime transport.

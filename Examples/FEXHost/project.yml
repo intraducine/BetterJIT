@@ -1,0 +1,38 @@
+name: BetterJITFEXHost
+options:
+  deploymentTarget:
+    iOS: '17.0'
+packages:
+  BetterJIT:
+    path: ../..
+  BetterJITFEXNative:
+    path: ../../.build/FEXNativePackage
+targets:
+  BetterJITFEXHost:
+    type: application
+    platform: iOS
+    sources:
+      - path: App.swift
+      - path: ../../Backends/FEX/Swift/LinkedFEXTranslator.swift
+    dependencies:
+      - package: BetterJIT
+        product: BetterJIT
+      - package: BetterJIT
+        product: BetterJITWebKit
+      - package: BetterJIT
+        product: BetterJITFEX
+      - package: BetterJITFEXNative
+        product: CFEXWasm
+      - sdk: libc++.tbd
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.example.betterjit.fexhost
+        SWIFT_VERSION: '5.0'
+        TARGETED_DEVICE_FAMILY: '1,2'
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: BetterJIT FEX Host
+        UILaunchScreen: {}
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true

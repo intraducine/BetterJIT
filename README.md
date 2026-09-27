@@ -1,91 +1,87 @@
 # BetterJIT
 
-**App-independent WebAssembly execution and x86-64 translation infrastructure.**
-BetterJIT is an embeddable SDK for applications that need a WebKit-backed execution
-engine, a native-service bridge, or an optional FEX translation backend. Iridium
-is one integration, not the framework's host or required dependency.
+App-independent WebAssembly execution and optional x86-64 translation
+infrastructure. Applications embed the SDK and supply workloads and explicitly
+registered native services. Iridium is an optional adapter, not a dependency.
 
-This is an experimental SDK, not a system-wide JIT unlocker. An application must
-integrate it and route work through its runtime. The initial native executor is
-WKWebView on iOS/macOS; the protocol and JavaScript engine are host-independent.
-No App Store approval, unrestricted memory or performance percentage is claimed.
+This is an experimental SDK, not a system-wide JIT unlocker or complete Windows
+runtime. The native executor targets iOS/macOS WKWebView. Nothing here grants an
+unmodified application native JIT, unrestricted RAM, or App Store approval.
 
-## Public products
+## Package products
 
-| Product | Responsibility |
-| --- | --- |
-| `BetterJIT` | Typed values, limits, lifecycle, versioned protocol, deadlines and request correlation. |
-| `BetterJITWebKit` | Loopback assets, per-session WebView, dedicated worker, Wasm execution and registered native services. |
-| `BetterJITFEX` | Optional serialized native translation service and FEX guest-call adapter. |
-
-The SDK does not import Iridium's models, UI, paths, renderer or build scripts.
-FEX native libraries are optional, separately linked dependencies. Ordinary Wasm
-users do not need an Iridium checkout or a FEX build.
+- `BetterJIT`: exact numeric values, sessions, protocol, bounded requests,
+  lifecycle failure reporting, batched calls and execution statistics.
+- `BetterJITWebKit`: per-session worker, bundled loopback assets, Wasm execution,
+  memory transfers and explicitly registered native services.
+- `BetterJITFEX`: optional serialized FEX translation service and SysV/Win64
+  integer/pointer function-call adapter. Native FEX is built separately.
 
 ```swift
+import BetterJIT
+import BetterJITWebKit
+
 let transport = try WebKitTransport()
 let runtime = try RuntimeSession(transport: transport, limits: RuntimeLimits())
 // Mount transport.webView in your own UI before starting.
 try await runtime.start()
 let module = try await runtime.load(wasmBytes)
-let answer = try await runtime.invoke(module, export: "add",
+let result = try await runtime.invoke(module, export: "add",
                                       arguments: [.i32(20), .i32(22)])
 runtime.close()
 ```
 
-Start with [SDK integration](docs/sdk/README.md), [protocol v1](docs/sdk/protocol.md)
-and the **non-Iridium** `Examples/MinimalHost` app. Use the package products from
-the root Package.swift. A clean source SDK export excludes the legacy probe products.
+See [integration](docs/sdk/README.md), [protocol](docs/sdk/protocol.md), and
+[execution/validation contracts](docs/sdk/hardening.md). The SDK has no Iridium
+models, renderer, signing identity or filesystem dependency.
 
-## Implemented boundaries
+## Examples and checks
 
-Sessions have separate workers, module tables, memory and native-service allowlists.
-Calls support exact i64 values, memory reads/writes, module load/unload, bounded
-queues, deadlines, cancellation and WebContent termination handling. A timeout
-terminates the session rather than pretending an interrupted guest is safe to reuse.
-Native services require explicit registration and JSPI capability support.
-
-The FEX driver connects the existing native translator and Wasm runtime through
-an application-independent service interface. It supports one unshared guest
-window, on-demand units/regions, and SysV/Win64 function calls. It does not include
-a full Windows/Linux environment, Wine launcher, DXMT renderer or arbitrary game
-support. The native translator and custom services require their own input-security
-review. The default message bridge copies data; OPFS/native-mmap paging remains
-experimental research, not a promoted stable or zero-copy SDK transport.
-
-## Develop and validate
+`Examples/MinimalHost` is an ordinary non-Iridium iOS Wasm consumer.
+`Examples/CGuest` compiles real C to Wasm and a native differential reference.
+`Examples/FEXHost` requests fresh native FEX translations, without recorded
+modules; it needs the separately built device-arm64 backend.
 
 ```sh
 bash scripts/check-sdk.sh
-# Optional real JSPI/FEX fixture execution in a current browser:
-python3 tests/sdk/browser-sdk.py --chromium /path/to/chromium --research-fixtures
+python3 tests/sdk/native-binding.test.py
+bash Examples/CGuest/build.sh
+python3 tests/sdk/browser-sdk.py --c-guest --native-service --research-fixtures
+# On macOS with a graphical session:
+swift test --filter AppleHostTests
 ```
 
-The standalone sample and WebKit target need an Apple SDK for compilation. Portable
-Swift/Node and Chromium tests do not establish physical-device behavior. Optional
-SDK CI is manual-only and does not publish artifacts or require a particular user.
-[Source provenance](docs/sdk/provenance.md) records the imported FEX runtime.
+Browser/native-stdio tests, C-shim ownership checks, recorded FEX replay, Apple
+compilation and physical-device runs are separate evidence levels. A passing
+Linux or Chromium check is not an iPhone, live native-FEX, or game compatibility
+claim. Manual CI uploads no artifacts and performs no signing or publication.
 
-## Source distribution
+## Boundaries
 
-```sh
-python3 scripts/export-sdk.py --check
-python3 scripts/export-sdk.py --output /outside/repo/BetterJIT-SDK.tar.gz
-```
+Native services require JSPI; unsupported engines fail explicitly. Sessions
+serialize calls and bound input memory, compilation bytes, tables and queues.
+The limits do not measure JIT code allocation or remove OS memory limits. Typed
+signatures are checked before guest execution, and new operations are advertised
+through capability extensions. Timeouts, malformed typed replies and guest traps
+end a session; cancellation does not roll back native side effects.
 
-The exact-path SDK export is distinct from the older Iridium-add-on exporter.
-It is a reproducible local source candidate with licenses and checksums, not a
-release. Follow [SDK publication](docs/sdk/publishing.md) before distributing it.
-The repository remains private; new architecture does not publish old research
-history or change its licenses. See COPYING and the retained third-party notices.
+FEX supports one unshared guest-address window and 0–16 integer/pointer arguments,
+not complete Linux/Windows processes, multithreading, struct/float guest ABIs,
+Wine or DXMT. Unsupported syscalls fail rather than returning research stubs.
+FEX and application-defined native services still require hostile-input review.
+The default bridge copies bounded messages. OPFS/native-mapped paging remains
+research, not a stable or zero-copy SDK transport.
 
-## Existing integrations and research
+## Distribution and maintained work
 
-`addon/iridium` remains an optional adapter with its reviewed host profiles and
-local build safeguards. Its earlier compatibility defaults are unchanged. The
-private experiment branch is preserved. Root App/Web/BetterJITCore and WasmProbe
-remain legacy research harnesses; consumers of the new SDK need neither.
+`python3 scripts/export-sdk.py --check` validates the SDK-only exact-path source
+allowlist. `--output /outside/repo/BetterJIT-SDK.tar.gz` creates a local candidate;
+it does not publish. See [publication](docs/sdk/publishing.md) and
+[provenance](docs/sdk/provenance.md). Preserve COPYING and component notices.
+An app-independent API does not change the existing GPL licensing.
 
-`feature/runtime-sdk` is the consolidated development lane. See [branch maintenance](docs/branches.md)
-for the exact-tip archive/prune plan, which preserves unique old experiments and
-keeps `main` and `private/iridium-addon`. No unreviewed code is merged into main.
+Use `feature/runtime-sdk` and the consolidated SDK PR for current development.
+The private Iridium adapter remains untouched on its private lane. Legacy probes
+and historical logs are not prerequisites and are excluded from the SDK export.
+[Branch maintenance](docs/branches.md) documents ancestry preservation and the
+leased cleanup command. Repository visibility is unchanged; no release is made.

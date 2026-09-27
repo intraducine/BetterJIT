@@ -1,28 +1,24 @@
-# Development lanes
+# Branch maintenance
 
-`feature/runtime-sdk` is the consolidated app-independent SDK track. It descends
-from `feature/publishable-iridium-addon` and includes PR #3/#4 through their existing
-merge ancestry. `private/iridium-addon` remains the user's frozen local experiment
-lane. `main` is unchanged pending review and Apple/device validation.
+Keep `main`, `feature/runtime-sdk`, and `private/iridium-addon` as the active lanes.
+Use the existing consolidated SDK PR instead of opening a duplicate for each
+hardening change. The private adapter and repository visibility are unchanged.
 
-The prototype branches are no longer separate active development directions.
-The interface/localhost experiments contain unique history: preserve their exact
-tips rather than assuming they were merged. `maintenance/branch-plan.json` records
-all five reviewed retired branch tips. `scripts/cleanup-branches.py` first verifies
-them and plans archive tags. `--apply` uses an atomic, leased Git push to create
-any missing archive tags and delete only those reviewed remote heads. It refuses
-moved refs and never overwrites tags or touches local worktrees. It does not create
-releases or make the repository public.
+The retired FEX, WKWebView, and publishable-Iridium work is already ancestral to
+the SDK. The two deleted IKEv2/interface experiments are retained through an
+ancestry-only merge: the SDK tree is unchanged by that preservation commit.
+Their files are not restored and no extra archive branch is created. The clean
+SDK source export excludes Git history, as before.
 
-The GitHub connector available during this change can close superseded PRs but
-cannot delete branch refs or create tag refs. The branch-deletion plan therefore
-remains a separate local maintainer command, not an action claimed as completed:
+`python3 scripts/cleanup-branches.py` reads remote refs and may fetch immutable
+Git objects to prove ancestry, but does not push or edit local worktrees. With
+`--apply`, matching remaining retired heads are archived under the plan's tag
+prefix and pruned using one atomic leased push. Active branches, moved branch
+tips, conflicting tags, and unproven history cause refusal. Missing heads with
+verified SDK ancestry are accepted even when they were deleted without tags.
 
-```sh
-python3 scripts/cleanup-branches.py
-python3 scripts/cleanup-branches.py --apply
-```
-
-Reopening a historical PR or restoring a branch from its archive tag is possible.
-Archive tags are historical references, not stable SDK versions. Do not publish
-this repository's whole history as the SDK distribution.
+A shallow clone may need full history before ancestry can be established. The
+script never guesses or treats a missing commit as preserved. Remote deletion
+and tag creation require authenticated Git write access. The GitHub connector
+used for source commits does not expose those mutations, so code updates alone
+must not be described as having deleted the remaining heads.

@@ -17,6 +17,7 @@ let package = Package(
         .target(name: "BetterJITFEX", dependencies: ["BetterJIT"]),
         .testTarget(name: "BetterJITTests", dependencies: ["BetterJIT"]),
         .testTarget(name: "BetterJITFEXTests", dependencies: ["BetterJITFEX"]),
+        .testTarget(name: "BetterJITWebKitTests", dependencies: ["BetterJIT", "BetterJITWebKit"]),
         .target(name: "BetterJITCore"),
         .executableTarget(name: "BetterJITCLI", dependencies: ["BetterJITCore"]),
         .testTarget(name: "BetterJITCoreTests", dependencies: ["BetterJITCore"])

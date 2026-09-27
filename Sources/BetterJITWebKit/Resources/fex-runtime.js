@@ -1,3 +1,4 @@
+// SDK modifications: bounded tables/hash probing and explicit capacity failures.
 // Dispatcher for FEX-translated wasm units. The host provides:
 //   host.mem                 WebAssembly.Memory holding guest memory and CPU state
 //   host.translate(rip32)    -> Uint8Array (a wasm module exporting run() -> i32), or null
@@ -25,7 +26,11 @@
 
   function createRuntime(host) {
     const cache = new Map();
-    const table = new WebAssembly.Table({ element: 'anyfunc', initial: 256 });
+    const fail = (code, message) => { const error = new Error(message); error.code = code; throw error; };
+    const maximumTableElements = host.maximumTableElements || 65536;
+    if (!Number.isSafeInteger(maximumTableElements) || maximumTableElements < 256 || maximumTableElements > 1048576)
+      fail('tableLimit', 'FEX table limit must be between 256 and 1048576.');
+    const table = new WebAssembly.Table({ element: 'anyfunc', initial: 256, maximum: maximumTableElements });
     const stats = { units: 0, wasmBytes: 0, translateMs: 0, compileMs: 0, jsDispatches: 0, misses: 0, regions: 0, regionUnits: 0, flushes: 0 };
     const codeBudget = host.codeBudget || Infinity;
     let liveBytes = 0; // wasm bytes of the code the table holds
@@ -194,10 +199,11 @@
     }
     // Byte offset of rip's hash entry, or of the empty slot where it goes.
     function entryOf(dv, rip) {
-      for (let h = Math.imul(rip, 0x9E3779B1) >>> (32 - bits); ; h = (h + 1) & mask) {
+      for (let h = Math.imul(rip, 0x9E3779B1) >>> (32 - bits), probes = 0; probes <= mask; h = (h + 1) & mask, probes++) {
         const e = base + h * ENTRY, r = dv.getUint32(e, true);
         if (r === rip || r === 0) return e;
       }
+      fail('tableLimit', 'FEX dispatch hash is full; restart the session.');
     }
 
     const moduleOf = (code) => (code instanceof WebAssembly.Module ? code : new WebAssembly.Module(code));
@@ -213,6 +219,7 @@
     // Puts a unit's code (bytes or a compiled Module of `size` bytes) in
     // the table and the dispatcher's hash.
     function install(rip, code, size, slot) {
+      if (size > codeBudget) fail('codeBudget', 'One FEX unit exceeds the live-code budget.');
       if (dispatch && liveBytes + size > codeBudget) flush();
       liveBytes += size;
       unitBytes.set(rip, size);
@@ -225,7 +232,8 @@
       if (dispatch) {
         // The translator's slot (the same in every thread), or the next free one.
         const idx = slot || nextIndex++;
-        if (idx >= table.length) table.grow(Math.max(table.length, idx + 1 - table.length));
+        if (idx >= maximumTableElements) fail('tableLimit', 'FEX translation slot exceeds the table budget.');
+        if (idx >= table.length) table.grow(Math.min(maximumTableElements - table.length, Math.max(table.length, idx + 1 - table.length)));
         if (slot && slot >= nextIndex) nextIndex = slot + 1;
         table.set(idx, f);
         const dv = new DataView(host.mem.buffer);
@@ -332,7 +340,7 @@
         const t0 = host.now();
         const r = await host.translateAsync(rip);
         stats.translateMs += host.now() - t0;
-        if (!r) throw new Error('translation failed at 0x' + rip.toString(16));
+        if (!r) fail('translationMissing', 'No translated unit at 0x' + rip.toString(16));
         install(rip, r.module, r.bytes, r.slot);
       }
     }

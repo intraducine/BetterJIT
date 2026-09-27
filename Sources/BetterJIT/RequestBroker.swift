@@ -11,9 +11,14 @@ import Foundation
     private struct Pending {
         let continuation: CheckedContinuation<JSONValue, Error>
         let deadline: Task<Void, Never>
+        let bytes: Int
     }
     private var pending: [String: Pending] = [:]
     public private(set) var isClosed = false
+    public private(set) var terminalFault: RuntimeFault?
+    public private(set) var pendingBytes = 0
+    public private(set) var submittedRequests: UInt64 = 0
+    public private(set) var completedRequests: UInt64 = 0
     public var pendingCount: Int { pending.count }
     public init(session: String = UUID().uuidString.lowercased(), limits: RuntimeLimits,
                 send: @escaping (RPCMessage) throws -> Void, abort: @escaping () -> Void) {
@@ -28,8 +33,12 @@ import Foundation
         try Task.checkCancellation()
         let id = UUID().uuidString.lowercased()
         let message = RPCMessage(session: session, id: id, kind: "request", operation: operation, payload: payload)
-        guard try JSONEncoder().encode(message).count <= limits.maximumMessageBytes else {
+        let wireBytes = try JSONEncoder().encode(message).count
+        guard wireBytes <= limits.maximumMessageBytes else {
             throw RuntimeFault("messageTooLarge", "Request exceeds the configured wire limit.")
+        }
+        guard wireBytes <= limits.maximumPendingBytes - pendingBytes else {
+            throw RuntimeFault("backpressure", "The session's pending byte budget was reached.")
         }
         return try await withTaskCancellationHandler(operation: {
             try Task.checkCancellation()
@@ -40,7 +49,8 @@ import Foundation
                     guard let self, self.pending[id] != nil else { return }
                     self.close(RuntimeFault("timeout", "The worker exceeded its deadline and was terminated."))
                 }
-                pending[id] = Pending(continuation: continuation, deadline: timeout)
+                pending[id] = Pending(continuation: continuation, deadline: timeout, bytes: wireBytes)
+                pendingBytes += wireBytes; submittedRequests &+= 1
                 do { try send(message) } catch { close(error) }
             }
         }, onCancel: { [weak self] in
@@ -54,14 +64,15 @@ import Foundation
         guard !isClosed, message.session == session, message.kind == "response" else { return }
         guard message.v == 1 else { close(RuntimeFault("protocolVersion", "Unsupported worker protocol.")); return }
         guard let entry = pending.removeValue(forKey: message.id) else { return }
+        pendingBytes -= entry.bytes; completedRequests &+= 1
         entry.deadline.cancel()
         if let error = message.error { entry.continuation.resume(throwing: error) }
         else { entry.continuation.resume(returning: message.payload) }
     }
     public func close(_ error: Error = RuntimeFault.closed) {
         guard !isClosed else { return }
-        isClosed = true
-        let entries = pending.values; pending.removeAll()
+        isClosed = true; terminalFault = RuntimeFault.normalizing(error)
+        let entries = Array(pending.values); pending.removeAll(); pendingBytes = 0
         abort()
         for entry in entries { entry.deadline.cancel(); entry.continuation.resume(throwing: error) }
     }
