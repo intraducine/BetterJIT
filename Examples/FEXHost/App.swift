@@ -1,67 +1,150 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
-import BetterJIT
+import UIKit
+import Darwin
+import WebKit
 import BetterJITWebKit
-import BetterJITFEX
 
-/// An independent consumer of newly generated native FEX translations. No
-/// Iridium, recorded Wasm units, game files, or native JIT activation is used.
 @main struct FEXHostApp: App {
     var body: some Scene { WindowGroup { FEXHostView() } }
 }
+
 @MainActor private final class FEXHostModel: ObservableObject {
-    @Published var message = "Run the native FEX translation check."
+    @Published var report: SuiteReport?
     @Published var running = false
     @Published var transport: WebKitTransport?
-    private var session: RuntimeSession?
-    private var service: FEXService?
-    func run() async {
-        guard !running else { return }; running = true
-        defer { running = false }
+    @Published var reportURL: URL?
+    @Published var storageError: String?
+    private var task: Task<Void, Never>?
+    private var runner: SuiteRunner?
+    init() {
         do {
-            for abi in [LinkedFEXTranslator.ABI.sysv, .win64] {
-                message = "Translating fresh x86-64 (\(abi.rawValue))"
-                // mov rax,rdi; add rax,rsi; ret / mov rax,rcx; add rax,rdx; ret
-                let bytes: [UInt8] = abi == .sysv ? [0x48,0x89,0xf8,0x48,0x01,0xf0,0xc3]
-                                                    : [0x48,0x89,0xc8,0x48,0x01,0xd0,0xc3]
-                let image = Data(bytes)
-                let native = try LinkedFEXTranslator(image: image, guestBase: 0x500000400000, abi: abi)
-                let service = try FEXService(translator: native, image: image); self.service = service
-                let transport = try WebKitTransport(services: ["fex": { try await service.handle($0) }]); self.transport = transport
-                // Allow SwiftUI to mount the WebView before loading its worker.
-                await Task.yield()
-                let session = try RuntimeSession(transport: transport, limits: RuntimeLimits(maximumMemoryPages: 4096))
-                self.session = session
-                let caps = try await session.start()
-                guard caps.jspi else { throw RuntimeFault("unsupported", "WebKit JSPI is unavailable on this OS.") }
-                try await session.openFEX()
-                let answer = try await session.callFEX(entry: 0x400000, arguments: [20,22])
-                let stats = await service.statistics()
-                guard answer == 42, stats.unitRequests > 0 else { throw RuntimeFault("testMismatch", "Expected fresh translation and RAX=42.") }
-                session.close(); await service.close()
-                self.session = nil; self.service = nil; self.transport = nil
+            let url = try directory().appendingPathComponent("latest.json")
+            if FileManager.default.fileExists(atPath: url.path) {
+                let data = try Data(contentsOf: url)
+                guard data.count <= 4 * 1024 * 1024 else { throw SuiteFailure("Previous report is too large.") }
+                let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+                var restored = try decoder.decode(SuiteReport.self, from: data)
+                guard restored.schema == 1 else { throw SuiteFailure("Unsupported previous report schema.") }
+                restored.markInterrupted(); report = restored; save(restored)
             }
-            message = "PASS: SysV and Win64 freshly translated 20 + 22 = 42."
-        } catch {
-            message = "FAIL: \(error.localizedDescription)"
-            session?.close(); if let service { await service.close() }
-            session = nil; service = nil; transport = nil
+        } catch { storageError = "Previous report could not be restored: \(error.localizedDescription)" }
+    }
+    func run(_ mode: SuiteMode, standalone: Bool, offline: Bool) {
+        guard !running else { return }
+        running = true; storageError = nil; reportURL = nil
+        let runner = SuiteRunner(mode: mode, environment: environment(),
+                                 conditions: ["userReportsHomeScreenNoDebugger": String(standalone), "userReportsWiFiAndCellularOff": String(offline),
+                                              "conditionsIndependentlyVerified": "false"],
+                                 factory: { [weak self] stage in
+            DeviceExecutor(stage: stage, mount: { [weak self] view in self?.transport = view })
+        }, timingAllowed: { ProcessInfo.processInfo.thermalState != .serious && ProcessInfo.processInfo.thermalState != .critical },
+                                 changed: { [weak self] value in self?.report = value; self?.save(value) })
+        self.runner = runner
+        task = Task { [weak self] in
+            var result = await runner.run()
+            guard let self else { return }
+            result.environment["thermalAtEnd"] = String(ProcessInfo.processInfo.thermalState.rawValue)
+            result.environment["lowPowerAtEnd"] = String(ProcessInfo.processInfo.isLowPowerModeEnabled)
+            self.report = result; self.save(result)
+            self.transport = nil; self.running = false; self.runner = nil; self.task = nil
         }
     }
-}
-private struct FEXHostView: View {
-    @StateObject private var model = FEXHostModel()
-    var body: some View {
-        VStack {
-            Text(model.message).textSelection(.enabled)
-            Button("Run live FEX check") { Task { await model.run() } }.disabled(model.running)
-            if let transport = model.transport { ExecutorView(transport: transport).frame(minHeight: 160) }
-        }.padding()
+    func stop(interrupted: Bool = false) {
+        guard running else { return }
+        runner?.stop(interrupted: interrupted); task?.cancel()
+    }
+    private func directory() throws -> URL {
+        let documents = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        let url = documents.appendingPathComponent("BetterJITBenchmarks", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+    private func save(_ value: SuiteReport) {
+        do {
+            let root = try directory(), data = try value.data()
+            let url = root.appendingPathComponent("BetterJIT-\(value.runID.uuidString).json")
+            try data.write(to: url, options: .atomic)
+            try data.write(to: root.appendingPathComponent("latest.json"), options: .atomic)
+            reportURL = url
+        } catch { storageError = "Report could not be saved: \(error.localizedDescription)" }
+    }
+    private func deviceModelIdentifier() -> String {
+        var info = utsname()
+        guard uname(&info) == 0 else { return "unknown" }
+        let data = withUnsafeBytes(of: info.machine) { Data($0.prefix { $0 != 0 }) }
+        return String(data: data, encoding: .ascii) ?? "unknown"
+    }
+    private func environment() -> [String: String] {
+        let info = Bundle.main.infoDictionary ?? [:]
+        return ["os": ProcessInfo.processInfo.operatingSystemVersionString,
+                "deviceClass": UIDevice.current.model, // Not the user's device name or UDID.
+                "hardwareModel": deviceModelIdentifier(),
+                "appVersion": info["CFBundleShortVersionString"] as? String ?? "unknown",
+                "appBuild": info["CFBundleVersion"] as? String ?? "unknown",
+                "sourceRevision": info["BetterJITSourceCommit"] as? String ?? "unrecorded",
+                "sourceStateAtProjectGeneration": info["BetterJITSourceState"] as? String ?? "unrecorded",
+                "sourceIdentityNote": "Captured at project generation; regenerate after source edits.",
+                "thermalAtStart": String(ProcessInfo.processInfo.thermalState.rawValue),
+                "thermalStateValues": "0 nominal, 1 fair, 2 serious, 3 critical",
+                "lowPowerAtStart": String(ProcessInfo.processInfo.isLowPowerModeEnabled),
+                "guestCompiler": CompiledGuest.compiler, "guestCompilerFlags": CompiledGuest.flags]
     }
 }
+
+@MainActor private struct FEXHostView: View {
+    @StateObject private var model = FEXHostModel()
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var standalone = false
+    @State private var offline = false
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("On-device correctness and timing").font(.headline)
+                    Text("New x86 code is translated by FEX on this device. No recorded Wasm or game files. Timings include the SDK bridge and are not a percentage of normal JIT speed.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Toggle("Launched from Home Screen, without debugger", isOn: $standalone).disabled(model.running)
+                    Toggle("Wi-Fi and cellular are off", isOn: $offline).disabled(model.running)
+                    Text("These switches record your test conditions; they do not change device settings.").font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        Button("Quick baseline") { model.run(.baseline, standalone: standalone, offline: offline) }.disabled(model.running)
+                        Button("Run full suite") { model.run(.full, standalone: standalone, offline: offline) }.disabled(model.running)
+                        if model.running { Button("Stop") { model.stop() } }
+                    }.buttonStyle(.bordered)
+                    if let transport = model.transport { ExecutorView(transport: transport).id(ObjectIdentifier(transport)).frame(height: 96) }
+                    if let report = model.report {
+                        Text("\(report.mode.rawValue.uppercased()): \(report.overall)").font(.headline).textSelection(.enabled)
+                        let passed = report.stages.flatMap(\.cases).filter { $0.status == .passed }.count
+                        let total = report.stages.reduce(0) { $0 + $1.cases.count }
+                        Text("\(passed) / \(total) checks passed").font(.subheadline)
+                        ForEach(report.stages) { stage in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("\(stage.status.rawValue.uppercased()) — \(stage.title)").font(.subheadline.bold())
+                                if let error = stage.error { Text(error).font(.caption).textSelection(.enabled) }
+                                ForEach(stage.cases) { record in
+                                    Text("\(record.status.rawValue.uppercased()): \(record.title)").font(.caption)
+                                    if let median = record.medianWarmMilliseconds {
+                                        Text(String(format: "Warm median: %.3f ms (%d samples)", median, record.warmMilliseconds.count)).font(.caption.monospacedDigit())
+                                    }
+                                    if let note = record.timingNote { Text(note).font(.caption).foregroundStyle(.secondary) }
+                                }
+                            }.padding(.vertical, 6)
+                        }
+                    }
+                    if let error = model.storageError { Text(error).font(.footnote).textSelection(.enabled) }
+                    if let url = model.reportURL { ShareLink("Share JSON report", item: url).disabled(model.running) }
+                    Text("Reports stay in this app until you share them. Backgrounding or stopping marks unfinished checks incomplete, not passed.").font(.caption).foregroundStyle(.secondary)
+                }.padding()
+            }.navigationTitle("BetterJIT FEX Host")
+        }
+        .onChange(of: scenePhase) { phase in if phase == .background { model.stop(interrupted: true) } }
+        .onDisappear { model.stop(interrupted: true) }
+    }
+}
+
 private struct ExecutorView: UIViewRepresentable {
     let transport: WebKitTransport
     func makeUIView(context: Context) -> WKWebView { transport.webView }
     func updateUIView(_ view: WKWebView, context: Context) {}
 }
-import WebKit

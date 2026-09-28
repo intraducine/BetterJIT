@@ -18,6 +18,8 @@ jobs:
         with:
           node-version: '22'
       - run: bash scripts/check-sdk.sh
+      - name: Device-suite runner and report regression checks (not device execution)
+        run: bash scripts/check-fexhost.sh
       - name: Native binding ownership checks (test shim, not FEX)
         run: python3 tests/sdk/native-binding.test.py
       - name: Real macOS WebKit lifecycle and native service
@@ -47,7 +49,7 @@ jobs:
       - name: Build native FEX and its independent consumer (compile only)
         run: |
           bash Backends/FEX/build-ios.sh
+          python3 Examples/FEXHost/prepare.py
           cd Examples/FEXHost
-          xcodegen generate
           xcodebuild -project BetterJITFEXHost.xcodeproj -scheme BetterJITFEXHost -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 # No automatic compilation, source/binary uploads, signing, publication or account restrictions.
