@@ -19,6 +19,8 @@ struct CaseRecord: Codable, Identifiable {
     var memoryMatched: Bool? = nil
     var error: String? = nil
     var timingNote: String? = nil
+    var benchmark: BenchmarkRecord? = nil
+    var region: RegionRecord? = nil
     static func median(_ samples: [Double]) -> Double? {
         guard !samples.isEmpty else { return nil }
         let values = samples.sorted(); let i = values.count / 2
