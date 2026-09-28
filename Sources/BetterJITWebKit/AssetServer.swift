@@ -23,7 +23,9 @@ final class AssetServer: @unchecked Sendable {
         try Task.checkCancellation()
         return try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { continuation in
-                queue.async {
+                // Retain the server until queued setup completes; listener and
+                // deadline callbacks below remain weak to avoid ownership cycles.
+                queue.async { [self] in
                     guard !self.stopped, self.listener == nil else { continuation.resume(throwing: RuntimeFault.closed); return }
                     self.started = continuation
                     do {

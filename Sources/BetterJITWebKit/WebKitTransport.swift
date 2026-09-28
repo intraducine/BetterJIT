@@ -88,7 +88,7 @@ import WebKit
         broker?.close(error)
         for work in serviceTasks.values { work.task.cancel(); work.deadline.cancel() }
         serviceTasks.removeAll()
-        webView.callAsyncJavaScript("window.BetterJIT?.stop()", arguments: [:], in: nil, contentWorld: .page, completionHandler: nil)
+        webView.callAsyncJavaScript("window.BetterJIT?.stop()", arguments: [:], in: nil, in: .page, completionHandler: nil)
         webView.stopLoading()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "betterjit")
         webView.navigationDelegate = nil
@@ -103,7 +103,7 @@ import WebKit
         guard bytes.count <= limits.maximumMessageBytes, let text = String(data: bytes, encoding: .utf8) else {
             throw RuntimeFault("messageTooLarge", "Native reply exceeds the configured limit.")
         }
-        webView.callAsyncJavaScript("window.BetterJIT.receive(message)", arguments: ["message": text], in: nil, contentWorld: .page) { [weak self] result in
+        webView.callAsyncJavaScript("window.BetterJIT.receive(message)", arguments: ["message": text], in: nil, in: .page) { [weak self] result in
             if case .failure(let error) = result { self?.fail(error) }
         }
     }
@@ -137,13 +137,13 @@ import WebKit
             try send(RPCMessage(session: token, id: m.id, kind: "serviceResponse", error: RuntimeFault("serviceDenied", "Native service was not registered."))); return
         }
         let task = Task { [weak self] in
-            let result: JSONValue; let error: RuntimeFault?
-            do { result = try await handler(m.payload); error = nil }
-            catch let e as RuntimeFault { result = .null; error = e }
-            catch { result = .null; error = RuntimeFault("nativeService", "The registered native service failed.") }
+            let result: JSONValue; let replyError: RuntimeFault?
+            do { result = try await handler(m.payload); replyError = nil }
+            catch let e as RuntimeFault { result = .null; replyError = e }
+            catch { result = .null; replyError = RuntimeFault("nativeService", "The registered native service failed.") }
             guard let self, !self.closed, !Task.isCancelled else { return }
             self.serviceTasks.removeValue(forKey: m.id)?.deadline.cancel()
-            do { try self.send(RPCMessage(session: self.token, id: m.id, kind: "serviceResponse", payload: result, error: error)) }
+            do { try self.send(RPCMessage(session: self.token, id: m.id, kind: "serviceResponse", payload: result, error: replyError)) }
             catch { self.fail(error) }
         }
         let deadline = Task { [weak self] in

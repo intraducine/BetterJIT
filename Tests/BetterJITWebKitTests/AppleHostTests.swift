@@ -48,6 +48,33 @@ final class AppleHostTests: XCTestCase {
         let bytes = try await session.readMemory(at: 8, count: 3)
         XCTAssertEqual(bytes, Data([4,5,6]))
     }
+    @MainActor func testNativeSwiftServiceFailureReplies() async throws {
+        // Exercise both catch branches: known runtime faults retain their details;
+        // arbitrary native errors must become sanitized replies, not time out.
+        let cases: [(handler: NativeService, expected: RuntimeFault)] = [
+            ({ _ in throw RuntimeFault("fixtureService", "Expected service failure") },
+             RuntimeFault("fixtureService", "Expected service failure")),
+            ({ _ in throw NSError(domain: "private-test-domain", code: 7,
+                                  userInfo: [NSLocalizedDescriptionKey: "private diagnostic"]) },
+             RuntimeFault("nativeService", "The registered native service failed."))
+        ]
+        for testCase in cases {
+            let (window, _, session) = try host(services: ["host.1": testCase.handler])
+            defer { session.close(); window.close() }
+            let capabilities = try await session.start()
+            guard capabilities.jspi else { throw XCTSkip("This macOS WebKit does not provide JSPI; no fallback pass.") }
+            let module = try await session.load(Self.module(nativeCall: true))
+            try await session.writeMemory(at: 0, bytes: Data([1,2,3]))
+            do {
+                _ = try await session.invoke(module, export: "run", results: [.i32])
+                XCTFail("A throwing native service returned successfully")
+            } catch {
+                let fault = error as? RuntimeFault
+                XCTAssertEqual(fault?.code, testCase.expected.code)
+                XCTAssertEqual(fault?.message, testCase.expected.message)
+            }
+        }
+    }
     @MainActor func testBusyGuestDeadline() async throws {
         let (window, _, session) = try host(timeout: 3)
         defer { session.close(); window.close() }
