@@ -36,7 +36,18 @@ self.onmessage = ({ data: m }) => {
   queued++; queuedBytes += size; activeIDs.add(m.id);
   // Service replies bypass this queue; otherwise JSPI suspensions deadlock it.
   tail = tail.then(async () => {
-    try { respond(await engine.command(m.operation, m.payload ?? {}), null); }
+    try {
+      const result = await engine.command(m.operation, m.payload ?? {});
+      // Snapshot only after the serialized command completes. Ordinary statistics
+      // stay unchanged; this is additive WebKit-worker diagnostic information.
+      if (m.operation === 'configure') result.extensions = [...result.extensions, 'fex.runtimeStatistics'];
+      if (m.operation === 'statistics' && engine.fex) {
+        const s = engine.fex.runtime.stats;
+        result.fex = { schema: 1, units: s.units, regions: s.regions,
+          regionUnits: s.regionUnits, flushes: s.flushes };
+      }
+      respond(result, null);
+    }
     catch (e) { if (e.code === 'timeout') engine.close(); respond(null, { code: e.code || 'execution', message: e instanceof Fault ? e.message.slice(0,1024) : 'Guest execution failed.' }); }
     finally { queued--; queuedBytes -= size; activeIDs.delete(m.id); }
   });

@@ -25,7 +25,7 @@ import BetterJITWebKit
                 guard data.count <= 4 * 1024 * 1024 else { throw SuiteFailure("Previous report is too large.") }
                 let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
                 var restored = try decoder.decode(SuiteReport.self, from: data)
-                guard restored.schema == 1 else { throw SuiteFailure("Unsupported previous report schema.") }
+                guard (1...2).contains(restored.schema) else { throw SuiteFailure("Unsupported previous report schema.") }
                 restored.markInterrupted(); report = restored; save(restored)
             }
         } catch { storageError = "Previous report could not be restored: \(error.localizedDescription)" }
@@ -88,7 +88,8 @@ import BetterJITWebKit
                 "thermalAtStart": String(ProcessInfo.processInfo.thermalState.rawValue),
                 "thermalStateValues": "0 nominal, 1 fair, 2 serious, 3 critical",
                 "lowPowerAtStart": String(ProcessInfo.processInfo.isLowPowerModeEnabled),
-                "guestCompiler": CompiledGuest.compiler, "guestCompilerFlags": CompiledGuest.flags]
+                "guestCompiler": CompiledGuest.compiler, "guestCompilerFlags": CompiledGuest.flags,
+                "simdCompiler": ExtendedGuest.compiler, "simdCompilerFlags": ExtendedGuest.flags]
     }
 }
 
@@ -112,6 +113,11 @@ import BetterJITWebKit
                         Button("Run full suite") { model.run(.full, standalone: standalone, offline: offline) }.disabled(model.running)
                         if model.running { Button("Stop") { model.stop() } }
                     }.buttonStyle(.bordered)
+                    Button("Run extended suite (SIMD / regions / long timings)") {
+                        model.run(.extended, standalone: standalone, offline: offline)
+                    }.buttonStyle(.borderedProminent).disabled(model.running)
+                    Text("Extended timings target 100–500 ms per call with bounded calibration. Leave the app foregrounded; Stop preserves a partial report.")
+                        .font(.caption).foregroundStyle(.secondary)
                     if let transport = model.transport { ExecutorView(transport: transport).id(ObjectIdentifier(transport)).frame(height: 96) }
                     if let report = model.report {
                         Text("\(report.mode.rawValue.uppercased()): \(report.overall)").font(.headline).textSelection(.enabled)
@@ -126,6 +132,14 @@ import BetterJITWebKit
                                     Text("\(record.status.rawValue.uppercased()): \(record.title)").font(.caption)
                                     if let median = record.medianWarmMilliseconds {
                                         Text(String(format: "Warm median: %.3f ms (%d samples)", median, record.warmMilliseconds.count)).font(.caption.monospacedDigit())
+                                    }
+                                    if let benchmark = record.benchmark, let n = benchmark.selectedIterations {
+                                        Text("\(n) iterations; \(benchmark.probes.count) calibration probes; timing window \(benchmark.windowSatisfied ? "complete" : "incomplete")")
+                                            .font(.caption.monospacedDigit())
+                                    }
+                                    if let region = record.region {
+                                        Text("Region priming: \(region.checkedPrimingCalls); post-installation checks: \(region.postInstallationCheckedCalls)")
+                                            .font(.caption.monospacedDigit())
                                     }
                                     if let note = record.timingNote { Text(note).font(.caption).foregroundStyle(.secondary) }
                                 }

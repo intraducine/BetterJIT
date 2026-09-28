@@ -84,8 +84,27 @@ private actor ProbeByteService {
     func counters() async -> [String: Int] {
         if let fex {
             let stats = await fex.statistics()
-            return ["unitRequests": stats.unitRequests, "regionRequests": stats.regionRequests,
-                    "returnedTranslationBytes": stats.returnedBytes, "rejectedRequests": stats.rejectedRequests]
+            var result = ["unitRequests": stats.unitRequests, "regionRequests": stats.regionRequests,
+                          "returnedTranslationBytes": stats.returnedBytes, "rejectedRequests": stats.rejectedRequests]
+            if let session, session.state == .ready,
+               session.capabilities?.extensions.contains("fex.runtimeStatistics") == true {
+                do {
+                    let reply = try await session.request("statistics")
+                    if reply["fex"]?["schema"]?.integer == 1 {
+                        let fields = ["units":"unitModulesInstalled", "regions":"regionModulesInstalled",
+                                      "regionUnits":"regionUnitsInstalled", "flushes":"fexCacheFlushes"]
+                        var snapshot: [String:Int] = [:]
+                        for (key,label) in fields {
+                            guard let count = reply["fex"]?[key]?.integer, count >= 0 else {
+                                throw SuiteFailure("Invalid FEX runtime statistics.")
+                            }
+                            snapshot[label] = count
+                        }
+                        result.merge(snapshot) { _,new in new }; result["runtimeStatisticsAvailable"] = 1
+                    }
+                } catch { result["runtimeStatisticsUnavailable"] = 1 }
+            }
+            return result
         }
         return ["nativeServiceCalls": await bytes.calls]
     }

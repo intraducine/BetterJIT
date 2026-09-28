@@ -2,20 +2,22 @@
 import Foundation
 
 enum GuestABI: String, Codable, CaseIterable { case sysv, win64 }
-enum SuiteMode: String, Codable { case baseline, full }
-enum StageKind: String, Codable { case baseline, compiled, nativeService, lifecycle }
+enum SuiteMode: String, Codable { case baseline, full, extended }
+enum StageKind: String, Codable { case baseline, compiled, nativeService, lifecycle, simd, region }
 
 struct DeviceCase: Codable {
     let id: String
     let title: String
     let entry: UInt32
-    let arguments: [UInt64]
-    let expected: UInt64
+    var arguments: [UInt64]
+    var expected: UInt64
     var input: Data? = nil
     var expectedMemory: Data? = nil
     var warmSamples: Int = 0
     // Reset/read back the complete guard+payload region outside the timed call.
     var memoryOffset: UInt32 = 0x01000000
+    var benchmark: BenchmarkKind? = nil
+    var requiresRegion = false
 }
 struct DeviceStage {
     let id: String
@@ -24,7 +26,8 @@ struct DeviceStage {
     let abi: GuestABI?
     let cases: [DeviceCase]
     var image: Data {
-        if kind == .compiled { return CompiledGuest.image(abi!) }
+        if kind == .simd { return ExtendedGuest.image(abi!) }
+        if kind == .compiled || kind == .region { return CompiledGuest.image(abi!) }
         return Data(abi == .win64 ? [0x48,0x89,0xc8,0x48,0x01,0xd0,0xc3] : [0x48,0x89,0xf8,0x48,0x01,0xf0,0xc3])
     }
 }
@@ -35,6 +38,7 @@ enum SuitePlan {
     static let addressWindow: UInt64 = 0x500000000000
     static let guardLength = 19 // Deliberately unaligned byte payload.
     static func stages(_ mode: SuiteMode) -> [DeviceStage] {
+        if mode == .extended { return stages(.full) + AdvancedPlan.stages() }
         var stages = GuestABI.allCases.map { abi in
             DeviceStage(id: "baseline-" + abi.rawValue, title: "Working baseline / " + abi.rawValue,
                         kind: .baseline, abi: abi,

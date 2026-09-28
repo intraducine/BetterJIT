@@ -18,6 +18,9 @@ targets:
       - path: SuitePlan.swift
       - path: SuiteReport.swift
       - path: GuestImage.swift
+      - path: ExtendedGuest.swift
+      - path: AdvancedPlan.swift
+      - path: BenchmarkPolicy.swift
       - path: ../../Backends/FEX/Swift/LinkedFEXTranslator.swift
     dependencies:
       - package: BetterJIT
@@ -34,16 +37,26 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: org.example.betterjit.fexhost
         SWIFT_VERSION: '5.0'
         TARGETED_DEVICE_FAMILY: '1,2'
-        MARKETING_VERSION: '0.2.0'
-        CURRENT_PROJECT_VERSION: '2'
+        MARKETING_VERSION: '0.3.0'
+        CURRENT_PROJECT_VERSION: '3'
         BETTERJIT_SOURCE_COMMIT: unrecorded
         BETTERJIT_SOURCE_STATE: unrecorded
     info:
       path: Info.plist
       properties:
         CFBundleDisplayName: BetterJIT FEX Host
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         BetterJITSourceCommit: $(BETTERJIT_SOURCE_COMMIT)
         BetterJITSourceState: $(BETTERJIT_SOURCE_STATE)
         UILaunchScreen: {}
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+schemes:
+  BetterJITFEXHost:
+    build:
+      targets:
+        BetterJITFEXHost: all
+    run:
+      config: Release
+      debugEnabled: false

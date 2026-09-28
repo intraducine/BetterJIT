@@ -57,10 +57,15 @@ struct SuiteReport: Codable {
         return "INCOMPLETE"
     }
     init(mode: SuiteMode, environment: [String: String], conditions: [String: String]) {
-        schema = 1; suite = SuitePlan.version
+        schema = mode == .extended ? 2 : 1; suite = mode == .extended ? AdvancedPlan.version : SuitePlan.version
         timingContract = "Monotonic wall time around one SDK call, including bridge, translation misses and WebKit execution. Input reset, readback and reference checks are excluded. First-call is not guaranteed cold: native FEX caches can survive sessions. No native-FEX baseline, pure guest FPS, JIT ratio or resident-RAM measurement. Warmup calls are checked but untimed."
         runID = UUID(); startedAt = Date(); self.mode = mode; self.environment = environment; self.conditions = conditions
-        fixtureHashes = ["source": CompiledGuest.sourceSHA256, "sysv": CompiledGuest.sysvSHA256, "win64": CompiledGuest.win64SHA256]
+        var hashes = ["source": CompiledGuest.sourceSHA256, "sysv": CompiledGuest.sysvSHA256, "win64": CompiledGuest.win64SHA256]
+        if mode == .extended {
+            hashes = ["source": CompiledGuest.sourceSHA256, "sysv": CompiledGuest.sysvSHA256, "win64": CompiledGuest.win64SHA256,
+                                  "simdSource": ExtendedGuest.sourceSHA256, "simdSysV": ExtendedGuest.sysvSHA256, "simdWin64": ExtendedGuest.win64SHA256]
+        }
+        fixtureHashes = hashes
         stages = SuitePlan.stages(mode).map { stage in
             StageRecord(id: stage.id, title: stage.title, kind: stage.kind, abi: stage.abi,
                         cases: stage.cases.map { CaseRecord(id: $0.id, title: $0.title, expected: String($0.expected)) })
@@ -83,6 +88,10 @@ struct SuiteReport: Codable {
         // Include computed summaries without losing the full individual sample series.
         var object = try JSONSerialization.jsonObject(with: encoder.encode(self)) as! [String: Any]
         object["overall"] = overall
+        if mode == .extended {
+            let benchmarks = stages.flatMap(\.cases).compactMap(\.benchmark)
+            object["calibratedTimingStatus"] = overall == "PASS" && benchmarks.count == 6 && benchmarks.allSatisfy(\.windowSatisfied) ? "COMPLETE" : "INCOMPLETE"
+        }
         object["warmMediansMilliseconds"] = Dictionary(uniqueKeysWithValues: stages.flatMap { stage in
             stage.cases.compactMap { c -> (String, Double)? in c.medianWarmMilliseconds.map { (stage.id + "/" + c.id, $0) } }
         })
