@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Real worker routing with a fixture engine; not a native-FEX execution test.
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
-const code=fs.readFileSync('Sources/BetterJITWebKit/Resources/worker.mjs','utf8').replace(/^import .*?;\n/m,'');
+const code=fs.readFileSync('Sources/BetterJITWebKit/Resources/worker.mjs','utf8').replace(/^import .*?;\n/gm,'');
 class Fault extends Error {constructor(code,message){super(message);this.code=code;}}
 const replies=[],caps=()=>({protocolVersion:1,extensions:['statistics']});
 let backend;

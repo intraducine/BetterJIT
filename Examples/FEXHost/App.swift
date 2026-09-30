@@ -30,14 +30,15 @@ import BetterJITWebKit
             }
         } catch { storageError = "Previous report could not be restored: \(error.localizedDescription)" }
     }
-    func run(_ mode: SuiteMode, standalone: Bool, offline: Bool) {
+    func run(_ mode: SuiteMode, standalone: Bool, offline: Bool, mappedTransport: Bool = false) {
         guard !running else { return }
         running = true; storageError = nil; reportURL = nil
         let runner = SuiteRunner(mode: mode, environment: environment(),
                                  conditions: ["userReportsHomeScreenNoDebugger": String(standalone), "userReportsWiFiAndCellularOff": String(offline),
-                                              "conditionsIndependentlyVerified": "false"],
+                                              "conditionsIndependentlyVerified": "false", "mappedTransportRequested": String(mappedTransport)],
                                  factory: { [weak self] stage in
-            DeviceExecutor(stage: stage, mount: { [weak self] view in self?.transport = view })
+            DeviceExecutor(stage: stage, mappedTransport: mappedTransport ? .required : .disabled,
+                           mount: { [weak self] view in self?.transport = view })
         }, timingAllowed: { ProcessInfo.processInfo.thermalState != .serious && ProcessInfo.processInfo.thermalState != .critical },
                                  changed: { [weak self] value in self?.report = value; self?.save(value) })
         self.runner = runner
@@ -116,6 +117,10 @@ import BetterJITWebKit
                     Button("Run extended suite (SIMD / regions / long timings)") {
                         model.run(.extended, standalone: standalone, offline: offline)
                     }.buttonStyle(.borderedProminent).disabled(model.running)
+                    Button("Run mapped extended suite") {
+                        model.run(.extended, standalone: standalone, offline: offline, mappedTransport: true)
+                    }.buttonStyle(.borderedProminent).disabled(model.running)
+                    Text("Mapped mode requires the OPFS/native-mmap data lane; ordinary Extended remains the copied-control/data baseline.").font(.caption).foregroundStyle(.secondary)
                     Text("Extended timings target 100–500 ms per call with bounded calibration. Leave the app foregrounded; Stop preserves a partial report.")
                         .font(.caption).foregroundStyle(.secondary)
                     if let transport = model.transport { ExecutorView(transport: transport).id(ObjectIdentifier(transport)).frame(height: 96) }

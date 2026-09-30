@@ -25,9 +25,11 @@ private actor ProbeByteService {
     private let bytes = ProbeByteService()
     private var module: String?
     private var aborted = false
+    private let mappedTransport: MappedTransportPreference
     private let mount: @MainActor (WebKitTransport?) -> Void
-    init(stage: DeviceStage, mount: @escaping @MainActor (WebKitTransport?) -> Void) {
-        self.stage = stage; self.mount = mount
+    init(stage: DeviceStage, mappedTransport: MappedTransportPreference = .disabled,
+         mount: @escaping @MainActor (WebKitTransport?) -> Void) {
+        self.stage = stage; self.mappedTransport = mappedTransport; self.mount = mount
     }
     private func now() -> UInt64 { DispatchTime.now().uptimeNanoseconds }
     private func elapsed(_ start: UInt64) -> Double { Double(now() - start) / 1_000_000 }
@@ -37,13 +39,13 @@ private actor ProbeByteService {
         let transport: WebKitTransport
         if stage.kind == .nativeService {
             let service = bytes
-            transport = try WebKitTransport(services: ["host.1": { try await service.handle($0) }])
+            transport = try WebKitTransport(services: ["host.1": { try await service.handle($0) }], mappedTransport: mappedTransport)
         } else {
             let abi: LinkedFEXTranslator.ABI = stage.abi == .win64 ? .win64 : .sysv
             let image = stage.image
             let native = try LinkedFEXTranslator(image: image, guestBase: SuitePlan.guestBase, abi: abi)
             let service = try FEXService(translator: native, image: image); fex = service
-            transport = try WebKitTransport(services: ["fex": { try await service.handle($0) }])
+            transport = try WebKitTransport(services: ["fex": { try await service.handle($0) }], mappedTransport: mappedTransport)
         }
         evidence.timings["nativeSetup"] = elapsed(start)
         self.transport = transport; mount(transport)
@@ -55,7 +57,9 @@ private actor ProbeByteService {
         let boot = now(); let caps = try await session.start(); try ensureActive()
         evidence.timings["webKitStartup"] = elapsed(boot)
         evidence.capabilities = ["wasm": String(caps.wasm), "jspi": String(caps.jspi), "protocol": String(caps.protocolVersion),
-                                 "extensions": caps.extensions.sorted().joined(separator: ","), "transport": "copied messages; not OPFS"]
+                                 "extensions": caps.extensions.sorted().joined(separator: ","),
+                                 "transport": transport.mappedTransportActive ? "OPFS/native mmap data lane + copied control RPC" : "copied messages; mapped lane inactive"]
+        if let reason = transport.mappedTransportFallbackReason { evidence.capabilities["mappedTransportFallback"] = reason }
         guard caps.jspi else { throw RuntimeFault("unsupported", "WebKit JSPI is unavailable; no fallback is substituted.") }
         let open = now()
         if stage.kind == .nativeService { module = try await session.load(SuitePlan.byteModule, as: "native-roundtrip") }
@@ -104,9 +108,18 @@ private actor ProbeByteService {
                     }
                 } catch { result["runtimeStatisticsUnavailable"] = 1 }
             }
+            addMappedCounters(&result)
             return result
         }
-        return ["nativeServiceCalls": await bytes.calls]
+        var result = ["nativeServiceCalls": await bytes.calls]
+        addMappedCounters(&result); return result
+    }
+    private func addMappedCounters(_ result: inout [String: Int]) {
+        guard let stats = transport?.mappedTransportStatistics else { return }
+        result["mappedTransportActive"] = stats.active ? 1 : 0
+        result["mappedNativeReadBytes"] = stats.nativeReadBytes
+        result["mappedNativeWriteBytes"] = stats.nativeWriteBytes
+        result["mappedServiceCalls"] = stats.mappedServiceCalls
     }
     func abort() { aborted = true; session?.close(); transport?.close() }
     func close() async {
