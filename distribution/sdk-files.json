@@ -78,6 +78,17 @@
     "tests/sdk/mapped-lane.test.mjs": "tests/sdk/mapped-lane.test.mjs",
     "tests/sdk/native-binding.test.py": "tests/sdk/native-binding.test.py",
     "tests/sdk/native-service/Package.swift": "tests/sdk/native-service/Package.swift",
-    "tests/sdk/native-service/Sources/NativeServiceHost/main.swift": "tests/sdk/native-service/Sources/NativeServiceHost/main.swift"
+    "tests/sdk/native-service/Sources/NativeServiceHost/main.swift": "tests/sdk/native-service/Sources/NativeServiceHost/main.swift",
+    "Examples/FEXHost/DiagnosticModel.swift": "Examples/FEXHost/DiagnosticModel.swift",
+    "Examples/FEXHost/DiagnosticPlan.swift": "Examples/FEXHost/DiagnosticPlan.swift",
+    "Examples/FEXHost/NativeDiagnostics.swift": "Examples/FEXHost/NativeDiagnostics.swift",
+    "Examples/FEXHost/DiagnosticExecutor.swift": "Examples/FEXHost/DiagnosticExecutor.swift",
+    "Examples/FEXHost/DiagnosticRunner.swift": "Examples/FEXHost/DiagnosticRunner.swift",
+    "Examples/FEXHost/SyscallGuest.swift": "Examples/FEXHost/SyscallGuest.swift",
+    "Examples/FEXHost/DIAGNOSTICS.md": "Examples/FEXHost/DIAGNOSTICS.md",
+    "Sources/BetterJITWebKit/Resources/diagnostics.mjs": "Sources/BetterJITWebKit/Resources/diagnostics.mjs",
+    "Sources/BetterJITWebKit/Resources/diagnostic-worker.mjs": "Sources/BetterJITWebKit/Resources/diagnostic-worker.mjs",
+    "tests/fexhost/DiagnosticTests.swift": "tests/fexhost/DiagnosticTests.swift",
+    "tests/sdk/diagnostics.test.mjs": "tests/sdk/diagnostics.test.mjs"
   }
 }

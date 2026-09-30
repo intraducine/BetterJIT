@@ -252,7 +252,9 @@ export class Engine {
     this.metrics.cumulativeModuleBytes += dispatcher.length;
     const runtime = globalThis.FexRuntime.createRuntime({ ...cfg, threadBase: undefined, mem: memory,
       now: () => performance.now(), dispatcher, translateAsync: unit, translateRegionAsync: region,
-      syscall: () => { throw new Fault('unsupportedSyscall', 'No guest operating-system adapter is installed.'); },
+      // fex-runtime provides a deliberately small synchronous Linux subset
+      // (write/yield/getpid/gettid/time) and returns -ENOSYS for everything else.
+      // This is a bring-up adapter, not a Wine-capable OS layer.
       codeBudget: this.limits.maximumResidentModuleBytes, maximumTableElements: this.limits.maximumTableElements });
     this.memory = memory; this.fex = { cfg, state, runtime, imageBytes: image.length };
     return { guestABI: cfg.guestAbi, memoryPages: cfg.memPages };

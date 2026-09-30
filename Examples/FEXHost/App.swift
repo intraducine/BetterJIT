@@ -15,8 +15,11 @@ import BetterJITWebKit
     @Published var transport: WebKitTransport?
     @Published var reportURL: URL?
     @Published var storageError: String?
+    @Published var diagnosticReport: DiagnosticReport?
+    @Published var diagnosticReportURL: URL?
     private var task: Task<Void, Never>?
     private var runner: SuiteRunner?
+    private var diagnosticRunner: DiagnosticRunner?
     init() {
         do {
             let url = try directory().appendingPathComponent("latest.json")
@@ -29,6 +32,16 @@ import BetterJITWebKit
                 restored.markInterrupted(); report = restored; save(restored)
             }
         } catch { storageError = "Previous report could not be restored: \(error.localizedDescription)" }
+        do {
+            let url = try directory().appendingPathComponent("latest-diagnostic.json")
+            if FileManager.default.fileExists(atPath: url.path) {
+                let data = try Data(contentsOf: url)
+                guard data.count <= 8 * 1024 * 1024 else { throw SuiteFailure("Previous diagnostic report is too large.") }
+                let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+                var restored = try decoder.decode(DiagnosticReport.self, from: data)
+                restored.markInterrupted(); diagnosticReport = restored; saveDiagnostic(restored)
+            }
+        } catch { storageError = "Previous diagnostic report could not be restored: \(error.localizedDescription)" }
     }
     func run(_ mode: SuiteMode, standalone: Bool, offline: Bool, mappedTransport: Bool = false) {
         guard !running else { return }
@@ -51,15 +64,43 @@ import BetterJITWebKit
             self.transport = nil; self.running = false; self.runner = nil; self.task = nil
         }
     }
+    func runDiagnostics(_ preset: DiagnosticPreset, includeStress: Bool, standalone: Bool, offline: Bool) {
+        guard !running else { return }
+        running = true; storageError = nil; diagnosticReportURL = nil
+        let runner = DiagnosticRunner(preset:preset, includeStress:includeStress, environment:environment(),
+                                      conditions:["userReportsHomeScreenNoDebugger":String(standalone),
+                                                  "userReportsWiFiAndCellularOff":String(offline),
+                                                  "conditionsIndependentlyVerified":"false"],
+                                      mount:{ [weak self] view in self?.transport = view },
+                                      changed:{ [weak self] value in self?.diagnosticReport=value; self?.saveDiagnostic(value) })
+        diagnosticRunner = runner
+        task = Task { [weak self] in
+            var result = await runner.run()
+            guard let self else { return }
+            result.environment["thermalAtEnd"] = String(ProcessInfo.processInfo.thermalState.rawValue)
+            result.environment["lowPowerAtEnd"] = String(ProcessInfo.processInfo.isLowPowerModeEnabled)
+            self.diagnosticReport = result; self.saveDiagnostic(result)
+            self.transport=nil; self.running=false; self.diagnosticRunner=nil; self.task=nil
+        }
+    }
     func stop(interrupted: Bool = false) {
         guard running else { return }
-        runner?.stop(interrupted: interrupted); task?.cancel()
+        runner?.stop(interrupted: interrupted); diagnosticRunner?.stop(interrupted: interrupted); task?.cancel()
     }
     private func directory() throws -> URL {
         let documents = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let url = documents.appendingPathComponent("BetterJITBenchmarks", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+    private func saveDiagnostic(_ value: DiagnosticReport) {
+        do {
+            let root=try directory(), data=try value.data()
+            let url=root.appendingPathComponent("BetterJIT-Diagnostic-\(value.runID.uuidString).json")
+            try data.write(to:url,options:.atomic)
+            try data.write(to:root.appendingPathComponent("latest-diagnostic.json"),options:.atomic)
+            diagnosticReportURL=url
+        } catch { storageError="Diagnostic report could not be saved: \(error.localizedDescription)" }
     }
     private func save(_ value: SuiteReport) {
         do {
@@ -99,16 +140,48 @@ import BetterJITWebKit
     @Environment(\.scenePhase) private var scenePhase
     @State private var standalone = false
     @State private var offline = false
+    @State private var diagnosticPreset: DiagnosticPreset = .full
+    @State private var includeStress = false
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("On-device correctness and timing").font(.headline)
+                    Text("Runtime diagnostics").font(.headline)
+                    Toggle("Launched from Home Screen, without debugger", isOn:$standalone).disabled(model.running)
+                    Toggle("Wi-Fi and cellular are off", isOn:$offline).disabled(model.running)
+                    Text("These switches only record your stated test conditions; they do not change or independently verify device state.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Picker("Preset", selection:$diagnosticPreset) {
+                        ForEach(DiagnosticPreset.allCases) { preset in Text(preset.title).tag(preset) }
+                    }.disabled(model.running)
+                    Toggle("Include stress probes (may terminate WebContent)", isOn:$includeStress).disabled(model.running)
+                    Button("Run \(diagnosticPreset.title)") {
+                        model.runDiagnostics(diagnosticPreset,includeStress:includeStress,standalone:standalone,offline:offline)
+                    }.buttonStyle(.borderedProminent).disabled(model.running)
+                    if model.running { Button("Stop current run") { model.stop() }.buttonStyle(.bordered) }
+                    Text("Full diagnostics run architecture-level probes in fresh sessions and report unsupported Wine/DXMT pieces explicitly instead of treating them as passes.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if let diagnostic = model.diagnosticReport {
+                        Text("DIAGNOSTICS: \(diagnostic.overall)").font(.headline).textSelection(.enabled)
+                        let passed=diagnostic.records.filter{$0.status == .passed}.count
+                        let unsupported=diagnostic.records.filter{$0.status == .unsupported}.count
+                        Text("\(passed) passed; \(unsupported) unsupported; \(diagnostic.records.count) total").font(.subheadline)
+                        ForEach(diagnostic.records) { record in
+                            VStack(alignment:.leading,spacing:4) {
+                                Text("\(record.status.rawValue.uppercased()) — \(record.title)").font(.caption.bold())
+                                if let error=record.error { Text(error).font(.caption).textSelection(.enabled) }
+                                if let reason=record.details["reason"] { Text(reason).font(.caption).foregroundStyle(.secondary) }
+                                if let ms=record.durationMilliseconds { Text(String(format:"%.1f ms",ms)).font(.caption.monospacedDigit()) }
+                            }
+                        }
+                        if let url=model.diagnosticReportURL { ShareLink("Share diagnostic JSON",item:url).disabled(model.running) }
+                    }
+
+                    Divider()
+                    Text("Regression suites").font(.headline)
+                    Text("On-device correctness and timing").font(.subheadline)
                     Text("New x86 code is translated by FEX on this device. No recorded Wasm or game files. Timings include the SDK bridge and are not a percentage of normal JIT speed.")
                         .font(.footnote).foregroundStyle(.secondary)
-                    Toggle("Launched from Home Screen, without debugger", isOn: $standalone).disabled(model.running)
-                    Toggle("Wi-Fi and cellular are off", isOn: $offline).disabled(model.running)
-                    Text("These switches record your test conditions; they do not change device settings.").font(.caption).foregroundStyle(.secondary)
                     HStack {
                         Button("Quick baseline") { model.run(.baseline, standalone: standalone, offline: offline) }.disabled(model.running)
                         Button("Run full suite") { model.run(.full, standalone: standalone, offline: offline) }.disabled(model.running)

@@ -126,8 +126,12 @@ import WebKit
         webView.stopLoading()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "betterjit")
         webView.navigationDelegate = nil
-        // The host may retain webView after close; replace its execution document.
-        webView.loadHTMLString("<!doctype html><title>Closed</title>", baseURL: nil)
+        // The page's stop() gives the worker a short bounded window to close and
+        // remove its OPFS lane. Replace the document after that cleanup window.
+        let closingView = webView
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            closingView.loadHTMLString("<!doctype html><title>Closed</title>", baseURL: nil)
+        }
         server?.stop(); server = nil
         onFailure?(RuntimeFault.normalizing(error))
     }
@@ -309,7 +313,7 @@ import WebKit
         decisionHandler(!closed && action.request.url == documentURL && action.targetFrame?.isMainFrame == true ? .allow : .cancel)
     }
     private static func assets(token: String) throws -> [String: (Data, String)] {
-        let names = ["index.html", "page.mjs", "worker.mjs", "engine.mjs", "wasm-module.mjs", "fex-runtime.js", "mapped-lane.mjs"]
+        let names = ["index.html", "page.mjs", "worker.mjs", "engine.mjs", "wasm-module.mjs", "fex-runtime.js", "mapped-lane.mjs", "diagnostics.mjs", "diagnostic-worker.mjs"]
         var result: [String: (Data, String)] = [:]
         for name in names {
             guard let url = Bundle.module.url(forResource: name, withExtension: nil, subdirectory: "Resources") else {

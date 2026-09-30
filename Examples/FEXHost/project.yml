@@ -21,6 +21,12 @@ targets:
       - path: ExtendedGuest.swift
       - path: AdvancedPlan.swift
       - path: BenchmarkPolicy.swift
+      - path: DiagnosticModel.swift
+      - path: DiagnosticPlan.swift
+      - path: NativeDiagnostics.swift
+      - path: DiagnosticExecutor.swift
+      - path: DiagnosticRunner.swift
+      - path: SyscallGuest.swift
       - path: ../../Backends/FEX/Swift/LinkedFEXTranslator.swift
     dependencies:
       - package: BetterJIT
@@ -32,13 +38,14 @@ targets:
       - package: BetterJITFEXNative
         product: CFEXWasm
       - sdk: libc++.tbd
+      - sdk: Metal.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.example.betterjit.fexhost
         SWIFT_VERSION: '5.0'
         TARGETED_DEVICE_FAMILY: '1,2'
-        MARKETING_VERSION: '0.3.0'
-        CURRENT_PROJECT_VERSION: '3'
+        MARKETING_VERSION: '0.4.0'
+        CURRENT_PROJECT_VERSION: '4'
         BETTERJIT_SOURCE_COMMIT: unrecorded
         BETTERJIT_SOURCE_STATE: unrecorded
     info:

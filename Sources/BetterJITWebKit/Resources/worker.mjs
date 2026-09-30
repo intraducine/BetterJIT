@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { Engine, capabilities, Fault } from './engine.mjs';
 import { MappedLane } from './mapped-lane.mjs';
+import { runDiagnostic } from './diagnostics.mjs';
 
 let session = null, queued = 0, queuedBytes = 0, tail = Promise.resolve(), nextService = 0;
 const pending = new Map(), activeIDs = new Set();
@@ -71,10 +72,18 @@ async function confirmMapped(payload) {
   return { active: 0, version: 1 };
 }
 
-self.onmessage = ({ data: m }) => {
+self.onmessage = async ({ data: m }) => {
   if (!m || m.v !== 1 || typeof m.session !== 'string' || m.session.length > 128 || typeof m.id !== 'string' || m.id.length > 128) return;
   if (session === null && m.kind === 'request' && m.operation === 'configure') session = m.session;
   if (m.session !== session) return;
+  if (m.kind === 'shutdown') {
+    const lane = mappedLane; mappedLane = null; mappedActive = false;
+    try { if (lane) await lane.close(true); } catch {}
+    engine.close();
+    postMessage({ v: 1, session, id: m.id, kind: 'shutdownAck', payload: null });
+    self.close();
+    return;
+  }
   if (m.kind === 'serviceResponse') {
     const p = pending.get(m.id); if (!p) return;
     if (m.error) p.reject(new Fault(m.error.code, m.error.message)); else p.resolve(m.payload);
@@ -99,10 +108,20 @@ self.onmessage = ({ data: m }) => {
     try {
       let result;
       if (m.operation === 'mapped.confirm') result = await confirmMapped(m.payload ?? {});
-      else {
+      else if (m.operation === 'diagnostic.run') {
+        try {
+          result = await runDiagnostic(m.payload?.name, m.payload?.args ?? {}, { hostCall, mappedActive });
+        } catch (error) {
+          const message = error instanceof Error ? error.message.slice(0,512) : 'Diagnostic execution failed.';
+          throw new Fault('diagnostic', message);
+        }
+      } else {
         result = await engine.command(m.operation, m.payload ?? {});
         if (m.operation === 'configure') {
-          result.extensions = [...result.extensions, 'fex.runtimeStatistics'];
+          result.extensions = [...result.extensions, 'fex.runtimeStatistics', 'diagnostics.v1'];
+          if (Array.isArray(m.payload?.services) && m.payload.services.includes('fex')) {
+            result.extensions.push('fex.linuxSyscallSubset');
+          }
           await configureMapped(m.payload ?? {}, result);
         }
         // Snapshot only after the serialized command completes. Ordinary statistics
