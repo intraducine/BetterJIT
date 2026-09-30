@@ -52,11 +52,11 @@ async function nativeRoundTrip(args,ctx) {
   const metrics={}, counters={roundTrips:0,totalBytes:0};
   for (const n of sizes) {
     if (!Number.isInteger(n) || n<1 || n>4*1024*1024) throw new Error('invalid diagnostic size');
-    const bytes=Uint8Array.from({length:n},(_,i)=>(i*31+7)&255), text=b64(bytes);
+    const bytes=Uint8Array.from({length:n},(_,i)=>(i*31+7)&255);
     const samples=[];
     for (let r=0;r<repeats;r++) {
-      const t=now(), reply=await ctx.hostCall('diag.echo',text); samples.push(now()-t);
-      const got=fromB64(reply);
+      const t=now(), reply=await ctx.hostCall('diag.echo',bytes); samples.push(now()-t);
+      const got=reply instanceof Uint8Array ? reply : fromB64(reply);
       if (got.length!==bytes.length || fnv(got)!==fnv(bytes)) throw new Error('native round-trip checksum mismatch');
       counters.roundTrips++; counters.totalBytes += n;
     }

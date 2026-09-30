@@ -15,6 +15,22 @@ import Foundation
 }
 public typealias NativeService = @Sendable (JSONValue) async throws -> JSONValue
 
+/// Optional service API for one binary leaf plus structured JSON metadata.
+/// WebKit transports can carry the bytes through an optimized data plane while
+/// preserving the original JSON service API for existing consumers.
+public struct NativeBinaryServiceRequest: Sendable, Equatable {
+    public let payload: JSONValue
+    public let bytes: Data?
+    public init(payload: JSONValue, bytes: Data?) {
+        self.payload = payload; self.bytes = bytes
+    }
+}
+public enum NativeBinaryServiceResponse: Sendable, Equatable {
+    case json(JSONValue)
+    case bytes(Data)
+}
+public typealias NativeBinaryService = @Sendable (NativeBinaryServiceRequest) async throws -> NativeBinaryServiceResponse
+
 @MainActor public final class RuntimeSession {
     public enum State: String, Sendable { case idle, starting, ready, closed, failed }
     public private(set) var state: State = .idle

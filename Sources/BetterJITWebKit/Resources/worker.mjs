@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { Engine, capabilities, Fault } from './engine.mjs';
-import { MappedLane } from './mapped-lane.mjs';
+import { MappedLane, encodeCopiedBinaryPayload, decodeCopiedBinaryResponse } from './mapped-lane.mjs';
 import { runDiagnostic } from './diagnostics.mjs';
 
 let session = null, queued = 0, queuedBytes = 0, tail = Promise.resolve(), nextService = 0;
 const pending = new Map(), activeIDs = new Set();
 const sizeOf = value => new TextEncoder().encode(JSON.stringify(value)).length;
-let mappedLane = null, mappedActive = false;
+let mappedLane = null, mappedActive = false, binaryServices = new Set();
 
 const mappedFault = () => new Fault('mappedTransport', 'Mapped data transport failed validation.');
 
@@ -14,12 +14,18 @@ function hostCall(operation, payload) {
   return new Promise((resolve, reject) => {
     if (pending.size >= engine.limits.maximumPendingRequests) { reject(new Fault('backpressure', 'Too many native calls.')); return; }
     let wirePayload = payload, lease = null;
-    if (mappedActive && mappedLane) {
-      try {
+    const binary = binaryServices.has(operation);
+    try {
+      if (binary) {
+        const encoded = mappedActive && mappedLane
+          ? mappedLane.encodeBinaryRequest(payload)
+          : encodeCopiedBinaryPayload(payload);
+        wirePayload = encoded.payload; lease = encoded.lease;
+      } else if (mappedActive && mappedLane) {
         const encoded = mappedLane.encodeRequest(payload);
         wirePayload = encoded.payload; lease = encoded.lease;
-      } catch { reject(mappedFault()); return; }
-    }
+      }
+    } catch { reject(mappedFault()); return; }
     const id = 'service-' + (++nextService);
     let finished = false;
     const release = () => { if (lease && mappedLane) mappedLane.release(lease); };
@@ -27,7 +33,12 @@ function hostCall(operation, payload) {
       if (finished) return;
       finished = true; pending.delete(id); clearTimeout(deadline);
       try {
-        if (fn === resolve && mappedActive && mappedLane) value = mappedLane.decodeResponse(value, lease);
+        if (fn === resolve) {
+          if (binary) value = mappedActive && mappedLane
+            ? mappedLane.decodeBinaryResponse(value, lease)
+            : decodeCopiedBinaryResponse(value);
+          else if (mappedActive && mappedLane) value = mappedLane.decodeResponse(value, lease);
+        }
         fn(value);
       } catch { reject(mappedFault()); }
       finally { release(); }
@@ -118,7 +129,13 @@ self.onmessage = async ({ data: m }) => {
       } else {
         result = await engine.command(m.operation, m.payload ?? {});
         if (m.operation === 'configure') {
-          result.extensions = [...result.extensions, 'fex.runtimeStatistics', 'diagnostics.v1'];
+          const names = m.payload?.binaryServices ?? [];
+          if (!Array.isArray(names) || names.length > 128 ||
+              names.some(name => typeof name !== 'string' || !m.payload.services?.includes(name))) {
+            throw new Fault('invalidConfiguration', 'Invalid binary service allowlist.');
+          }
+          binaryServices = new Set(names);
+          result.extensions = [...result.extensions, 'fex.runtimeStatistics', 'diagnostics.v1', 'binaryServices.v1'];
           if (Array.isArray(m.payload?.services) && m.payload.services.includes('fex')) {
             result.extensions.push('fex.linuxSyscallSubset');
           }

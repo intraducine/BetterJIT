@@ -7,14 +7,12 @@ import BetterJITFEX
 private actor DiagnosticEchoService {
     private(set) var calls = 0
     private(set) var bytes = 0
-    func handle(_ payload: JSONValue) throws -> JSONValue {
-        guard let text = payload.string, text.utf8.count <= 6 * 1024 * 1024,
-              let data = Data(base64Encoded: text), data.count <= 4 * 1024 * 1024,
-              data.base64EncodedString() == text else {
-            throw RuntimeFault("testInput", "Diagnostic echo payload is invalid or too large.")
+    func handleBinary(_ request: NativeBinaryServiceRequest) throws -> NativeBinaryServiceResponse {
+        guard request.payload == .null, let data = request.bytes, data.count <= 4 * 1024 * 1024 else {
+            throw RuntimeFault("testInput", "Diagnostic binary echo payload is invalid or too large.")
         }
         calls += 1; bytes += data.count
-        return .string(text)
+        return .bytes(data)
     }
     func snapshot() -> (Int,Int) { (calls,bytes) }
 }
@@ -37,7 +35,7 @@ private actor DiagnosticEchoService {
     }
     func start() async throws -> RuntimeCapabilities {
         let echo = self.echo
-        let transport = try WebKitTransport(services:["diag.echo": { try await echo.handle($0) }],
+        let transport = try WebKitTransport(binaryServices:["diag.echo": { try await echo.handleBinary($0) }],
                                             mappedTransport: preference)
         self.transport = transport; mount(transport)
         await Task.yield()
@@ -112,7 +110,7 @@ private actor DiagnosticEchoService {
     static func run(mapped: Bool, mount: @escaping @MainActor (WebKitTransport?) -> Void) async throws -> DiagnosticOutcome {
         let native = try LinkedFEXTranslator(image:SyscallGuest.image, guestBase:SuitePlan.guestBase, abi:.sysv)
         let service = try FEXService(translator:native, image:SyscallGuest.image)
-        let transport = try WebKitTransport(services:["fex": { try await service.handle($0) }],
+        let transport = try WebKitTransport(binaryServices:["fex": { try await service.handleBinary($0) }],
                                             mappedTransport:mapped ? .required : .disabled)
         mount(transport)
         defer { transport.close(); mount(nil); Task { await service.close() } }

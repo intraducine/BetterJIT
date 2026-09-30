@@ -8,7 +8,9 @@ assert.equal(typeof features.details.jspi,'string');
 let calls=0;
 const echo=await runDiagnostic('native-roundtrip',{sizes:[64,4096],repeats:1},{
   mappedActive:true,
-  hostCall:async (operation,payload)=>{calls++;assert.equal(operation,'diag.echo');return payload;}
+  hostCall:async (operation,payload)=>{
+    calls++; assert.equal(operation,'diag.echo'); assert.ok(payload instanceof Uint8Array); return payload;
+  }
 });
 assert.equal(echo.status,'passed');
 assert.equal(calls,2);

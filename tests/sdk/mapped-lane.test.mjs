@@ -2,7 +2,8 @@
 import assert from 'node:assert/strict';
 import {
   MappedLane, MAPPED_FILE_SIZE, MAPPED_HEADER_SIZE, MAPPED_SLOT_SIZE,
-  MAPPED_REQUEST_TAG, MAPPED_VALUE_TAG, MAPPED_RESPONSE_TAG, fnv1a,
+  MAPPED_REQUEST_TAG, MAPPED_VALUE_TAG, MAPPED_RESPONSE_TAG,
+  COPIED_BINARY_VALUE_TAG, COPIED_BINARY_RESPONSE_TAG, fnv1a,
 } from '../../Sources/BetterJITWebKit/Resources/mapped-lane.mjs';
 
 if (typeof globalThis.btoa !== 'function') globalThis.btoa = s => Buffer.from(s, 'binary').toString('base64');
@@ -63,6 +64,26 @@ const badReply = { [MAPPED_RESPONSE_TAG]: {
 root.sync.bytes[bad.lease.offset] = 1;
 assert.throws(() => lane.decodeResponse(badReply, bad.lease), /checksum/);
 lane.release(bad.lease);
+
+const binary = Uint8Array.from({ length: 1024 * 1024 }, (_, i) => (i * 7 + 5) & 255);
+const binaryReq = lane.encodeBinaryRequest({ method: 'echo', body: binary });
+assert(binaryReq.lease);
+assert.equal(binaryReq.payload[MAPPED_REQUEST_TAG].payload.body[MAPPED_VALUE_TAG].checksum, 0);
+assert.deepEqual(root.sync.bytes.subarray(binaryReq.lease.offset, binaryReq.lease.offset + binary.length), binary);
+root.sync.bytes.set(binary, binaryReq.lease.offset);
+const binaryReply = { [MAPPED_RESPONSE_TAG]: {
+  token, slot: binaryReq.lease.slot, offset: String(binaryReq.lease.offset), length: binary.length,
+  capacity: binaryReq.lease.capacity, generation: String(binaryReq.lease.generation), checksum: 0, hash: 0,
+} };
+assert.deepEqual(lane.decodeBinaryResponse(binaryReply, binaryReq.lease), binary);
+lane.release(binaryReq.lease);
+
+const copiedBinary = lane.encodeBinaryRequest({ body: new Uint8Array(16) });
+assert(copiedBinary.lease);
+assert.equal(copiedBinary.payload[MAPPED_REQUEST_TAG].payload.body[COPIED_BINARY_VALUE_TAG].length, 16);
+const copiedReply = { [COPIED_BINARY_RESPONSE_TAG]: { length: 3, data: 'AQID' } };
+assert.deepEqual(lane.decodeBinaryResponse(copiedReply, copiedBinary.lease), new Uint8Array([1,2,3]));
+lane.release(copiedBinary.lease);
 
 await lane.close(true);
 assert(root.sync.closed);

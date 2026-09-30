@@ -30,9 +30,11 @@ The worker exclusively allocates four fixed slots in one pre-sized file. Each le
 
 Native rejects arbitrary offsets, capacities, tokens and generations. It derives the only accepted offset from the slot index. The file is never resized after native mapping and is never mapped executable.
 
-For worker → native data the worker writes and flushes the leased slot, then replaces at most one large canonical Base64 value in the service payload with a descriptor. Native verifies the checksum, copies the bytes into the existing service API as Base64, and invokes the registered service.
+The compatibility JSON service path still supports canonical Base64 values and checksummed mapped descriptors.
 
-For native → worker data, a large canonical Base64 service result is decoded natively, written into the same leased slot, and returned as a small descriptor. The worker validates the descriptor/checksum and reconstructs the Base64 value expected by the execution engine. This v1 adaptation still performs Base64 encode/decode at the native service boundary; it removes the large JSON/WebKit process transfer first. A future Data-native service API can remove that remaining conversion without changing the wire ownership contract.
+For high-volume services, `NativeBinaryService` carries one typed byte leaf separately from its structured JSON metadata. In mapped mode, payloads of at least 64 KiB go through the leased OPFS slot with fixed token/slot/offset/generation ownership and no Base64 conversion. Smaller values stay copied because device measurements showed that mapping tiny payloads costs more than the control-plane copy. Native binary replies use the same rule.
+
+The binary fast path deliberately omits the per-payload FNV pass: exclusive lease ownership, generation validation, fixed offsets and bounded lengths provide the transport contract, while the compatibility lane and dedicated integrity tests continue to exercise checksummed transfers. This avoids hashing the same multi-megabyte buffer in JavaScript and Swift on every boundary crossing.
 
 If all slots are busy, that service call uses the existing copied path. Mapped transport is therefore an optimization rather than a correctness dependency unless `.required` was chosen for a test.
 

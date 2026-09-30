@@ -45,7 +45,8 @@ private actor ProbeByteService {
             let image = stage.image
             let native = try LinkedFEXTranslator(image: image, guestBase: SuitePlan.guestBase, abi: abi)
             let service = try FEXService(translator: native, image: image); fex = service
-            transport = try WebKitTransport(services: ["fex": { try await service.handle($0) }], mappedTransport: mappedTransport)
+            transport = try WebKitTransport(binaryServices: ["fex": { try await service.handleBinary($0) }],
+                                            mappedTransport: mappedTransport)
         }
         evidence.timings["nativeSetup"] = elapsed(start)
         self.transport = transport; mount(transport)

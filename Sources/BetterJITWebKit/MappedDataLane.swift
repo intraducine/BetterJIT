@@ -35,9 +35,12 @@ final class MappedDataLane {
     static let slotCount = 4
     static let fileSize = headerSize + slotSize * slotCount
     static let thresholdBytes = 4096
+    static let binaryThresholdBytes = 64 * 1024
     static let requestTag = "__betterjitMappedRequestV1"
     static let valueTag = "__betterjitMappedValueV1"
     static let responseTag = "__betterjitMappedResponseV1"
+    static let copiedBinaryValueTag = "__betterjitCopiedBinaryV1"
+    static let copiedBinaryResponseTag = "__betterjitCopiedBinaryResponseV1"
 
     let token: String
     private var fd: Int32
@@ -126,20 +129,30 @@ final class MappedDataLane {
         }
     }
 
-    func read(_ lease: MappedLease, length: Int, expectedHash: UInt32) throws -> Data {
+    private func copiedBytes(_ lease: MappedLease, length: Int) throws -> Data {
         try validate(lease)
         guard let mapping, (0...lease.capacity).contains(length) else {
             throw RuntimeFault("mappedTransport", "Mapped request length is invalid.")
         }
-        let p = mapping.advanced(by: Int(lease.offset))
-        let data = Data(bytes: p, count: length)
+        return Data(bytes: mapping.advanced(by: Int(lease.offset)), count: length)
+    }
+
+    func read(_ lease: MappedLease, length: Int, expectedHash: UInt32) throws -> Data {
+        let data = try copiedBytes(lease, length: length)
         guard Self.fnv1a(data) == expectedHash else {
             throw RuntimeFault("mappedTransport", "Mapped request checksum mismatch.")
         }
         return data
     }
 
-    func write(_ data: Data, to lease: MappedLease) throws -> UInt32 {
+    /// Binary-service fast path. Exclusive slot ownership and generation
+    /// validation provide coherence; the separate integrity regression keeps
+    /// exercising the checksummed compatibility path.
+    func readFast(_ lease: MappedLease, length: Int) throws -> Data {
+        try copiedBytes(lease, length: length)
+    }
+
+    private func copy(_ data: Data, to lease: MappedLease) throws {
         try validate(lease)
         guard let mapping, data.count <= lease.capacity else {
             throw RuntimeFault("mappedTransport", "Mapped response exceeds its slot capacity.")
@@ -149,7 +162,24 @@ final class MappedDataLane {
                 memcpy(mapping.advanced(by: Int(lease.offset)), base, bytes.count)
             }
         }
+    }
+
+    func write(_ data: Data, to lease: MappedLease) throws -> UInt32 {
+        try copy(data, to: lease)
         return Self.fnv1a(data)
+    }
+
+    func writeFast(_ data: Data, to lease: MappedLease) throws {
+        try copy(data, to: lease)
+    }
+
+    static func canonicalBase64(_ text: String, maximum: Int) -> Data? {
+        guard text.utf8.count <= 4 * ((maximum + 2) / 3),
+              text.utf8.count % 4 == 0,
+              text.range(of: "^[A-Za-z0-9+/]*={0,2}\\z", options: .regularExpression) != nil,
+              let data = Data(base64Encoded: text), data.count <= maximum,
+              data.base64EncodedString() == text else { return nil }
+        return data
     }
 
     static func fnv1a(_ data: Data) -> UInt32 {

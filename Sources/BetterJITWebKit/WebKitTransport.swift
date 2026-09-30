@@ -20,6 +20,7 @@ import WebKit
     }
     private let proxy: MessageProxy
     private let services: [String: NativeService]
+    private let binaryServices: [String: NativeBinaryService]
     private let mappedPreference: MappedTransportPreference
     private let token = UUID().uuidString.lowercased()
     private var limits: RuntimeLimits?
@@ -42,15 +43,26 @@ import WebKit
         let lease: MappedLease?
         let inputBytes: Int
     }
+    private struct BinaryServiceRequest {
+        let payload: JSONValue
+        let bytes: Data?
+        let lease: MappedLease?
+        let mappedInputBytes: Int
+    }
     private var serviceTasks: [String: ServiceWork] = [:]
     private var closed = false
     private var didStart = false
 
-    public init(services: [String: NativeService] = [:], mappedTransport: MappedTransportPreference = .disabled) throws {
-        guard services.count <= 128, services.keys.allSatisfy({
+    public init(services: [String: NativeService] = [:],
+                binaryServices: [String: NativeBinaryService] = [:],
+                mappedTransport: MappedTransportPreference = .disabled) throws {
+        let allNames = Set(services.keys).union(binaryServices.keys)
+        guard services.keys.allSatisfy({ binaryServices[$0] == nil }),
+              allNames.count <= 128, allNames.allSatisfy({
             $0.range(of: "^[a-zA-Z][a-zA-Z0-9_.-]{0,63}\\z", options: .regularExpression) != nil
-        }) else { throw RuntimeFault("invalidConfiguration", "Invalid native service names.") }
-        self.services = services; self.mappedPreference = mappedTransport; proxy = MessageProxy()
+        }) else { throw RuntimeFault("invalidConfiguration", "Invalid or duplicate native service names.") }
+        self.services = services; self.binaryServices = binaryServices
+        self.mappedPreference = mappedTransport; proxy = MessageProxy()
         let config = WKWebViewConfiguration()
         // The successful OPFS/native-mmap device probe uses WebKit's default
         // persistent store. Ephemeral storage could not create the synchronous
@@ -94,8 +106,11 @@ import WebKit
                     webView.load(URLRequest(url: url))
                 }
             }, onCancel: { [weak self] in Task { @MainActor in self?.fail(CancellationError()) } })
+            let allServices = Set(services.keys).union(binaryServices.keys).sorted()
             var configure: [String: JSONValue] = [
-                "limits": try .encoding(limits), "services": .array(services.keys.sorted().map(JSONValue.string))]
+                "limits": try .encoding(limits),
+                "services": .array(allServices.map(JSONValue.string)),
+                "binaryServices": .array(binaryServices.keys.sorted().map(JSONValue.string))]
             if mappedPreference != .disabled {
                 configure["mappedTransport"] = .object([
                     "mode": .string(mappedPreference.rawValue),
@@ -171,7 +186,14 @@ import WebKit
               m.id.hasPrefix("service-"), m.id.utf8.count <= 64 else {
             throw RuntimeFault("backpressure", "Invalid or excessive native service calls.")
         }
-        guard let operation = m.operation, let handler = services[operation] else {
+        guard let operation = m.operation else {
+            try send(RPCMessage(session: token, id: m.id, kind: "serviceResponse", error: RuntimeFault("serviceDenied", "Native service was not registered."))); return
+        }
+        if let handler = binaryServices[operation] {
+            try binaryService(m, handler: handler, limits: limits)
+            return
+        }
+        guard let handler = services[operation] else {
             try send(RPCMessage(session: token, id: m.id, kind: "serviceResponse", error: RuntimeFault("serviceDenied", "Native service was not registered."))); return
         }
         let decoded = try decodeMappedRequest(m.payload)
@@ -195,6 +217,113 @@ import WebKit
             self.fail(RuntimeFault("timeout", "Native service deadline exceeded. Its external side effects are not rolled back."))
         }
         serviceTasks[m.id] = ServiceWork(task: task, deadline: deadline)
+    }
+
+    private func binaryService(_ m: RPCMessage, handler: @escaping NativeBinaryService, limits: RuntimeLimits) throws {
+        let decoded = try decodeBinaryRequest(m.payload)
+        let task = Task { [weak self] in
+            let result: NativeBinaryServiceResponse; let replyError: RuntimeFault?
+            do {
+                result = try await handler(NativeBinaryServiceRequest(payload: decoded.payload, bytes: decoded.bytes))
+                replyError = nil
+            } catch let e as RuntimeFault {
+                result = .json(.null); replyError = e
+            } catch {
+                result = .json(.null); replyError = RuntimeFault("nativeService", "The registered native service failed.")
+            }
+            guard let self, !self.closed, !Task.isCancelled else { return }
+            self.serviceTasks.removeValue(forKey: m.id)?.deadline.cancel()
+            do {
+                let encoded = try self.encodeBinaryResponse(result, lease: decoded.lease)
+                if decoded.mappedInputBytes > 0 || encoded.bytes > 0 { self.mappedServiceCalls += 1 }
+                try self.send(RPCMessage(session: self.token, id: m.id, kind: "serviceResponse",
+                                         payload: encoded.payload, error: replyError))
+            } catch { self.fail(error) }
+        }
+        let deadline = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: UInt64(limits.timeoutSeconds * 1_000_000_000)) } catch { return }
+            guard let self, self.serviceTasks[m.id] != nil else { return }
+            self.fail(RuntimeFault("timeout", "Native binary service deadline exceeded. Its external side effects are not rolled back."))
+        }
+        serviceTasks[m.id] = ServiceWork(task: task, deadline: deadline)
+    }
+
+    private func decodeBinaryRequest(_ value: JSONValue) throws -> BinaryServiceRequest {
+        var lease: MappedLease?
+        var payload = value
+        if mappedTransportActive,
+           case .object(let root) = value,
+           case .object(let envelope)? = root[MappedDataLane.requestTag] {
+            lease = try mappedLease(envelope)
+            guard let body = envelope["payload"] else {
+                throw RuntimeFault("mappedTransport", "Mapped binary service payload is missing.")
+            }
+            payload = body
+        }
+        var extracted: Data?
+        var mappedBytes = 0
+        func visit(_ value: JSONValue) throws -> JSONValue {
+            if case .object(let object) = value,
+               case .object(let descriptor)? = object[MappedDataLane.valueTag] {
+                guard extracted == nil, let lane = mappedLane, let lease,
+                      let lengthValue = descriptor["length"]?.integer,
+                      let length = Int(exactly: lengthValue), length >= 0,
+                      descriptor["checksum"]?.integer == 0 else {
+                    throw RuntimeFault("mappedTransport", "Mapped binary value descriptor is malformed or duplicated.")
+                }
+                let data = try lane.readFast(lease, length: length)
+                extracted = data; mappedBytes = data.count; mappedNativeReadBytes += data.count
+                return .null
+            }
+            if case .object(let object) = value,
+               case .object(let descriptor)? = object[MappedDataLane.copiedBinaryValueTag] {
+                guard extracted == nil,
+                      let lengthValue = descriptor["length"]?.integer,
+                      let length = Int(exactly: lengthValue), length >= 0,
+                      let text = descriptor["data"]?.string,
+                      let data = MappedDataLane.canonicalBase64(text, maximum: MappedDataLane.slotSize),
+                      data.count == length else {
+                    throw RuntimeFault("protocolValue", "Copied binary service value is malformed or duplicated.")
+                }
+                extracted = data
+                return .null
+            }
+            if case .array(let values) = value { return .array(try values.map(visit)) }
+            if case .object(let object) = value {
+                var result: [String: JSONValue] = [:]
+                for (key, child) in object { result[key] = try visit(child) }
+                return .object(result)
+            }
+            return value
+        }
+        return BinaryServiceRequest(payload: try visit(payload), bytes: extracted,
+                                    lease: lease, mappedInputBytes: mappedBytes)
+    }
+
+    private func encodeBinaryResponse(_ result: NativeBinaryServiceResponse,
+                                      lease: MappedLease?) throws -> (payload: JSONValue, bytes: Int) {
+        switch result {
+        case .json(let value):
+            return (value, 0)
+        case .bytes(let data):
+            guard data.count <= MappedDataLane.slotSize else {
+                throw RuntimeFault("messageTooLarge", "Binary service response exceeds the mapped slot capacity.")
+            }
+            if mappedTransportActive, let lane = mappedLane, let lease,
+               data.count >= MappedDataLane.binaryThresholdBytes {
+                try lane.writeFast(data, to: lease)
+                mappedNativeWriteBytes += data.count
+                let descriptor: JSONValue = .object([
+                    "token": .string(token), "slot": .number(Double(lease.slot)),
+                    "offset": .string(String(lease.offset)), "length": .number(Double(data.count)),
+                    "capacity": .number(Double(lease.capacity)), "generation": .string(String(lease.generation)),
+                    "checksum": .number(0), "hash": .number(0)])
+                return (.object([MappedDataLane.responseTag: descriptor]), data.count)
+            }
+            let descriptor: JSONValue = .object([
+                "length": .number(Double(data.count)), "data": .string(data.base64EncodedString())])
+            return (.object([MappedDataLane.copiedBinaryResponseTag: descriptor]), 0)
+        }
     }
 
     private func negotiateMappedTransport(_ answer: JSONValue) async throws -> JSONValue {

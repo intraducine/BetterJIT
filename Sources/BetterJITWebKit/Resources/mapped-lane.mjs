@@ -5,9 +5,12 @@ export const MAPPED_SLOT_SIZE = 16 * 1024 * 1024 + 4096;
 export const MAPPED_SLOT_COUNT = 4;
 export const MAPPED_FILE_SIZE = MAPPED_HEADER_SIZE + MAPPED_SLOT_SIZE * MAPPED_SLOT_COUNT;
 export const MAPPED_THRESHOLD = 4096;
+export const MAPPED_BINARY_THRESHOLD = 64 * 1024;
 export const MAPPED_REQUEST_TAG = '__betterjitMappedRequestV1';
 export const MAPPED_VALUE_TAG = '__betterjitMappedValueV1';
 export const MAPPED_RESPONSE_TAG = '__betterjitMappedResponseV1';
+export const COPIED_BINARY_VALUE_TAG = '__betterjitCopiedBinaryV1';
+export const COPIED_BINARY_RESPONSE_TAG = '__betterjitCopiedBinaryResponseV1';
 
 const encoder = new TextEncoder();
 
@@ -48,7 +51,7 @@ function encodeBase64(bytes) {
 }
 
 function decodeCanonicalBase64(value, maximum) {
-  if (typeof value !== 'string' || value.length < 4 || value.length > 4 * Math.ceil(maximum / 3) ||
+  if (typeof value !== 'string' || value.length > 4 * Math.ceil(maximum / 3) ||
       value.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) return null;
   let bytes;
   try { bytes = Uint8Array.from(atob(value), c => c.charCodeAt(0)); }
@@ -71,6 +74,37 @@ function descriptor(lease, length, hash) {
     generation: String(lease.generation),
     hash,
   };
+}
+
+export function encodeCopiedBinaryPayload(payload, maximum = MAPPED_SLOT_SIZE) {
+  let used = false, copiedBytes = 0;
+  const visit = value => {
+    if (value instanceof Uint8Array) {
+      if (used) throw new Error('Only one binary service value is supported.');
+      if (value.length > maximum) throw new Error('Binary service value exceeds the transport budget.');
+      used = true; copiedBytes = value.length;
+      return { [COPIED_BINARY_VALUE_TAG]: { length: value.length, data: encodeBase64(value) } };
+    }
+    if (Array.isArray(value)) return value.map(visit);
+    if (value && typeof value === 'object') {
+      const out = {};
+      for (const [key, child] of Object.entries(value)) out[key] = visit(child);
+      return out;
+    }
+    return value;
+  };
+  return { payload: visit(payload), lease: null, mappedBytes: 0, copiedBytes };
+}
+
+export function decodeCopiedBinaryResponse(value, maximum = MAPPED_SLOT_SIZE) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !(COPIED_BINARY_RESPONSE_TAG in value)) return value;
+  const meta = value[COPIED_BINARY_RESPONSE_TAG];
+  if (!meta || !Number.isInteger(meta.length) || meta.length < 0 || meta.length > maximum || typeof meta.data !== 'string') {
+    throw new Error('Copied binary response descriptor is invalid.');
+  }
+  const bytes = decodeCanonicalBase64(meta.data, maximum);
+  if (!bytes || bytes.length !== meta.length) throw new Error('Copied binary response encoding is invalid.');
+  return bytes;
 }
 
 export class MappedLane {
@@ -189,6 +223,54 @@ export class MappedLane {
       lease,
       mappedBytes,
     };
+  }
+
+  encodeBinaryRequest(payload) {
+    const lease = this.acquire();
+    if (!lease) return encodeCopiedBinaryPayload(payload, MAPPED_SLOT_SIZE);
+    let used = false, mappedBytes = 0, copiedBytes = 0;
+    const visit = value => {
+      if (value instanceof Uint8Array) {
+        if (used) throw new Error('Only one binary service value is supported.');
+        if (value.length > lease.capacity) throw new Error('Binary service value exceeds its slot capacity.');
+        used = true;
+        if (value.length >= MAPPED_BINARY_THRESHOLD) {
+          writeExact(this.access, value, lease.offset);
+          mappedBytes = value.length;
+          this.workerToNativeBytes += value.length;
+          return { [MAPPED_VALUE_TAG]: { length: value.length, checksum: 0, hash: 0 } };
+        }
+        copiedBytes = value.length;
+        return { [COPIED_BINARY_VALUE_TAG]: { length: value.length, data: encodeBase64(value) } };
+      }
+      if (Array.isArray(value)) return value.map(visit);
+      if (value && typeof value === 'object') {
+        const out = {};
+        for (const [key, child] of Object.entries(value)) out[key] = visit(child);
+        return out;
+      }
+      return value;
+    };
+    const transformed = visit(payload);
+    return {
+      payload: { [MAPPED_REQUEST_TAG]: { ...descriptor(lease, 0, 0), payload: transformed } },
+      lease, mappedBytes, copiedBytes,
+    };
+  }
+
+  decodeBinaryResponse(value, lease) {
+    if (value && typeof value === 'object' && !Array.isArray(value) && COPIED_BINARY_RESPONSE_TAG in value) {
+      return decodeCopiedBinaryResponse(value, MAPPED_SLOT_SIZE);
+    }
+    if (!lease || !value || typeof value !== 'object' || Array.isArray(value) || !(MAPPED_RESPONSE_TAG in value)) return value;
+    const meta = value[MAPPED_RESPONSE_TAG];
+    this.validateDescriptor(meta, lease, true);
+    const bytes = new Uint8Array(meta.length);
+    if (bytes.length) readExact(this.access, bytes, lease.offset);
+    if (meta.checksum === 1 && fnv1a(bytes) !== (meta.hash >>> 0)) throw new Error('Mapped native response checksum mismatch.');
+    this.nativeToWorkerBytes += bytes.length;
+    this.mappedCalls += 1;
+    return bytes;
   }
 
   decodeResponse(value, lease) {

@@ -37,6 +37,48 @@ public actor FEXService {
         do { return try dispatch(payload) }
         catch { counters.rejectedRequests += 1; throw error }
     }
+
+    /// Raw-byte transport used by WebKit's binary-service data plane. Existing
+    /// JSON callers keep using handle(_:); this avoids Base64 conversion when
+    /// the worker/native transport can carry bytes separately.
+    public func handleBinary(_ request: NativeBinaryServiceRequest) throws -> NativeBinaryServiceResponse {
+        do { return try dispatchBinary(request) }
+        catch { counters.rejectedRequests += 1; throw error }
+    }
+    private func dispatchBinary(_ request: NativeBinaryServiceRequest) throws -> NativeBinaryServiceResponse {
+        guard let translator else { throw RuntimeFault.closed }
+        guard let method = request.payload["method"]?.string else {
+            throw RuntimeFault("invalidBackendRequest", "Missing FEX operation.")
+        }
+        let data: Data
+        switch method {
+        case "config":
+            let config = try translator.configuration()
+            guard config.count <= 65536 else { throw RuntimeFault("messageTooLarge", "FEX config too large.") }
+            return .json(try JSONDecoder().decode(JSONValue.self, from: config))
+        case "image": data = image
+        case "state": data = try translator.initialState()
+        case "dispatcher": data = try translator.dispatcher()
+        case "unit":
+            guard let n = request.payload["rip"]?.integer, let rip = UInt32(exactly: n) else {
+                throw RuntimeFault("invalidBackendRequest", "RIP must be an unsigned 32-bit window address.")
+            }
+            counters.unitRequests += 1; data = try translator.unit(at: rip)
+        case "region":
+            guard let profile = request.bytes, profile.count <= 1024 * 1024 else {
+                throw RuntimeFault("invalidBackendRequest", "Missing or oversized binary FEX profile.")
+            }
+            try Self.validateProfile(profile)
+            counters.regionRequests += 1; data = try translator.region(profile: profile)
+        default:
+            throw RuntimeFault("serviceDenied", "Unknown FEX translation operation.")
+        }
+        guard data.count <= maximumBytes + (method == "unit" ? 4 : 0) else {
+            throw RuntimeFault("messageTooLarge", "Translated module exceeds bridge budget.")
+        }
+        counters.returnedBytes += data.count
+        return .bytes(data)
+    }
     private func dispatch(_ payload: JSONValue) throws -> JSONValue {
         guard let translator else { throw RuntimeFault.closed }
         guard let method = payload["method"]?.string else { throw RuntimeFault("invalidBackendRequest", "Missing FEX operation.") }

@@ -3,6 +3,10 @@
 import { Fault, requireThat, integer, inspectModule } from './wasm-module.mjs';
 export { Fault } from './wasm-module.mjs';
 export function decodeBytes(text, maximum) {
+  if (text instanceof Uint8Array) {
+    requireThat(text.length <= maximum, 'messageTooLarge', 'Binary payload exceeds its configured limit.');
+    return text;
+  }
   requireThat(typeof text === 'string' && text.length <= 4 * Math.ceil(maximum / 3) &&
     text.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(text), 'messageTooLarge', 'Invalid or oversized base64.');
   let bytes;
@@ -243,7 +247,7 @@ export class Engine {
       requireThat(words.length <= Math.floor(this.limits.maximumTransferBytes / 4), 'messageTooLarge', 'FEX profile too large.');
       const bytes = new Uint8Array(words.length * 4), view = new DataView(bytes.buffer);
       words.forEach((word,i) => view.setUint32(i * 4, word, true));
-      const data = decodeBytes(await request('region', { profile: encodeBytes(bytes) }), this.limits.maximumModuleBytes);
+      const data = decodeBytes(await request('region', { profile: bytes }), this.limits.maximumModuleBytes);
       return data.length ? { module: await this.compile(data), bytes: data.length } : null;
     };
     // Charge the dispatcher's compile separately; createRuntime does its compilation synchronously.
