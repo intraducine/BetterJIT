@@ -230,7 +230,9 @@ import BetterJITWebKit
                 }.padding()
             }.navigationTitle("BetterJIT FEX Host")
         }
-        .onChange(of: scenePhase) { phase in if phase == .background { model.stop(interrupted: true) } }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { model.stop(interrupted: true) }
+        }
         .onDisappear { model.stop(interrupted: true) }
     }
 }

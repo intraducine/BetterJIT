@@ -50,8 +50,13 @@ enum NativeDiagnostics {
         for offset in stride(from: 0, to: size, by: page) { verify &+= UInt64(bytes[offset]) }
         guard verify == checksum else { throw SuiteFailure("Native page-touch checksum changed after mprotect.") }
         guard mprotect(raw, size, PROT_READ | PROT_WRITE) == 0 else { throw SuiteFailure("mprotect restore failed with errno \(errno).") }
-        return .pass(metrics: ["mappedBytes":Double(size),"pages":Double(size/page),"milliseconds":elapsed(start)],
-                     details:["checksum":String(checksum)])
+        let details: [String:String] = ["checksum":String(checksum)]
+        let metrics: [String:Double] = [
+            "mappedBytes":Double(size),
+            "pages":Double(size / page),
+            "milliseconds":elapsed(start)
+        ]
+        return .pass(details:details, metrics:metrics)
     }
     static func fileIO() throws -> DiagnosticOutcome {
         let size = 8 * 1024 * 1024
@@ -74,10 +79,17 @@ enum NativeDiagnostics {
         let readMs = elapsed(t)
         guard read.count == size, fnv(read) == expected else { throw SuiteFailure("Native file I/O checksum mismatch.") }
         let mb = Double(size) / 1_048_576
-        return .pass(metrics:[
-            "bytes":Double(size),"writeMilliseconds":writeMs,"readMilliseconds":readMs,
-            "writeMBps":mb / max(writeMs/1000,0.000001),"readMBps":mb / max(readMs/1000,0.000001)
-        ], details:["checksum":String(expected)])
+        let safeWriteSeconds = max(writeMs / 1000.0, 0.000001)
+        let safeReadSeconds = max(readMs / 1000.0, 0.000001)
+        let details: [String:String] = ["checksum":String(expected)]
+        let metrics: [String:Double] = [
+            "bytes":Double(size),
+            "writeMilliseconds":writeMs,
+            "readMilliseconds":readMs,
+            "writeMBps":mb / safeWriteSeconds,
+            "readMBps":mb / safeReadSeconds
+        ]
+        return .pass(details:details, metrics:metrics)
     }
     static func threads() throws -> DiagnosticOutcome {
         let workers = min(4, max(2, ProcessInfo.processInfo.activeProcessorCount))
@@ -95,8 +107,15 @@ enum NativeDiagnostics {
         guard results.allSatisfy({ $0 != 0 }), Set(results).count == workers else {
             throw SuiteFailure("Native thread checksum result was invalid.")
         }
-        return .pass(metrics:["workers":Double(workers),"iterationsPerWorker":Double(iterations),"milliseconds":elapsed(start)],
-                     details:["checksums":results.map(String.init).joined(separator:",")])
+        let details: [String:String] = [
+            "checksums":results.map { String($0) }.joined(separator:",")
+        ]
+        let metrics: [String:Double] = [
+            "workers":Double(workers),
+            "iterationsPerWorker":Double(iterations),
+            "milliseconds":elapsed(start)
+        ]
+        return .pass(details:details, metrics:metrics)
     }
     static func metal() throws -> DiagnosticOutcome {
         #if canImport(Metal)
@@ -109,8 +128,12 @@ enum NativeDiagnostics {
         let start = DispatchTime.now().uptimeNanoseconds
         command.commit(); command.waitUntilCompleted()
         guard command.status == .completed else { throw SuiteFailure("Metal command buffer did not complete.") }
-        return .pass(metrics:["bufferBytes":Double(buffer.length),"commandMilliseconds":elapsed(start)],
-                     details:["metalAvailable":"true"])
+        let details: [String:String] = ["metalAvailable":"true"]
+        let metrics: [String:Double] = [
+            "bufferBytes":Double(buffer.length),
+            "commandMilliseconds":elapsed(start)
+        ]
+        return .pass(details:details, metrics:metrics)
         #else
         return .unsupported("Metal framework is unavailable on this platform.")
         #endif
