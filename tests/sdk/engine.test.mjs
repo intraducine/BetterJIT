@@ -33,8 +33,10 @@ test('malformed sections, oversized messages and module counts fail closed',asyn
  for(const value of ['!','AQI=garbage','A===']) assert.throws(()=>decodeBytes(value,100));
  const e=await start({}, {maximumModules:1});await load(e,moduleBytes());await assert.rejects(()=>load(e,moduleBytes(),'two'),{code:'moduleLimit'});e.close();
 });
-test('maximum transfer payload handles base64 without argument or regex stack overflow',()=>{
- const data=new Uint8Array(1024*1024).fill(127);assert.deepEqual(decodeBytes(encodeBytes(data),data.length),data);
+test('maximum transfer payload handles base64 and typed bytes without argument or regex stack overflow',()=>{
+ const data=new Uint8Array(1024*1024).fill(127);
+ assert.deepEqual(decodeBytes(encodeBytes(data),data.length),data);
+ assert.equal(decodeBytes(data,data.length),data);
 });
 test('unknown commands, duplicate configure and invalid config reject',async()=>{
  const e=await start();await assert.rejects(()=>e.command('shell'),{code:'unknownOperation'});
