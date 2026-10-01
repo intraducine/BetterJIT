@@ -1,0 +1,18 @@
+@@R {"appAvailableMB":8185,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["page:localhost","w:dispatch:{\"only\":[\"switch\";\"switch+softmmu\";\"fnptr\";\"fnptr+softmmu\"]}"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:47113\/index.html?ws=47114"}
+@@R {"ms":125.6878750026226,"name":"page:localhost","suite":"timing"}
+@@S running w:dispatch:{"only":["switch";"switch+softmmu";"fnptr";"fnptr+softmmu"]}
+@@R {"engine":"webview","event":"start","origin":"localhost","suite":"dispatch","variant":"switch"}
+@@R {"blocks":512,"chk":2424211462,"coldMs":8.0199999999999996,"compileMs":7.2199999999999989,"engine":"webview","genMs":6.8000000000000007,"ms":7.0599999999999952,"nsPerBlock":3.5299999999999976,"origin":"localhost","steps":2000000,"suite":"dispatch","variant":"switch","wasmBytes":83696}
+@@R {"engine":"webview","event":"start","origin":"localhost","suite":"dispatch","variant":"fnptr"}
+@@R {"blocks":512,"chk":2424211462,"coldMs":8.5,"compileMs":7.8400000000000034,"engine":"webview","genMs":7.3599999999999994,"ms":6.960000000000008,"nsPerBlock":3.480000000000004,"origin":"localhost","steps":2000000,"suite":"dispatch","variant":"fnptr","wasmBytes":158856}
+@@R {"engine":"webview","event":"start","origin":"localhost","suite":"dispatch","variant":"switch+softmmu"}
+@@R {"blocks":512,"chk":2424211462,"coldMs":11.200000000000003,"compileMs":5.480000000000004,"engine":"webview","genMs":4.9200000000000017,"ms":9.0799999999999841,"nsPerBlock":4.539999999999992,"origin":"localhost","steps":2000000,"suite":"dispatch","variant":"switch+softmmu","wasmBytes":160322}
+@@R {"engine":"webview","event":"start","origin":"localhost","suite":"dispatch","variant":"fnptr+softmmu"}
+@@R {"blocks":512,"chk":2424211462,"coldMs":9.9800000000000182,"compileMs":7.539999999999992,"engine":"webview","genMs":7.1599999999999966,"ms":9.1599999999999966,"nsPerBlock":4.5799999999999983,"origin":"localhost","steps":2000000,"suite":"dispatch","variant":"fnptr+softmmu","wasmBytes":235483}
+@@R {"name":"dispatch","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":228.2262080013752,"name":"w:dispatch:{\"only\":[\"switch\";\"switch+softmmu\";\"fnptr\";\"fnptr+softmmu\"]}","suite":"timing"}
+@@S done
+@@DONE

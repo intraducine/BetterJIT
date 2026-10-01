@@ -1,0 +1,92 @@
+@@R {"appAvailableMB":3369,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["page:localhost","w:ipc","w:worker","w:ws","native_to_js","w:webgpu","page:scheme","w:ipc","w:worker"]}
+@@R {"http":50296,"suite":"servers","ws":50297}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:50296\/index.html?ws=50297"}
+@@R {"ms":123.43920800089836,"name":"page:localhost","suite":"timing"}
+@@S running w:ipc
+@@R {"avg":41.560000000000478,"engine":"webview","max":820.00000000000023,"min":19.999999999996021,"n":1000,"origin":"localhost","p50":39.999999999999147,"p90":60.000000000000497,"p99":120.00000000000099,"suite":"ipc","test":"reply-rtt-tiny","unit":"us"}
+@@R {"engine":"webview","ms":66.579999999999998,"msgs":10000,"origin":"localhost","suite":"ipc","test":"post-rate-tiny","usPerMsg":6.6580000000000004}
+@@R {"engine":"webview","js":"string","native":"String(2)","origin":"localhost","suite":"ipc","test":"type"}
+@@R {"engine":"webview","js":"number","native":"NSNumber(1.5)","origin":"localhost","suite":"ipc","test":"type"}
+@@R {"engine":"webview","js":"array","native":"Array(3)","origin":"localhost","suite":"ipc","test":"type"}
+@@R {"engine":"webview","js":"object","native":"Dictionary(a)","origin":"localhost","suite":"ipc","test":"type"}
+@@R {"engine":"webview","js":"arraybuffer","native":"Dictionary()","origin":"localhost","suite":"ipc","test":"type"}
+@@R {"engine":"webview","js":"uint8array","native":"Dictionary(0,1,10,11)","origin":"localhost","suite":"ipc","test":"type"}
+@@R {"engine":"webview","js":"dataview","native":"Dictionary()","origin":"localhost","suite":"ipc","test":"type"}
+@@R {"arraybuffer":{"MBps":1041.6666666666272,"ms":0.060000000000002274,"native":"Dictionary()"},"base64":{"encodeMs":0.29999999999999716,"MBps":107.75862068965549,"native":"decoded:65536","sendMs":0.28000000000000114},"bytes":65536,"engine":"webview","fetchPOST":{"MBps":35.919540229884866,"ms":1.7400000000000091,"native":"65536"},"origin":"localhost","suite":"ipc","test":"bulk-js-to-native"}
+@@R {"arraybuffer":{"MBps":4545.4545454545687,"ms":0.21999999999999886,"native":"Dictionary()"},"base64":{"encodeMs":0.079999999999998295,"MBps":1351.3513513513606,"native":"decoded:1048576","sendMs":0.65999999999999659},"bytes":1048576,"engine":"webview","fetchPOST":{"MBps":500,"ms":2,"native":"1048576"},"origin":"localhost","suite":"ipc","test":"bulk-js-to-native"}
+@@R {"arraybuffer":{"MBps":66666.666666664139,"ms":0.12000000000000455,"native":"Dictionary()"},"base64":{"encodeMs":0.65999999999999659,"MBps":1492.5373134328399,"native":"decoded:8388608","sendMs":4.6999999999999886},"bytes":8388608,"engine":"webview","fetchPOST":{"MBps":1061.0079575596828,"ms":7.539999999999992,"native":"8388608"},"origin":"localhost","suite":"ipc","test":"bulk-js-to-native"}
+@@R {"arraybuffer":{"MBps":61538.461538463685,"ms":0.51999999999998181,"native":"Dictionary()"},"base64":{"encodeMs":3.0800000000000125,"MBps":1410.9347442680773,"native":"decoded:33554432","sendMs":19.599999999999994},"bytes":33554432,"engine":"webview","fetchPOST":{"MBps":1139.601139601139,"ms":28.080000000000013,"native":"33554432"},"origin":"localhost","suite":"ipc","test":"bulk-js-to-native"}
+@@R {"bytes":65536,"copyMs":0,"engine":"webview","fetchMs":0.62000000000000455,"got":65536,"MBps":100.80645161290249,"origin":"localhost","suite":"ipc","test":"bulk-native-to-js-fetch"}
+@@R {"bytes":1048576,"copyMs":0.020000000000010232,"engine":"webview","fetchMs":0.90000000000000568,"got":1048576,"MBps":1086.9565217391116,"origin":"localhost","suite":"ipc","test":"bulk-native-to-js-fetch"}
+@@R {"bytes":8388608,"copyMs":0.28000000000000114,"engine":"webview","fetchMs":4.039999999999992,"got":8388608,"MBps":1851.8518518518547,"origin":"localhost","suite":"ipc","test":"bulk-native-to-js-fetch"}
+@@R {"bytes":33554432,"copyMs":0.74000000000000909,"engine":"webview","fetchMs":11.920000000000016,"got":33554432,"MBps":2527.646129541859,"origin":"localhost","suite":"ipc","test":"bulk-native-to-js-fetch"}
+@@R {"avg":486.86666666666713,"engine":"webview","max":819.99999999999318,"min":379.99999999999545,"n":300,"origin":"localhost","p50":500,"p90":540.00000000002046,"p99":600.00000000002274,"suite":"ipc","test":"fetch-rtt-tiny","unit":"us"}
+@@R {"name":"ipc","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":408.52662499248981,"name":"w:ipc","suite":"timing"}
+@@S running w:worker
+@@R {"avg":494.26666666666694,"engine":"webview","max":1080,"min":380.0000000000008,"n":300,"origin":"localhost","p50":500,"p90":539.99999999999909,"p99":579.99999999999829,"suite":"worker","test":"syncxhr-rtt","unit":"us"}
+@@R {"engine":"webview","get_1048576":{"got":1048576,"MBps":1250.0000000000266,"ms":0.79999999999998295},"get_8388608":{"got":8388608,"MBps":2985.0746268656958,"ms":2.6799999999999784},"origin":"localhost","post_1048576":{"MBps":724.63768115942275,"ms":1.3799999999999955,"native":"1048576"},"post_8388608":{"MBps":1036.2694300518137,"ms":7.7199999999999989,"native":"8388608"},"suite":"worker","test":"syncxhr-bulk"}
+@@R {"avg":35.779999999999788,"engine":"webview","max":2180.0000000000068,"min":0,"n":1000,"origin":"localhost","p50":20.000000000010232,"p90":80.000000000012506,"p99":100.00000000002274,"suite":"worker","test":"atomics-rtt-main-only","unit":"us"}
+@@R {"avg":37.400000000000453,"engine":"webview","max":119.99999999997613,"min":19.99999999998181,"n":1000,"origin":"localhost","p50":39.999999999992042,"p90":40.000000000020464,"p99":60.000000000002274,"suite":"worker","test":"atomics-rtt-via-native","unit":"us"}
+@@R {"name":"worker","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":241.60875000059605,"name":"w:worker","suite":"timing"}
+@@S running w:ws
+@@R {"avg":105.47999999999847,"engine":"webview","max":279.99999999997272,"min":79.99999999992724,"n":1000,"origin":"localhost","p50":100.00000000002274,"p90":120.00000000000455,"p99":140.00000000010004,"suite":"ws","test":"rtt-tiny","unit":"us"}
+@@R {"bytes":65536,"downMBps":502.5125628140824,"engine":"webview","origin":"localhost","reps":32,"suite":"ws","test":"bulk","upMBps":316.45569620253485}
+@@R {"bytes":1048576,"downMBps":2017.6544766708685,"engine":"webview","origin":"localhost","reps":32,"suite":"ws","test":"bulk","upMBps":742.80408542247119}
+@@R {"bytes":8388608,"downMBps":2307.1377072819027,"engine":"webview","origin":"localhost","reps":8,"suite":"ws","test":"bulk","upMBps":784.50600637411094}
+@@R {"name":"ws","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":289.5612910091877,"name":"w:ws","suite":"timing"}
+@@S running native_to_js
+@@R {"b64EncodeMs":0.0011250078678131104,"bytes":1024,"callAsyncArg":{"js":"1024","MBps":2.4300155268707564,"ms":0.40074999630451202},"evaluateLiteral":{"js":"1024","MBps":7.5120186452484266,"ms":0.1288750022649765},"suite":"native_to_js"}
+@@R {"b64EncodeMs":0.016916990280151367,"bytes":65536,"callAsyncArg":{"js":"65536","MBps":514.40329066695517,"ms":0.1045830100774765},"evaluateLiteral":{"js":"65536","MBps":471.5486969717615,"ms":0.11562499403953552},"suite":"native_to_js"}
+@@R {"b64EncodeMs":0.2929999977350235,"bytes":1048576,"callAsyncArg":{"js":"1048576","MBps":1325.6744623741993,"ms":0.4613330066204071},"evaluateLiteral":{"js":"1048576","MBps":1550.7891226165543,"ms":0.35183300077915192},"suite":"native_to_js"}
+@@R {"b64EncodeMs":2.1531659960746765,"bytes":8388608,"callAsyncArg":{"js":"8388608","MBps":1612.2261568163985,"ms":2.8089170008897781},"evaluateLiteral":{"js":"8388608","MBps":1532.420561560408,"ms":3.067332997918129},"suite":"native_to_js"}
+@@R {"b64EncodeMs":8.6634999960660934,"bytes":33554432,"callAsyncArg":{"js":"33554432","MBps":1353.5973626813679,"ms":14.977208003401756},"evaluateLiteral":{"js":"33554432","MBps":1511.7365800259981,"ms":12.504208996891975},"suite":"native_to_js"}
+@@R {"js":"error: Error Domain=WKErrorDomain Code=4 \"A JavaScript exception occurred\" UserInfo={NSLocalizedDescription=A JavaScript exception occurred, WKJavaScriptExceptionMessage=Function argument values must be one of the following types, or contain only the following types: NSNumber, NSNull, NSDate, NSString, NSArray, and NSDictionary}","suite":"native_to_js","test":"Data-argument"}
+@@R {"js":"object:[object Array]:16","suite":"native_to_js","test":"NSArray-argument"}
+@@R {"ms":50.499167010188103,"name":"native_to_js","suite":"timing"}
+@@S running w:webgpu
+@@R {"available":true,"engine":"webview","features":["bgra8unorm-storage","clip-distances","core-features-and-limits","depth-clip-control","depth32float-stencil8","float16-renderable","float32-blendable","float32-filterable","float32-renderable","indirect-first-instance","primitive-index","rg11b10ufloat-renderable","shader-f16","texture-compression-astc","texture-compression-astc-sliced-3d","texture-compression-bc","texture-compression-bc-sliced-3d","texture-compression-etc2","texture-formats-tier1","texture-formats-tier2","timestamp-query"],"info":{"architecture":"apple","description":"apple","device":"apple","vendor":"apple"},"limits":{"maxBindGroups":11,"maxBufferSize":1073741824,"maxColorAttachments":8,"maxComputeInvocationsPerWorkgroup":1024,"maxComputeWorkgroupStorageSize":32768,"maxStorageBufferBindingSize":1073741824,"maxStorageBuffersPerShaderStage":44,"maxTextureDimension2D":16384,"maxVertexBuffers":12},"origin":"localhost","suite":"webgpu"}
+@@R {"draws":1,"encodeSubmitMs":0,"engine":"webview","origin":"localhost","suite":"webgpu","test":"drawcalls","toCompleteMs":0.51999999999998181,"toCompleteP90":0.61999999999989086}
+@@R {"draws":100,"encodeSubmitMs":0,"engine":"webview","origin":"localhost","suite":"webgpu","test":"drawcalls","toCompleteMs":0.27999999999997272,"toCompleteP90":0.3000000000001819}
+@@R {"draws":1000,"encodeSubmitMs":0.01999999999998181,"engine":"webview","origin":"localhost","suite":"webgpu","test":"drawcalls","toCompleteMs":0.51999999999998181,"toCompleteP90":0.58000000000015461}
+@@R {"draws":10000,"encodeSubmitMs":0.18000000000006366,"engine":"webview","origin":"localhost","suite":"webgpu","test":"drawcalls","toCompleteMs":3.3199999999999363,"toCompleteP90":3.3800000000001091}
+@@R {"bytes":1048576,"engine":"webview","ok":true,"origin":"localhost","readbackMBps":1111.1111111109988,"suite":"webgpu","test":"transfer","uploadMBps":3571.4285714289194}
+@@R {"bytes":16777216,"engine":"webview","ok":true,"origin":"localhost","readbackMBps":2962.962962962913,"suite":"webgpu","test":"transfer","uploadMBps":4102.564102564007}
+@@R {"bytes":67108864,"engine":"webview","ok":true,"origin":"localhost","readbackMBps":2794.7598253275,"suite":"webgpu","test":"transfer","uploadMBps":6765.3276955603906}
+@@R {"name":"webgpu","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":247.46516600251198,"name":"w:webgpu","suite":"timing"}
+@@S running page:scheme
+@@R {"loaded":true,"origin":"scheme","suite":"page","url":"probe:\/\/app\/index.html?ws=50297"}
+@@R {"ms":33.707458004355431,"name":"page:scheme","suite":"timing"}
+@@S running w:ipc
+@@R {"avg":45,"engine":"webview","max":1000,"min":0,"n":1000,"origin":"scheme","p50":0,"p90":0,"p99":1000,"suite":"ipc","test":"reply-rtt-tiny","unit":"us"}
+@@R {"engine":"webview","ms":63,"msgs":10000,"origin":"scheme","suite":"ipc","test":"post-rate-tiny","usPerMsg":6.2999999999999998}
+@@R {"engine":"webview","js":"string","native":"String(2)","origin":"scheme","suite":"ipc","test":"type"}
+@@R {"engine":"webview","js":"number","native":"NSNumber(1.5)","origin":"scheme","suite":"ipc","test":"type"}
+@@R {"engine":"webview","js":"array","native":"Array(3)","origin":"scheme","suite":"ipc","test":"type"}
+@@R {"engine":"webview","js":"object","native":"Dictionary(a)","origin":"scheme","suite":"ipc","test":"type"}
+@@R {"engine":"webview","js":"arraybuffer","native":"Dictionary()","origin":"scheme","suite":"ipc","test":"type"}
+@@R {"engine":"webview","js":"uint8array","native":"Dictionary(0,1,10,11)","origin":"scheme","suite":"ipc","test":"type"}
+@@R {"engine":"webview","js":"dataview","native":"Dictionary()","origin":"scheme","suite":"ipc","test":"type"}
+@@R {"arraybuffer":{"MBps":null,"ms":0,"native":"Dictionary()"},"base64":{"encodeMs":0,"MBps":null,"native":"decoded:65536","sendMs":0},"bytes":65536,"engine":"webview","fetchPOST":{"MBps":null,"ms":0,"native":"65536"},"origin":"scheme","suite":"ipc","test":"bulk-js-to-native"}
+@@R {"arraybuffer":{"MBps":null,"ms":0,"native":"Dictionary()"},"base64":{"encodeMs":0,"MBps":1000,"native":"decoded:1048576","sendMs":1},"bytes":1048576,"engine":"webview","fetchPOST":{"MBps":null,"ms":0,"native":"1048576"},"origin":"scheme","suite":"ipc","test":"bulk-js-to-native"}
+@@R {"arraybuffer":{"MBps":8000,"ms":1,"native":"Dictionary()"},"base64":{"encodeMs":1,"MBps":1600,"native":"decoded:8388608","sendMs":4},"bytes":8388608,"engine":"webview","fetchPOST":{"MBps":4000,"ms":2,"native":"8388608"},"origin":"scheme","suite":"ipc","test":"bulk-js-to-native"}
+@@R {"arraybuffer":{"MBps":32000,"ms":1,"native":"Dictionary()"},"base64":{"encodeMs":3,"MBps":1600,"native":"decoded:33554432","sendMs":17},"bytes":33554432,"engine":"webview","fetchPOST":{"MBps":4000,"ms":8,"native":"33554432"},"origin":"scheme","suite":"ipc","test":"bulk-js-to-native"}
+@@R {"bytes":65536,"copyMs":0,"engine":"webview","fetchMs":0,"got":65536,"MBps":null,"origin":"scheme","suite":"ipc","test":"bulk-native-to-js-fetch"}
+@@R {"bytes":1048576,"copyMs":0,"engine":"webview","fetchMs":0,"got":1048576,"MBps":null,"origin":"scheme","suite":"ipc","test":"bulk-native-to-js-fetch"}
+@@R {"bytes":8388608,"copyMs":0,"engine":"webview","fetchMs":1,"got":8388608,"MBps":8000,"origin":"scheme","suite":"ipc","test":"bulk-native-to-js-fetch"}
+@@R {"bytes":33554432,"copyMs":1,"engine":"webview","fetchMs":4,"got":33554432,"MBps":6400,"origin":"scheme","suite":"ipc","test":"bulk-native-to-js-fetch"}
+@@R {"avg":100,"engine":"webview","max":1000,"min":0,"n":300,"origin":"scheme","p50":0,"p90":1000,"p99":1000,"suite":"ipc","test":"fetch-rtt-tiny","unit":"us"}
+@@R {"name":"ipc","origin":"scheme","return":"ok","suite":"call"}
+@@R {"ms":215.18641701340675,"name":"w:ipc","suite":"timing"}
+@@S running w:worker
+@@R {"avg":80,"engine":"webview","max":1000,"min":0,"n":300,"origin":"scheme","p50":0,"p90":0,"p99":1000,"suite":"worker","test":"syncxhr-rtt","unit":"us"}
+@@R {"engine":"webview","get_1048576":{"got":1048576,"MBps":null,"ms":0},"get_8388608":{"got":8388608,"MBps":null,"ms":0},"origin":"scheme","post_1048576":{"MBps":1000,"ms":1,"native":"1048576"},"post_8388608":{"MBps":4000,"ms":2,"native":"8388608"},"suite":"worker","test":"syncxhr-bulk"}
+@@R {"engine":"webview","origin":"scheme","skipped":"no SharedArrayBuffer \/ not crossOriginIsolated","suite":"worker","test":"atomics"}
+@@R {"name":"worker","origin":"scheme","return":"ok","suite":"call"}
+@@R {"ms":29.766583010554314,"name":"w:worker","suite":"timing"}
+@@S done
+@@DONE

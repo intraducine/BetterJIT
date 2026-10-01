@@ -1,0 +1,22 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Linux guest</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: light dark; --bg: #fff; --fg: #111; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111; --fg: #ddd; } }
+  body { margin: 0; padding: 8px; background: var(--bg); color: var(--fg); font: 12px ui-monospace, Menlo, monospace; }
+  pre { white-space: pre-wrap; word-break: break-all; margin: 0; }
+  /* the guest's screen (shown once Wine draws), scaled to the page's width */
+  canvas { display: none; width: 100%; max-width: 1024px; height: auto; image-rendering: pixelated; touch-action: none; outline: none; }
+  canvas.on { display: block; margin-bottom: 8px; }
+  body.screen { padding: 0; background: #000; overflow: hidden; }
+  body.screen pre { display: none; }
+  body.screen canvas.on { position: fixed; inset: 0; width: 100vw; height: 100vh; max-width: none; object-fit: contain; margin: 0;
+    image-rendering: auto; }
+</style>
+<canvas id="screen" tabindex="0"></canvas>
+<pre id="out"></pre>
+<script src="../thread_core.js"></script>
+<script src="../compositor.js"></script>
+<script src="linux_main.js"></script>

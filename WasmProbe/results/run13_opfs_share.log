@@ -1,0 +1,23 @@
+@@R {"appAvailableMB":6137,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["page:localhost","opfs_share"]}
+@@R {"http":50320,"suite":"servers","ws":50321}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:50320\/index.html?ws=50321"}
+@@R {"ms":182.10062499344349,"name":"page:localhost","suite":"timing"}
+@@S running opfs_share
+@@R {"engine":"webview","op":"open","origin":"localhost","result":{"openMs":0.36000000000000032,"proto":["constructor","truncate","getSize","flush","close","read","write"],"size":0},"suite":"opfs","worker":"A"}
+@@R {"engine":"webview","op":"estimate","origin":"localhost","result":{"quota":10307921511,"usage":0},"suite":"opfs","worker":"A"}
+@@R {"engine":"webview","op":"openOther","origin":"localhost","result":"refused: InvalidStateError: The object is in an invalid state.","suite":"opfs","worker":"B"}
+@@R {"engine":"webview","op":"openOther","origin":"localhost","result":"refused: InvalidStateError: The object is in an invalid state.","suite":"opfs","worker":"B"}
+@@R {"engine":"webview","op":"header","origin":"localhost","result":{"size":2147483648},"suite":"opfs","worker":"A"}
+@@R {"event":"found","path":"~\/Library\/WebKit\/WebsiteData\/Default\/vM9Kc3U_MdN4F7bC6_6M9NHFlK9-Uf_5XlvI5xOnpVo\/vM9Kc3U_MdN4F7bC6_6M9NHFlK9-Uf_5XlvI5xOnpVo\/FileSystem\/probe.bin","protection":"NSFileProtectionCompleteUntilFirstUserAuthentication","scannedFiles":12,"searchMs":4.236625000834465,"size":"2147483648","suite":"opfs_share"}
+@@R {"bytes":2147483648,"event":"mapped","headerMatches":true,"suite":"opfs_share"}
+@@R {"engine":"webview","op":"writeAt","origin":"localhost","result":{"hash":485568930,"MBps":6694.5606694560656,"ms":9.5600000000000023},"suite":"opfs","worker":"A"}
+@@R {"appHash":485568930,"appReadMBps":4218.8299164019863,"jsHash":485568930,"jsWriteMBps":6694.5606694560656,"match":true,"suite":"opfs_share","test":"webview-writes-app-reads"}
+@@R {"engine":"webview","op":"checkAt","origin":"localhost","result":{"got":67108864,"hash":1064471374,"MBps":19999.999999999982,"ms":3.2000000000000028},"suite":"opfs","worker":"A"}
+@@R {"appHash":1064471374,"appWriteMBps":2747.3460308923677,"jsHash":1064471374,"jsReadMBps":19999.999999999982,"match":true,"suite":"opfs_share","test":"app-writes-webview-reads"}
+@@R {"engine":"webview","op":"tinyread","origin":"localhost","result":{"avg":0.5266666666666614,"max":20.000000000010232,"min":0,"n":3000,"p50":0,"p90":0,"p99":20.000000000010232,"unit":"us"},"suite":"opfs","worker":"A"}
+@@R {"engine":"webview","op":"pingpong","origin":"localhost","result":{"avg":2.8720000000000265,"avgReadsPerTrip":1.0129999999999999,"max":20.000000000010232,"min":0,"n":5000,"p50":0,"p90":19.99999999998181,"p99":20.000000000010232,"timeouts":0,"unit":"us"},"suite":"opfs","worker":"A"}
+@@R {"appAvailableMB":6131,"appFootprintMB":12,"cpuCount":6,"event":"app-memory","os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"opfs_share"}
+@@R {"ms":160.34749999642372,"name":"opfs_share","suite":"timing"}
+@@S done
+@@DONE

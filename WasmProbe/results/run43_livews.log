@@ -1,0 +1,61 @@
+@@R {"appAvailableMB":8185,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["page:localhost","w:fexlive","w:fexlive_http"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:47113\/index.html?ws=47114"}
+@@R {"ms":121.6227500140667,"name":"page:localhost","suite":"timing"}
+@@S running w:fexlive
+@@R {"dir":"fex","event":"init","ms":0.21620800000000001,"options":"","suite":"xlat"}
+@@R {"chk":3085797194,"dir":"fex","engine":"webview","firstMs":3.1799999999999997,"kernel":"intmix","match":true,"ms":12.619999999999997,"n":10000000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":564163,"dir":"fex","engine":"webview","firstMs":7.8000000000000043,"kernel":"sieve","match":true,"ms":5.9399999999999977,"n":1,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":3580142796,"dir":"fex","engine":"webview","firstMs":50.659999999999997,"kernel":"qsort","match":true,"ms":47.220000000000013,"n":1,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":3932197050,"dir":"fex","engine":"webview","firstMs":15.379999999999995,"kernel":"hash","match":true,"ms":8.6800000000000068,"n":4,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":3505435665,"dir":"fex","engine":"webview","firstMs":7.0200000000000102,"kernel":"interp","match":true,"ms":15.47999999999999,"n":2000000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":180552,"dir":"fex","engine":"webview","firstMs":33.739999999999981,"kernel":"ptrchase","match":true,"ms":11.940000000000026,"n":1000000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":2657,"dir":"fex","engine":"webview","firstMs":1.460000000000008,"kernel":"memcpy","match":true,"ms":4.3999999999999773,"n":20,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":3247728246,"dir":"fex","engine":"webview","firstMs":33.120000000000005,"kernel":"crc32","match":true,"ms":32.079999999999984,"n":1,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":3391113217,"dir":"fex","engine":"webview","firstMs":2.6999999999999886,"kernel":"tree","match":true,"ms":23.599999999999966,"n":200000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":4242,"dir":"fex","engine":"webview","firstMs":2.4600000000000364,"kernel":"matmul","match":true,"ms":3.5600000000000023,"n":4,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":140469700,"dir":"fex","engine":"webview","firstMs":3.6599999999999682,"kernel":"nbody","match":true,"ms":7.8600000000000136,"n":300000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":1949010561,"dir":"fex","engine":"webview","firstMs":1.8400000000000318,"kernel":"calls","match":true,"ms":8.17999999999995,"n":10000000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":4287507785,"dir":"fex","engine":"webview","firstMs":3.0600000000000023,"kernel":"switch","match":true,"ms":4.6000000000000227,"n":10000000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":3914506433,"dir":"fex","engine":"webview","firstMs":9.1000000000000227,"kernel":"vcall","match":true,"ms":8.1599999999999682,"n":10000000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":1223800,"dir":"fex","engine":"webview","firstMs":2.160000000000025,"kernel":"fib","match":true,"ms":4.5,"n":200,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":485791668,"dir":"fex","engine":"webview","firstMs":11.220000000000027,"kernel":"rswitch","match":true,"ms":70.079999999999984,"n":10000000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":1379570532,"dir":"fex","engine":"webview","firstMs":3.2599999999999909,"kernel":"walk","match":true,"ms":6.3799999999999955,"n":2000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":1978893933,"dir":"fex","engine":"webview","firstMs":34.239999999999952,"kernel":"coremark","match":true,"ms":48.620000000000005,"n":2000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":4271793258,"dir":"fex","engine":"webview","firstMs":181.21999999999991,"kernel":"box2d","match":true,"ms":80.280000000000086,"n":30,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":1063764377,"dir":"fex","engine":"webview","firstMs":13.139999999999986,"kernel":"box2d_tumbler","match":true,"ms":57.580000000000041,"n":60,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":2859769992,"dir":"fex","engine":"webview","firstMs":54.259999999999991,"kernel":"box2d_joints","match":true,"ms":90.659999999999968,"n":20,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":2107500561,"dir":"fex","engine":"webview","firstMs":21.060000000000173,"kernel":"box2d_rain","match":true,"ms":113.91999999999985,"n":100,"origin":"localhost","suite":"fexlive"}
+@@R {"client":{"bytes":3378524,"compileMs":27.419999999999991,"regionRequests":155,"requestMs":206.89999999999975,"transport":"ws","unitRequests":509},"dir":"fex","engine":"webview","initMs":1.4600000000000009,"origin":"localhost","runtime":{"compileMs":2.3199999999998688,"flushes":0,"jsDispatches":0,"misses":509,"regions":155,"regionUnits":162,"translateMs":238.42000000000004,"units":509,"wasmBytes":3378524},"suite":"fexlive","translator":{"failed":0,"fexMs":6.4000000000000004,"guestInsts":56379,"regionBytes":1521441,"regionMs":28.800000000000001,"regions":155,"unitBytes":1857083,"unitMs":33.299999999999997,"units":509}}
+@@R {"name":"fexlive","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":1174.5636250078678,"name":"w:fexlive","suite":"timing"}
+@@S running w:fexlive_http
+@@R {"dir":"fex","event":"init","ms":0.03925,"options":"","suite":"xlat"}
+@@R {"chk":3085797194,"dir":"fex","engine":"webview","firstMs":2.5199999999999818,"kernel":"intmix","match":true,"ms":12.619999999999891,"n":10000000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":564163,"dir":"fex","engine":"webview","firstMs":7.6400000000001,"kernel":"sieve","match":true,"ms":5.9199999999998454,"n":1,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":3580142796,"dir":"fex","engine":"webview","firstMs":51.399999999999864,"kernel":"qsort","match":true,"ms":46.940000000000055,"n":1,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":3932197050,"dir":"fex","engine":"webview","firstMs":6.0399999999999636,"kernel":"hash","match":true,"ms":8.5800000000001546,"n":4,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":3505435665,"dir":"fex","engine":"webview","firstMs":11.299999999999955,"kernel":"interp","match":true,"ms":15.240000000000009,"n":2000000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":180552,"dir":"fex","engine":"webview","firstMs":34.759999999999991,"kernel":"ptrchase","match":true,"ms":13.759999999999991,"n":1000000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":2657,"dir":"fex","engine":"webview","firstMs":1.7000000000000455,"kernel":"memcpy","match":true,"ms":4.3999999999998636,"n":20,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":3247728246,"dir":"fex","engine":"webview","firstMs":33.420000000000073,"kernel":"crc32","match":true,"ms":31.900000000000091,"n":1,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":3391113217,"dir":"fex","engine":"webview","firstMs":2.9399999999998272,"kernel":"tree","match":true,"ms":23.660000000000082,"n":200000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":4242,"dir":"fex","engine":"webview","firstMs":2.8199999999999363,"kernel":"matmul","match":true,"ms":3.540000000000191,"n":4,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":140469700,"dir":"fex","engine":"webview","firstMs":4.0399999999999636,"kernel":"nbody","match":true,"ms":7.8599999999999,"n":300000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":1949010561,"dir":"fex","engine":"webview","firstMs":2.1400000000001,"kernel":"calls","match":true,"ms":8.2400000000000091,"n":10000000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":4287507785,"dir":"fex","engine":"webview","firstMs":6.1799999999998363,"kernel":"switch","match":true,"ms":4.7200000000000273,"n":10000000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":3914506433,"dir":"fex","engine":"webview","firstMs":13.340000000000146,"kernel":"vcall","match":true,"ms":8.3599999999999,"n":10000000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":1223800,"dir":"fex","engine":"webview","firstMs":3.5800000000001546,"kernel":"fib","match":true,"ms":4.5599999999999454,"n":200,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":485791668,"dir":"fex","engine":"webview","firstMs":14.3599999999999,"kernel":"rswitch","match":true,"ms":70.820000000000164,"n":10000000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":1379570532,"dir":"fex","engine":"webview","firstMs":5.8999999999998636,"kernel":"walk","match":true,"ms":6.6600000000000819,"n":2000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":1978893933,"dir":"fex","engine":"webview","firstMs":51.639999999999873,"kernel":"coremark","match":true,"ms":48.940000000000055,"n":2000,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":4271793258,"dir":"fex","engine":"webview","firstMs":285.01999999999998,"kernel":"box2d","match":true,"ms":88.7800000000002,"n":30,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":1063764377,"dir":"fex","engine":"webview","firstMs":26.519999999999982,"kernel":"box2d_tumbler","match":true,"ms":72.339999999999691,"n":60,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":2859769992,"dir":"fex","engine":"webview","firstMs":65.720000000000255,"kernel":"box2d_joints","match":true,"ms":92.239999999999782,"n":20,"origin":"localhost","suite":"fexlive"}
+@@R {"chk":2107500561,"dir":"fex","engine":"webview","firstMs":33.080000000000382,"kernel":"box2d_rain","match":true,"ms":117.17999999999984,"n":100,"origin":"localhost","suite":"fexlive"}
+@@R {"client":{"bytes":3378524,"compileMs":34.459999999996853,"regionRequests":155,"requestMs":400.68000000000302,"transport":"http","unitRequests":509},"dir":"fex","engine":"webview","initMs":0.96000000000003638,"origin":"localhost","runtime":{"compileMs":2.260000000000673,"flushes":0,"jsDispatches":0,"misses":509,"regions":155,"regionUnits":162,"translateMs":439.35999999999945,"units":509,"wasmBytes":3378524},"suite":"fexlive","translator":{"failed":0,"fexMs":6.0999999999999996,"guestInsts":56379,"regionBytes":1521441,"regionMs":28.899999999999999,"regions":155,"unitBytes":1857083,"unitMs":34.5,"units":509}}
+@@R {"name":"fexlive_http","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":1369.852874994278,"name":"w:fexlive_http","suite":"timing"}
+@@S done
+@@DONE

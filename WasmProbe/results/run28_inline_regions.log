@@ -1,0 +1,45 @@
+@@R {"appAvailableMB":8185,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["native_fexkernels","page:localhost","w:fexkernels"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running native_fexkernels
+@@R {"chk":3085797194,"kernel":"intmix","ms":17.670834004878998,"n":10000000,"suite":"native_fexkernels"}
+@@R {"chk":564163,"kernel":"sieve","ms":5.4069579988718033,"n":1,"suite":"native_fexkernels"}
+@@R {"chk":3580142796,"kernel":"qsort","ms":41.281707987189293,"n":1,"suite":"native_fexkernels"}
+@@R {"chk":3932197050,"kernel":"hash","ms":8.5960839986801147,"n":4,"suite":"native_fexkernels"}
+@@R {"chk":3505435665,"kernel":"interp","ms":11.096874997019768,"n":2000000,"suite":"native_fexkernels"}
+@@R {"chk":180552,"kernel":"ptrchase","ms":11.960791006684303,"n":1000000,"suite":"native_fexkernels"}
+@@R {"chk":2657,"kernel":"memcpy","ms":4.6841669976711273,"n":20,"suite":"native_fexkernels"}
+@@R {"chk":3247728246,"kernel":"crc32","ms":28.219166994094849,"n":1,"suite":"native_fexkernels"}
+@@R {"chk":3391113217,"kernel":"tree","ms":18.58883298933506,"n":200000,"suite":"native_fexkernels"}
+@@R {"chk":4242,"kernel":"matmul","ms":3.4655829966068268,"n":4,"suite":"native_fexkernels"}
+@@R {"chk":140469700,"kernel":"nbody","ms":6.732916995882988,"n":300000,"suite":"native_fexkernels"}
+@@R {"chk":1949010561,"kernel":"calls","ms":8.1308339983224869,"n":10000000,"suite":"native_fexkernels"}
+@@R {"chk":4287507785,"kernel":"switch","ms":13.107207998633385,"n":10000000,"suite":"native_fexkernels"}
+@@R {"chk":3914506433,"kernel":"vcall","ms":6.844540998339653,"n":10000000,"suite":"native_fexkernels"}
+@@R {"chk":1223800,"kernel":"fib","ms":1.4907499998807907,"n":200,"suite":"native_fexkernels"}
+@@R {"chk":485791668,"kernel":"rswitch","ms":13.336915999650955,"n":10000000,"suite":"native_fexkernels"}
+@@R {"ms":305.0774170011282,"name":"native_fexkernels","suite":"timing"}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:47113\/index.html?ws=47114"}
+@@R {"ms":138.02729099988937,"name":"page:localhost","suite":"timing"}
+@@S running w:fexkernels
+@@R {"chk":3085797194,"dispatches":1,"engine":"webview","kernel":"intmix","macNativeMs":25,"macWasmMs":24.280000000000001,"match":true,"ms":12.580000000000002,"n":10000000,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":564163,"dispatches":2,"engine":"webview","kernel":"sieve","macNativeMs":10.08,"macWasmMs":12.859999999999999,"match":true,"ms":6.0399999999999991,"n":1,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":3580142796,"dispatches":5,"engine":"webview","kernel":"qsort","macNativeMs":76.060000000000002,"macWasmMs":89.349999999999994,"match":true,"ms":47.720000000000013,"n":1,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":3932197050,"dispatches":6,"engine":"webview","kernel":"hash","macNativeMs":16.300000000000001,"macWasmMs":16.34,"match":true,"ms":8.7400000000000091,"n":4,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":3505435665,"dispatches":19,"engine":"webview","kernel":"interp","macNativeMs":22.699999999999999,"macWasmMs":54.890000000000001,"match":true,"ms":31.379999999999995,"n":2000000,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":180552,"dispatches":20,"engine":"webview","kernel":"ptrchase","macNativeMs":50.670000000000002,"macWasmMs":64.280000000000001,"match":true,"ms":17.219999999999999,"n":1000000,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":2657,"dispatches":21,"engine":"webview","kernel":"memcpy","macNativeMs":8.6500000000000004,"macWasmMs":8.6799999999999997,"match":true,"ms":4.5,"n":20,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":3247728246,"dispatches":22,"engine":"webview","kernel":"crc32","macNativeMs":53.32,"macWasmMs":79.120000000000005,"match":true,"ms":41.839999999999975,"n":1,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":3391113217,"dispatches":23,"engine":"webview","kernel":"tree","macNativeMs":36.219999999999999,"macWasmMs":75.969999999999999,"match":true,"ms":36.360000000000014,"n":200000,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":4242,"dispatches":24,"engine":"webview","kernel":"matmul","macNativeMs":6.8300000000000001,"macWasmMs":6.5700000000000003,"match":true,"ms":3.4799999999999613,"n":4,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":140469700,"dispatches":25,"engine":"webview","kernel":"nbody","macNativeMs":14.08,"macWasmMs":21.539999999999999,"match":true,"ms":10.839999999999975,"n":300000,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":1949010561,"dispatches":26,"engine":"webview","kernel":"calls","macNativeMs":16.890000000000001,"macWasmMs":25.850000000000001,"match":true,"ms":14.279999999999973,"n":10000000,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":4287507785,"dispatches":35,"engine":"webview","kernel":"switch","macNativeMs":26.02,"macWasmMs":8.6699999999999999,"match":true,"ms":4.7400000000000091,"n":10000000,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":3914506433,"dispatches":42,"engine":"webview","kernel":"vcall","macNativeMs":16.489999999999998,"macWasmMs":42.43,"match":true,"ms":21.480000000000018,"n":10000000,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":1223800,"dispatches":48,"engine":"webview","kernel":"fib","macNativeMs":3.7799999999999998,"macWasmMs":24.420000000000002,"match":true,"ms":11.240000000000009,"n":200,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":485791668,"dispatches":58,"engine":"webview","kernel":"rswitch","macNativeMs":25.440000000000001,"macWasmMs":141.83000000000001,"match":true,"ms":71.5,"n":10000000,"origin":"localhost","suite":"fexkernels"}
+@@R {"engine":"webview","origin":"localhost","regionMisses":0,"regionsAvailable":7,"stats":{"compileMs":2.8600000000000172,"jsDispatches":0,"misses":58,"regions":7,"regionUnits":46,"translateMs":0.3599999999999568,"units":58,"wasmBytes":116890},"suite":"fexkernels"}
+@@R {"name":"fexkernels","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":532.80216699838638,"name":"w:fexkernels","suite":"timing"}
+@@S done
+@@DONE

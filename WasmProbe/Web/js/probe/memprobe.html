@@ -1,0 +1,29 @@
+<!doctype html><meta charset="utf-8"><title>memory probe</title><pre id="o"></pre>
+<script>
+// How many shared WebAssembly.Memory objects can a worker make, per maximum size, and grown how far?
+const workerSrc = `onmessage = (e) => {
+  const res = [];
+  for (const [maxPages, growTo] of e.data) {
+    const mems = [];
+    let err = '';
+    try {
+      for (let i = 0; i < 64; i++) {
+        const m = new WebAssembly.Memory({ initial: 16, maximum: maxPages, shared: true });
+        if (growTo) m.grow(growTo - 16);
+        mems.push(m);
+      }
+    } catch (x) { err = String(x); }
+    res.push([maxPages, growTo, mems.length, err]);
+    mems.length = 0;
+  }
+  postMessage(res);
+};`;
+const w = new Worker(URL.createObjectURL(new Blob([workerSrc], {type: 'text/javascript'})));
+const cases = [[65536, 0], [32768, 0], [16384, 0], [8192, 0], [4096, 0], [2048, 0], [32768, 32767], [8192, 8191]];
+w.onmessage = (e) => {
+  const lines = e.data.map(([m, g, n, err]) => `max ${m} pages, grown to ${g}: ${n} memories ${err}`);
+  document.getElementById('o').textContent = lines.join('\n');
+  fetch('/log', {method: 'POST', body: '[memprobe] ' + navigator.userAgent + '\n' + lines.join('\n') + '\n[page] exit 0\n'});
+};
+w.postMessage(cases);
+</script>

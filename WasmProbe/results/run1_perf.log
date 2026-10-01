@@ -1,0 +1,54 @@
+@@R {"appAvailableMB":3369,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["native_kernels","native_dispatch","page:localhost","w:kernels","w:dispatch","w:jitcost"]}
+@@R {"http":50290,"suite":"servers","ws":50291}
+@@S running native_kernels
+@@R {"chk":55925708,"engine":"native","firstMs":139.21716700494289,"kernel":"intmix","ms":125.0062500089407,"n":100000000,"suite":"kernels"}
+@@R {"chk":5641630,"engine":"native","firstMs":45.384625002741814,"kernel":"sieve","ms":45.384625002741814,"n":10,"suite":"kernels"}
+@@R {"chk":2691920017,"engine":"native","firstMs":159.70299999415874,"kernel":"qsort","ms":159.4050410091877,"n":4,"suite":"kernels"}
+@@R {"chk":61970,"engine":"native","firstMs":49.782875001430511,"kernel":"matmul","ms":49.782875001430511,"n":60,"suite":"kernels"}
+@@R {"chk":1460891968,"engine":"native","firstMs":67.425916999578476,"kernel":"nbody","ms":67.182042002677917,"n":3000000,"suite":"kernels"}
+@@R {"chk":2611654466,"engine":"native","firstMs":62.413291990756989,"kernel":"hash","ms":62.378916010260582,"n":40,"suite":"kernels"}
+@@R {"chk":735489014,"engine":"native","firstMs":110.73741699755192,"kernel":"interp","ms":110.73741699755192,"n":20000000,"suite":"kernels"}
+@@R {"chk":2801444,"engine":"native","firstMs":34.197374999523163,"kernel":"ptrchase","ms":33.984790995717049,"n":5000000,"suite":"kernels"}
+@@R {"chk":25467,"engine":"native","firstMs":42.986665993928909,"kernel":"memcpy","ms":42.816750004887581,"n":200,"suite":"kernels"}
+@@R {"chk":518206936,"engine":"native","firstMs":104.55029100179672,"kernel":"crc32","ms":104.55029100179672,"n":4,"suite":"kernels"}
+@@R {"chk":1198459393,"engine":"native","firstMs":119.63924999535084,"kernel":"tree","ms":119.63924999535084,"n":1000000,"suite":"kernels"}
+@@R {"ms":2868.6917500048876,"name":"native_kernels","suite":"timing"}
+@@S running native_dispatch
+@@R {"chk":2424211462,"engine":"native","ms":5.3272500038146973,"nsPerBlock":2.6636250019073486,"steps":2000000,"suite":"dispatch","variant":"switch"}
+@@R {"chk":2424211462,"engine":"native","ms":6.7630420029163361,"nsPerBlock":3.381521001458168,"steps":2000000,"suite":"dispatch","variant":"fnptr"}
+@@R {"chk":2424211462,"engine":"native","ms":6.7792080044746399,"nsPerBlock":3.3896040022373199,"steps":2000000,"suite":"dispatch","variant":"tail"}
+@@R {"ms":58.309291988611221,"name":"native_dispatch","suite":"timing"}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:50290\/index.html?ws=50291"}
+@@R {"ms":108.12833400070667,"name":"page:localhost","suite":"timing"}
+@@S running w:kernels
+@@R {"engine":"webview","event":"instantiate","ms":1.1800000000000015,"origin":"localhost","suite":"kernels"}
+@@R {"chk":55925708,"engine":"webview","firstMs":126.08,"kernel":"intmix","ms":123.82000000000002,"n":100000000,"origin":"localhost","suite":"kernels"}
+@@R {"chk":5641630,"engine":"webview","firstMs":63.680000000000007,"kernel":"sieve","ms":63.400000000000091,"n":10,"origin":"localhost","suite":"kernels"}
+@@R {"chk":2691920017,"engine":"webview","firstMs":165.03999999999996,"kernel":"qsort","ms":165.03999999999996,"n":4,"origin":"localhost","suite":"kernels"}
+@@R {"chk":61970,"engine":"webview","firstMs":56.200000000000045,"kernel":"matmul","ms":56.200000000000045,"n":60,"origin":"localhost","suite":"kernels"}
+@@R {"chk":1460891968,"engine":"webview","firstMs":87.700000000000045,"kernel":"nbody","ms":86.799999999999955,"n":3000000,"origin":"localhost","suite":"kernels"}
+@@R {"chk":2611654466,"engine":"webview","firstMs":62.440000000000055,"kernel":"hash","ms":62.279999999999973,"n":40,"origin":"localhost","suite":"kernels"}
+@@R {"chk":735489014,"engine":"webview","firstMs":120.53999999999996,"kernel":"interp","ms":116.74000000000001,"n":20000000,"origin":"localhost","suite":"kernels"}
+@@R {"chk":2801444,"engine":"webview","firstMs":39.319999999999709,"kernel":"ptrchase","ms":38.639999999999873,"n":5000000,"origin":"localhost","suite":"kernels"}
+@@R {"chk":25467,"engine":"webview","firstMs":43.739999999999782,"kernel":"memcpy","ms":43.739999999999782,"n":200,"origin":"localhost","suite":"kernels"}
+@@R {"chk":518206936,"engine":"webview","firstMs":120.07999999999993,"kernel":"crc32","ms":120.07999999999993,"n":4,"origin":"localhost","suite":"kernels"}
+@@R {"chk":1198459393,"engine":"webview","firstMs":131.88000000000011,"kernel":"tree","ms":131.33999999999969,"n":1000000,"origin":"localhost","suite":"kernels"}
+@@R {"name":"kernels","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":3155.1394170075655,"name":"w:kernels","suite":"timing"}
+@@S running w:dispatch
+@@R {"blocks":512,"chk":2424211462,"coldMs":8.2199999999997999,"compileMs":7.6199999999998909,"engine":"webview","genMs":7.1999999999998181,"ms":7.0399999999999636,"nsPerBlock":3.5199999999999818,"origin":"localhost","steps":2000000,"suite":"dispatch","variant":"switch","wasmBytes":83694}
+@@R {"blocks":512,"chk":2424211462,"coldMs":12.539999999999964,"compileMs":6.2599999999997635,"engine":"webview","genMs":5.7799999999997453,"ms":6.8600000000001273,"nsPerBlock":3.4300000000000637,"origin":"localhost","steps":2000000,"suite":"dispatch","variant":"switch+pagecheck","wasmBytes":106950}
+@@R {"blocks":512,"chk":2424211462,"coldMs":7.2599999999997635,"compileMs":7.5399999999999636,"engine":"webview","genMs":7.2199999999997999,"ms":6.8600000000001273,"nsPerBlock":3.4300000000000637,"origin":"localhost","steps":2000000,"suite":"dispatch","variant":"fnptr","wasmBytes":157832}
+@@R {"blocks":512,"chk":2424211462,"coldMs":8.7199999999997999,"compileMs":5.3400000000001455,"engine":"webview","genMs":4.9600000000000364,"ms":8.2400000000002365,"nsPerBlock":4.1200000000001182,"origin":"localhost","steps":2000000,"suite":"dispatch","variant":"fnptr+pagecheck","wasmBytes":181088}
+@@R {"blocks":512,"chk":2424211462,"coldMs":6.6599999999998545,"compileMs":4.9800000000000182,"engine":"webview","genMs":4.6199999999998909,"ms":6.4600000000000364,"nsPerBlock":3.2300000000000182,"origin":"localhost","steps":2000000,"suite":"dispatch","variant":"tail","wasmBytes":166517}
+@@R {"blocks":512,"chk":2424211462,"coldMs":7.1400000000003274,"compileMs":14.7199999999998,"engine":"webview","modules":513,"ms":7.0599999999999454,"nsPerBlock":3.5299999999999727,"origin":"localhost","steps":2000000,"suite":"dispatch","variant":"permodule-ret","wasmBytes":184466}
+@@R {"blocks":512,"chk":2424211462,"coldMs":7.7799999999997453,"compileMs":0,"engine":"webview","ms":6.6000000000003638,"nsPerBlock":3.3000000000001819,"origin":"localhost","steps":2000000,"suite":"dispatch","variant":"js-dispatch"}
+@@R {"appAvailableMB":3330,"appFootprintMB":45,"cpuCount":6,"origin":"localhost","os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"webcontent-terminated"}
+@@R {"name":"dispatch","origin":"localhost","return":"error: Error Domain=WKErrorDomain Code=5 \"JavaScript execution returned a result of an unsupported type\" UserInfo={NSLocalizedDescription=JavaScript execution returned a result of an unsupported type}","suite":"call"}
+@@R {"ms":387.29370900988579,"name":"w:dispatch","suite":"timing"}
+@@S running w:jitcost
+@@R {"name":"jitcost","origin":"localhost","return":"error: Error Domain=WKErrorDomain Code=5 \"JavaScript execution returned a result of an unsupported type\" UserInfo={NSLocalizedDescription=JavaScript execution returned a result of an unsupported type}","suite":"call"}
+@@R {"ms":0.072541996836662292,"name":"w:jitcost","suite":"timing"}
+@@S done
+@@DONE

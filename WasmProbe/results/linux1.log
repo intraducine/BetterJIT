@@ -1,0 +1,13 @@
+@@R {"appAvailableMB":6137,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["linux:argv=%5B%22\/test\/hello-static%22%2C%20%22a%22%5D;timeout=60"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running linux:argv=%5B%22/test/hello-static%22%2C%20%22a%22%5D;timeout=60
+@@L [page] engine ready: 2018 files in the index, 230 ms
+@@L thread 42
+@@L hello from x86-64 musl, argc=2
+@@L [pid 100] exited with status 0
+@@L [page] 16 kernel syscalls; handlers 2 ms, shared-memory sync 0 ms, idle 94 ms; files fetched 1 (0.0 MB, 2 ms)
+@@L [page] exit 0 after 344 ms
+@@R {"appAvailableMB":8173,"appFootprintMB":18,"cpuCount":6,"exit":0,"ms":524.43920901417732,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"query":"argv=%5B%22\/test\/hello-static%22%2C%20%22a%22%5D&timeout=60","suite":"linux","webcontentTerminated":false}
+@@R {"ms":730.74295800924301,"name":"linux:argv=%5B%22\/test\/hello-static%22%2C%20%22a%22%5D;timeout=60","suite":"timing"}
+@@S done
+@@DONE

@@ -1,0 +1,14 @@
+@@R {"appAvailableMB":8185,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["native_box2d_threads"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running native_box2d_threads
+@@R {"chk":3769722444,"kernel":"box2d_mt4","ms":310.58137500286102,"n":300,"suite":"native_box2d_threads","workers":1}
+@@R {"chk":3769722444,"kernel":"box2d_mt4","ms":176.41574999690056,"n":300,"suite":"native_box2d_threads","workers":2}
+@@R {"chk":3769722444,"kernel":"box2d_mt4","ms":222.43533301353455,"n":300,"suite":"native_box2d_threads","workers":3}
+@@R {"chk":3769722444,"kernel":"box2d_mt4","ms":204.14312499761581,"n":300,"suite":"native_box2d_threads","workers":4}
+@@R {"chk":4176968306,"kernel":"box2d_joints_mt4","ms":393.21487498283386,"n":200,"suite":"native_box2d_threads","workers":1}
+@@R {"chk":4176968306,"kernel":"box2d_joints_mt4","ms":222.42399999499321,"n":200,"suite":"native_box2d_threads","workers":2}
+@@R {"chk":4176968306,"kernel":"box2d_joints_mt4","ms":224.66816601157188,"n":200,"suite":"native_box2d_threads","workers":3}
+@@R {"chk":4176968306,"kernel":"box2d_joints_mt4","ms":203.73312500119209,"n":200,"suite":"native_box2d_threads","workers":4}
+@@R {"ms":2195.5522499978542,"name":"native_box2d_threads","suite":"timing"}
+@@S done
+@@DONE

@@ -1,0 +1,18 @@
+@@R {"appAvailableMB":6137,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["native_tso","page:localhost","w:tso"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running native_tso
+@@R {"FEX half-barrier ldr+dmb ishld":1.9199999999999999,"FEX TSO ldapr\/stlr":1.3500000000000001,"plain ldr\/str":1,"stores":0,"suite":"native_tso","threads":1,"wasm fence ldr\/str+dmb ish":1.7}
+@@R {"FEX half-barrier ldr+dmb ishld":4.2400000000000002,"FEX TSO ldapr\/stlr":1.3899999999999999,"plain ldr\/str":0.82999999999999996,"stores":1,"suite":"native_tso","threads":1,"wasm fence ldr\/str+dmb ish":4.0599999999999996}
+@@R {"FEX half-barrier ldr+dmb ishld":1.79,"FEX TSO ldapr\/stlr":1.1799999999999999,"plain ldr\/str":1.03,"stores":0,"suite":"native_tso","threads":4,"wasm fence ldr\/str+dmb ish":1.6799999999999999}
+@@R {"FEX half-barrier ldr+dmb ishld":4.0800000000000001,"FEX TSO ldapr\/stlr":1.5700000000000001,"plain ldr\/str":1.1299999999999999,"stores":1,"suite":"native_tso","threads":4,"wasm fence ldr\/str+dmb ish":4.0700000000000003}
+@@R {"ms":173.39841701090336,"name":"native_tso","suite":"timing"}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:47113\/index.html?ws=47114"}
+@@R {"ms":108.64683300256729,"name":"page:localhost","suite":"timing"}
+@@S running w:tso
+@@R {"atomicR":2.04,"atomicRW":3.0499999999999998,"engine":"webview","fenceR":1.1499999999999999,"fenceRW":3.8999999999999999,"mixedRW":2.8700000000000001,"origin":"localhost","plainR":0.40999999999999998,"plainRW":0.46000000000000002,"suite":"tso","test":"single-thread ns\/iter (4 loads [+2 stores])"}
+@@R {"engine":"webview","fenceR":1.5,"fenceRW":3.71,"mixedRW":3.71,"origin":"localhost","plainR":1.01,"plainRW":0.98999999999999999,"suite":"tso","test":"4 workers: shared loads, private stores; ns\/iter"}
+@@R {"name":"tso","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":920.02966699004173,"name":"w:tso","suite":"timing"}
+@@S done
+@@DONE

@@ -1,0 +1,17 @@
+@@R {"appAvailableMB":6137,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["url:js\/probe\/modshare.html?mode=shared&n=8&funcs=8000&reps=200"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running url:js/probe/modshare.html?mode=shared&n=8&funcs=8000&reps=200
+@@L [modshare] mode shared, 8 workers, 8000 functions, module 3.55 MB
+@@L [app] 0s memory in use elsewhere +-30 MB (system 4613 MB, app 12 MB)
+@@L [app] 2s memory in use elsewhere +-286 MB (system 4357 MB, app 12 MB)
+@@L [modshare] phase: workers start
+@@L [app] 4s memory in use elsewhere +-296 MB (system 4347 MB, app 12 MB)
+@@L [modshare] all ran in 614 ms; compile 0 0 0 0 0 0 0 0 ms; run 591 501 595 607 583 568 513 569 ms
+@@L [app] 6s memory in use elsewhere +-342 MB (system 4300 MB, app 11 MB)
+@@L [app] 8s memory in use elsewhere +-346 MB (system 4296 MB, app 11 MB)
+@@L [page] exit 0
+@@L [app] 10s memory in use elsewhere +-342 MB (system 4300 MB, app 11 MB)
+@@R {"appAvailableMB":8180,"appFootprintMB":11,"cpuCount":6,"elsewhereMaxRiseMB":0,"exit":0,"ms":10740.064791977406,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"query":"js\/probe\/modshare.html?mode=shared&n=8&funcs=8000&reps=200","suite":"linux","webContentLastMB":-1,"webContentMaxMB":0,"webcontentTerminated":false}
+@@R {"ms":10899.307832986116,"name":"url:js\/probe\/modshare.html?mode=shared&n=8&funcs=8000&reps=200","suite":"timing"}
+@@S done
+@@DONE

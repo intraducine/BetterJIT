@@ -1,0 +1,13 @@
+@@R {"appAvailableMB":6137,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["page:localhost","w:modshare"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:47113\/index.html?ws=47114"}
+@@R {"ms":143.50333300232887,"name":"page:localhost","suite":"timing"}
+@@S running w:modshare
+@@R {"compileMs":0,"engine":"webview","first":[0.68000000000000005,0.23999999999999999,0.26000000000000001,0.26000000000000001,0.23999999999999999,0.26000000000000001,0.26000000000000001,0.26000000000000001],"instMs":0.28000000000000003,"last":[0.23999999999999999,0.23999999999999999,0.23999999999999999,0.26000000000000001],"origin":"localhost","suite":"modshare","worker":"A (posted module, first user)"}
+@@R {"compileMs":0,"engine":"webview","first":[0.28000000000000003,0.26000000000000001,0.26000000000000001,0.32000000000000001,0.26000000000000001,0.29999999999999999,0.29999999999999999,0.41999999999999998],"instMs":0.23999999999999999,"last":[0.26000000000000001,0.23999999999999999,0.26000000000000001,0.23999999999999999],"origin":"localhost","suite":"modshare","worker":"B (same module, after A warmed it)"}
+@@R {"compileMs":0.07999999999999996,"engine":"webview","first":[0.80000000000000004,0.26000000000000001,0.26000000000000001,0.23999999999999999,0.26000000000000001,0.23999999999999999,0.26000000000000001,0.23999999999999999],"instMs":0.2400000000000001,"last":[0.26000000000000001,0.26000000000000001,0.23999999999999999,0.26000000000000001],"origin":"localhost","suite":"modshare","worker":"C (own module from bytes)"}
+@@R {"name":"modshare","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":80.486083984375,"name":"w:modshare","suite":"timing"}
+@@S done
+@@DONE

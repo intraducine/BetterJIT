@@ -1,0 +1,12 @@
+@@R {"appAvailableMB":6137,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["page:localhost","w:tso"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:47113\/index.html?ws=47114"}
+@@R {"ms":132.0775839984417,"name":"page:localhost","suite":"timing"}
+@@S running w:tso
+@@R {"atomicR":2.0299999999999998,"atomicRW":3.0499999999999998,"engine":"webview","fenceR":1.1499999999999999,"fenceRW":3.9100000000000001,"origin":"localhost","plainR":0.40999999999999998,"plainRW":0.46000000000000002,"suite":"tso","test":"single-thread ns\/iter (4 loads [+2 stores])"}
+@@R {"atomicR":206.77000000000001,"atomicRW":228.09999999999999,"engine":"webview","fenceR":1.5800000000000001,"fenceRW":45.700000000000003,"origin":"localhost","plainR":0.72999999999999998,"plainRW":1.9399999999999999,"suite":"tso","test":"4 workers sharing lines, ns\/iter per worker"}
+@@R {"name":"tso","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":3157.4712499976158,"name":"w:tso","suite":"timing"}
+@@S done
+@@DONE

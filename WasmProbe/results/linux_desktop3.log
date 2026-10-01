@@ -1,0 +1,67 @@
+@@R {"appAvailableMB":6137,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["linux:argv=\/opt\/wine\/bin\/wine|explorer|\/desktop=shell%2C1024x768|cmd|\/c|echo|desktop-ok&env={\"WINEDEBUG\":\"err+all\"}&timeout=120&traceExec=1"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running linux:argv=/opt/wine/bin/wine|explorer|/desktop=shell%2C1024x768|cmd|/c|echo|desktop-ok&env={"WINEDEBUG":"err+all"}&timeout=120&traceExec=1
+@@L [app] 0s memory in use elsewhere +-116 MB (system 4888 MB, app 12 MB)
+@@L [page] engine ready: 2018 files in the index, 340 ms
+@@L [pid 101] unimplemented syscall 323 (?)
+@@L [1.24s] [pid 102] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\wineboot.exe","--init"] (space 1)
+@@L [app] 2s memory in use elsewhere +-108 MB (system 4927 MB, app 43 MB)
+@@L 002c:fixme:ntdll:init_logical_proc_info Failed to get logical processor information, status 0xc0000002.
+@@L 002c:err:winediag:getaddrinfo Failed to resolve your host name IP
+@@L [app] 4s memory in use elsewhere +-67 MB (system 5005 MB, app 80 MB)
+@@L [4.07s] [pid 103] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\services.exe"] (space 1)
+@@L [app] 6s memory in use elsewhere +-98 MB (system 5025 MB, app 131 MB)
+@@L [7.09s] [pid 105] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\winedevice.exe"] (space 1)
+@@L [app] 8s memory in use elsewhere +-25 MB (system 5135 MB, app 168 MB)
+@@L [app] 10s memory in use elsewhere +-3 MB (system 5167 MB, app 178 MB)
+@@L [12.12s] [pid 113] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\winedevice.exe"] (space 1)
+@@L [app] 12s memory in use elsewhere +97 MB (system 5282 MB, app 193 MB)
+@@L [app] 14s memory in use elsewhere +124 MB (system 5326 MB, app 210 MB)
+@@L [app] 16s memory in use elsewhere +185 MB (system 5390 MB, app 213 MB)
+@@L [app] 18s memory in use elsewhere +264 MB (system 5518 MB, app 262 MB)
+@@L 006c:err:ntoskrnl:ZwLoadDriver failed to create driver L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\winebth": c00000e5
+@@L 0034:fixme:service:scmdatabase_autostart_services Auto-start service L"winebth" failed to start: 1359
+@@L [app] 20s memory in use elsewhere +373 MB (system 5730 MB, app 365 MB)
+@@L [20.71s] [pid 102] exit 0 (C:\windows\system32\wineboot.exe)
+@@L [21.86s] [pid 125] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\conhost.exe","--unix"] (space 1)
+@@L [app] 22s memory in use elsewhere +470 MB (system 5789 MB, app 327 MB)
+@@L wine: could not open working directory L"unix\\", starting in the Windows directory.
+@@L [app] 25s memory in use elsewhere +475 MB (system 5873 MB, app 406 MB)
+@@L [25.40s] [pid 126] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\explorer.exe","/desktop=shell,1024x768"] (space 1)
+@@L wine: could not open working directory L"unix\\", starting in the Windows directory.
+@@L [app] 27s memory in use elsewhere +566 MB (system 6044 MB, app 486 MB)
+@@L [28.53s] [pid 127] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\explorer.exe","/desktop"] (space 1)
+@@L [app] 29s memory in use elsewhere +633 MB (system 6171 MB, app 546 MB)
+@@L [app] 31s memory in use elsewhere +642 MB (system 6246 MB, app 612 MB)
+@@L 00a8:err:vulkan:vulkan_init_once Wine was built without Vulkan support.
+@@L [app] 33s memory in use elsewhere +641 MB (system 6361 MB, app 728 MB)
+@@L [app] 35s memory in use elsewhere +617 MB (system 6330 MB, app 721 MB)
+@@L [app] 37s memory in use elsewhere +645 MB (system 6393 MB, app 756 MB)
+@@L 00a8:err:ole:start_rpcss Failed to open RpcSs service
+@@L [app] 39s memory in use elsewhere +714 MB (system 6498 MB, app 792 MB)
+@@L 00a0:err:vulkan:vulkan_init_once Wine was built without Vulkan support.
+@@L 00a0:err:system:lock_display_devices Failed to read display config.
+@@L [app] 41s memory in use elsewhere +673 MB (system 6526 MB, app 861 MB)
+@@L 00a0:err:explorer:initialize_display_settings Failed to set primary display settings.
+@@L [app] 43s memory in use elsewhere +663 MB (system 6504 MB, app 849 MB)
+@@L [44.19s] [pid 136] execve /opt/wine/lib/wine/x86_64-unix/wine ["cmd","/c"] (space 1)
+@@L [pid 100] unimplemented syscall 294 (inotify_init1)
+@@L [pid 100] unimplemented syscall 253 (inotify_init)
+@@L [app] 45s memory in use elsewhere +725 MB (system 6611 MB, app 894 MB)
+@@L [46.31s] [pid 140] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\conhost.exe","--server"] (space 1)
+@@L 00a0:err:ole:start_rpcss Failed to open RpcSs service
+@@L [app] 47s memory in use elsewhere +750 MB (system 6707 MB, app 965 MB)
+@@L [app] 50s memory in use elsewhere +635 MB (system 6700 MB, app 1073 MB)
+@@L 00e4:err:vulkan:vulkan_init_once Wine was built without Vulkan support.
+@@L [app] 52s memory in use elsewhere +558 MB (system 6722 MB, app 1172 MB)
+@@L 00e4:err:system:lock_display_devices Failed to read display config.
+@@L 00a0:err:system:lock_display_devices Failed to read display config.
+@@L 00e4:err:system:lock_display_devices Failed to read display config.
+@@L 00a0:err:system:lock_display_devices Failed to read display config.
+@@L 00e4:err:system:lock_display_devices Failed to read display config.
+@@L [app] 54s memory in use elsewhere +175 MB (system 6406 MB, app 1239 MB)
+@@R {"appAvailableMB":6946,"appFootprintMB":1245,"cpuCount":6,"origin":"localhost","os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"reason":"crash","suite":"webcontent-terminated"}
+@@R {"appAvailableMB":6946,"appFootprintMB":1245,"cpuCount":6,"elsewhereMaxRiseMB":750,"exit":-1,"ms":54686.145458996296,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"query":"argv=\/opt\/wine\/bin\/wine|explorer|\/desktop=shell%2C1024x768|cmd|\/c|echo|desktop-ok&env={\"WINEDEBUG\":\"err+all\"}&timeout=120&traceExec=1","suite":"linux","webContentLastMB":-1,"webContentMaxMB":0,"webcontentTerminated":true}
+@@R {"ms":54862.456874996424,"name":"linux:argv=\/opt\/wine\/bin\/wine|explorer|\/desktop=shell%2C1024x768|cmd|\/c|echo|desktop-ok&env={\"WINEDEBUG\":\"err+all\"}&timeout=120&traceExec=1","suite":"timing"}
+@@S done
+@@DONE

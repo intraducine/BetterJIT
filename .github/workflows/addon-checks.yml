@@ -1,0 +1,14 @@
+name: Manual add-on source checks
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  addon:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: bash scripts/check-addon.sh
+      - run: python3 scripts/export-source.py --check
+# Checks only; no archives, signing, releases or artifact uploads.

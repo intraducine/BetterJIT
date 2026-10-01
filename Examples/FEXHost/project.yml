@@ -1,0 +1,76 @@
+name: BetterJITFEXHost
+options:
+  deploymentTarget:
+    iOS: '17.0'
+packages:
+  BetterJIT:
+    path: ../..
+  BetterJITFEXNative:
+    path: ../../.build/FEXNativePackage
+targets:
+  BetterJITFEXHost:
+    type: application
+    platform: iOS
+    sources:
+      - path: App.swift
+      - path: DeviceExecutor.swift
+      - path: SuiteRunner.swift
+      - path: SuitePlan.swift
+      - path: SuiteReport.swift
+      - path: GuestImage.swift
+      - path: ExtendedGuest.swift
+      - path: AdvancedPlan.swift
+      - path: BenchmarkPolicy.swift
+      - path: DiagnosticModel.swift
+      - path: DiagnosticPlan.swift
+      - path: NativeDiagnostics.swift
+      - path: DiagnosticExecutor.swift
+      - path: DiagnosticRunner.swift
+      - path: SyscallGuest.swift
+      - path: LinkedLinuxFEXBackend.swift
+      - path: LinuxSmokeFixture.swift
+      - path: LinuxHarness.swift
+      - path: ../../Backends/FEX/Swift/LinkedFEXTranslator.swift
+    dependencies:
+      - package: BetterJIT
+        product: BetterJIT
+      - package: BetterJIT
+        product: BetterJITWebKit
+      - package: BetterJIT
+        product: BetterJITFEX
+      - package: BetterJIT
+        product: BetterJITLinux
+      - package: BetterJITFEXNative
+        product: CFEXWasm
+      - sdk: libc++.tbd
+      - sdk: Metal.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.example.betterjit.fexhost
+        SWIFT_VERSION: '5.0'
+        TARGETED_DEVICE_FAMILY: '1,2'
+        MARKETING_VERSION: '0.5.0'
+        CURRENT_PROJECT_VERSION: '5'
+        BETTERJIT_SOURCE_COMMIT: unrecorded
+        BETTERJIT_SOURCE_STATE: unrecorded
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: BetterJIT FEX Host
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        BetterJITSourceCommit: $(BETTERJIT_SOURCE_COMMIT)
+        BetterJITSourceState: $(BETTERJIT_SOURCE_STATE)
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UILaunchScreen: {}
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+schemes:
+  BetterJITFEXHost:
+    build:
+      targets:
+        BetterJITFEXHost: all
+    run:
+      config: Release
+      debugEnabled: false

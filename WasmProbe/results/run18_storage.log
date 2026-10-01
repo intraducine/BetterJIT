@@ -1,0 +1,9 @@
+@@R {"appAvailableMB":8185,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["storagecheck"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running storagecheck
+@@R {"cacheRand16k_us":{"avg":0.87976899719238277,"p50":0.875,"p99":1.6669921875},"cacheSeqReadMBps":32001.500070315797,"flashRand16k_us":{"avg":62.531271545410156,"p50":62.083999633789062,"p99":69.291000366210938},"flashSeqReadMBps":3077.320687468633,"flashWriteMBps":2090.7374499831135,"ramMemcpy16k_us":0,"rc":0,"suite":"storagecheck"}
+@@R {"flashBytesWritten":65536,"iterations":26536212000,"logicalBytesWritten":32768,"seconds":15,"suite":"storagecheck","test":"doorbell-mmap-store"}
+@@R {"flashBytesWritten":16384,"iterations":10564000,"logicalBytesWritten":85503224,"seconds":15,"suite":"storagecheck","test":"doorbell-pwrite-8B"}
+@@R {"ms":30422.128292009234,"name":"storagecheck","suite":"timing"}
+@@S done
+@@DONE

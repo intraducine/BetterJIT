@@ -1,0 +1,93 @@
+@@R {"appAvailableMB":6137,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["linux:restore=desk3&env={\"WINEDEBUG\":\"-all\"}&timeout=5&clicks=17.34.1500&shot=3.5&shotName=restored_menu"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running linux:restore=desk3&env={"WINEDEBUG":"-all"}&timeout=5&clicks=17.34.1500&shot=3.5&shotName=restored_menu
+@@L [app] 0s memory in use elsewhere +-7 MB (system 4581 MB, app 13 MB)
+@@L [page] engine ready: 2018 files in the index, 330 ms
+@@L [restore] 9 processes, 26 threads in 157 ms
+@@L [page] tap 17,34
+@@L [app] 2s memory in use elsewhere +193 MB (system 4841 MB, app 73 MB)
+@@L [app] saved restored_menu.png (25976 bytes)
+@@L [page] screen saved
+@@L [app] 4s memory in use elsewhere +129 MB (system 4776 MB, app 72 MB)
+@@L [page] timeout after 5 s; threads:
+@@L   pid 100 shared file mappings: 108c3000-108c4000 prot 2 shared 2049:2023; 1167e000-117c2000 prot 3 shared 2049:2024; 12aa0000-12be4000 prot 1 private 2049:2024; 1cce0000-1ce24000 prot 1 private 2049:2024; 1dac0000-1dc04000 prot 1 private 2049:2024; 1f950000-1fa94000 prot 1 private 2049:2024; 240b0000-241f4000 prot 1 private 2049:2024; 7ffe0000-7ffe1000 prot 1 shared 2049:2023
+@@L   pid 101 shared file mappings: 108c3000-108c4000 prot 2 shared 2049:2023; 1167e000-117c2000 prot 3 shared 2049:2024; 12aa0000-12be4000 prot 1 private 2049:2024; 1cce0000-1ce24000 prot 1 private 2049:2024; 1dac0000-1dc04000 prot 1 private 2049:2024; 1f950000-1fa94000 prot 1 private 2049:2024; 240b0000-241f4000 prot 1 private 2049:2024; 7ffe0000-7ffe1000 prot 1 shared 2049:2023
+@@L   pid 103 shared file mappings: 108c3000-108c4000 prot 2 shared 2049:2023; 1167e000-117c2000 prot 3 shared 2049:2024; 12aa0000-12be4000 prot 1 private 2049:2024; 1cce0000-1ce24000 prot 1 private 2049:2024; 1dac0000-1dc04000 prot 1 private 2049:2024; 1f950000-1fa94000 prot 1 private 2049:2024; 240b0000-241f4000 prot 1 private 2049:2024; 7ffe0000-7ffe1000 prot 1 shared 2049:2023
+@@L   pid 105 shared file mappings: 108c3000-108c4000 prot 2 shared 2049:2023; 1167e000-117c2000 prot 3 shared 2049:2024; 12aa0000-12be4000 prot 1 private 2049:2024; 1cce0000-1ce24000 prot 1 private 2049:2024; 1dac0000-1dc04000 prot 1 private 2049:2024; 1f950000-1fa94000 prot 1 private 2049:2024; 240b0000-241f4000 prot 1 private 2049:2024; 7ffe0000-7ffe1000 prot 1 shared 2049:2023
+@@L   pid 113 shared file mappings: 108c3000-108c4000 prot 2 shared 2049:2023; 1167e000-117c2000 prot 3 shared 2049:2024; 12aa0000-12be4000 prot 1 private 2049:2024; 1cce0000-1ce24000 prot 1 private 2049:2024; 1dac0000-1dc04000 prot 1 private 2049:2024; 1f950000-1fa94000 prot 1 private 2049:2024; 240b0000-241f4000 prot 1 private 2049:2024; 7ffe0000-7ffe1000 prot 1 shared 2049:2023
+@@L   pid 125 shared file mappings: 108c3000-108c4000 prot 2 shared 2049:2023; 1167e000-117c2000 prot 3 shared 2049:2024; 12aa0000-12be4000 prot 1 private 2049:2024; 1cce0000-1ce24000 prot 1 private 2049:2024; 1dac0000-1dc04000 prot 1 private 2049:2024; 1f950000-1fa94000 prot 1 private 2049:2024; 240b0000-241f4000 prot 1 private 2049:2024; 7ffe0000-7ffe1000 prot 1 shared 2049:2023
+@@L   pid 126 shared file mappings: 108c3000-108c4000 prot 2 shared 2049:2023; 1167e000-117c2000 prot 3 shared 2049:2024; 12aa0000-12be4000 prot 1 private 2049:2024; 1cce0000-1ce24000 prot 1 private 2049:2024; 1dac0000-1dc04000 prot 1 private 2049:2024; 1f950000-1fa94000 prot 1 private 2049:2024; 240b0000-241f4000 prot 1 private 2049:2024; 7ffe0000-7ffe1000 prot 1 shared 2049:2023
+@@L   pid 130 shared file mappings: 108c3000-108c4000 prot 2 shared 2049:2023; 1167e000-117c2000 prot 3 shared 2049:2024; 12aa0000-12be4000 prot 1 private 2049:2024; 1cce0000-1ce24000 prot 1 private 2049:2024; 1dac0000-1dc04000 prot 1 private 2049:2024; 1f950000-1fa94000 prot 1 private 2049:2024; 240b0000-241f4000 prot 1 private 2049:2024; 7ffe0000-7ffe1000 prot 1 shared 2049:2023
+@@L   tid 100 probe for 0x100a54db: hit idx 5 count 1 after 0 steps
+@@L   tid 100 rip samples: 0x100a54db:400
+@@L   tid 110 probe for 0x165579bc: hit idx 7 count 1 after 0 steps
+@@L   tid 110 rip samples: 0x165579bc:400
+@@L   tid 117 probe for 0x13bb79bc: hit idx 6 count 1 after 0 steps
+@@L   tid 117 rip samples: 0x13bb79bc:400
+@@L   pid 100 ppid 1  /opt/wine/bin/wineserver -f
+@@L       worker: last syscall 281 (a0 0x8, a1 0x108c0660), 1099 in all; mask 0x0 pending 0x0
+@@L     tid 100: running guest code (last syscall epoll_pwait(0x8, 0x108c0660, 0x80, 0x10)); 466 syscalls; dispatch table 201/16384; rip 0x100a54db
+@@L   pid 101 ppid 1  /opt/wine/bin/wine explorer /desktop=shell,1024x768 notepad
+@@L       worker: last syscall 0 (a0 0x8, a1 0x1dd8ea08), 1 in all; mask 0x0 pending 0x0
+@@L     tid 101: blocked in read(0x8, 0x1dd8ea08, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x10b854db
+@@L   pid 102 ppid 101 zombie /opt/wine/lib/wine/x86_64-unix/wine C:\windows\system32\wineboot.exe --init
+@@L   pid 103 ppid 1  /opt/wine/lib/wine/x86_64-unix/wine C:\windows\system32\services.exe
+@@L       worker: last syscall 0 (a0 0x7, a1 0x14a2ea08), 1 in all; mask 0x0 pending 0x0
+@@L     tid 103: blocked in read(0x7, 0x14a2ea08, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x122354db
+@@L       worker: last syscall 0 (a0 0xc, a1 0x1520e468), 1 in all; mask 0x0 pending 0x0
+@@L     tid 104: blocked in read(0xc, 0x1520e468, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x122354db
+@@L       worker: last syscall 0 (a0 0x10, a1 0x17cae488), 1 in all; mask 0x0 pending 0x0
+@@L     tid 106: blocked in read(0x10, 0x17cae488, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x122354db
+@@L       worker: last syscall 0 (a0 0x18, a1 0x1b09e488), 1 in all; mask 0x0 pending 0x0
+@@L     tid 114: blocked in read(0x18, 0x1b09e488, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x122354db
+@@L       worker: last syscall 0 (a0 0x1c, a1 0x1bd9e488), 1 in all; mask 0x0 pending 0x0
+@@L     tid 121: blocked in read(0x1c, 0x1bd9e488, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x122354db
+@@L       worker: last syscall 0 (a0 0x20, a1 0x1bf6e3e8), 1 in all; mask 0x0 pending 0x0
+@@L     tid 122: blocked in read(0x20, 0x1bf6e3e8, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x122354db
+@@L       worker: last syscall 0 (a0 0x15, a1 0x2342e488), 1 in all; mask 0x0 pending 0x0
+@@L     tid 132: blocked in read(0x15, 0x2342e488, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x122354db
+@@L   pid 105 ppid 103  /opt/wine/lib/wine/x86_64-unix/wine C:\windows\system32\winedevice.exe
+@@L       worker: last syscall 0 (a0 0x6, a1 0x1749e9e8), 1 in all; mask 0x0 pending 0x0
+@@L     tid 105: blocked in read(0x6, 0x1749e9e8, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x165854db
+@@L       worker: last syscall 0 (a0 0xc, a1 0x183ae338), 1 in all; mask 0x0 pending 0x0
+@@L     tid 108: blocked in read(0xc, 0x183ae338, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x165854db
+@@L       worker: last syscall 0 (a0 0x10, a1 0x187ae468), 1 in all; mask 0x0 pending 0x0
+@@L     tid 109: blocked in read(0x10, 0x187ae468, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x165854db
+@@L       worker: last syscall 202 (a0 0x13b20050, a1 0x80), 1 in all; mask 0x0 pending 0x0
+@@L     tid 110: running guest code (last syscall undefined()); 0 syscalls; dispatch table 1/16384; rip 0x165579bc
+@@L       worker: last syscall 0 (a0 0x1b, a1 0x190ae368), 1 in all; mask 0x0 pending 0x0
+@@L     tid 111: blocked in read(0x1b, 0x190ae368, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x165854db
+@@L   pid 113 ppid 103  /opt/wine/lib/wine/x86_64-unix/wine C:\windows\system32\winedevice.exe
+@@L       worker: last syscall 0 (a0 0x6, a1 0x1a89e9e8), 1 in all; mask 0x0 pending 0x0
+@@L     tid 113: blocked in read(0x6, 0x1a89e9e8, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x13be54db
+@@L       worker: last syscall 0 (a0 0xb, a1 0x1b49e338), 1 in all; mask 0x0 pending 0x0
+@@L     tid 115: blocked in read(0xb, 0x1b49e338, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x13be54db
+@@L       worker: last syscall 0 (a0 0xf, a1 0x196ae468), 1 in all; mask 0x0 pending 0x0
+@@L     tid 116: blocked in read(0xf, 0x196ae468, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x13be54db
+@@L       worker: last syscall 202 (a0 0x1737f070, a1 0x80), 1 in all; mask 0x0 pending 0x0
+@@L     tid 117: running guest code (last syscall undefined()); 0 syscalls; dispatch table 1/16384; rip 0x13bb79bc
+@@L       worker: last syscall 0 (a0 0x18, a1 0x1c2ee468), 1 in all; mask 0x0 pending 0x0
+@@L     tid 123: blocked in read(0x18, 0x1c2ee468, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x13be54db
+@@L       worker: last syscall 0 (a0 0x1c, a1 0x1d7be468), 1 in all; mask 0x0 pending 0x0
+@@L     tid 124: blocked in read(0x1c, 0x1d7be468, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x13be54db
+@@L   pid 125 ppid 101  /opt/wine/lib/wine/x86_64-unix/wine C:\windows\system32\conhost.exe --unix --width 160 --height 50 --server 0x10
+@@L       worker: last syscall 0 (a0 0x6, a1 0x1f59e9e8), 1 in all; mask 0x0 pending 0x0
+@@L     tid 125: blocked in read(0x6, 0x1f59e9e8, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x1e6654db
+@@L   pid 126 ppid 101  /opt/wine/lib/wine/x86_64-unix/wine C:\windows\system32\explorer.exe /desktop=shell,1024x768 notepad
+@@L       worker: last syscall 0 (a0 0x6, a1 0x1d2ae858), 25 in all; mask 0x0 pending 0x0
+@@L     tid 126: blocked in read(0x6, 0x1d2ae858, 0x10, 0x0); 25 syscalls; dispatch table 67/16384; rip 0x132e54db
+@@L       worker: last syscall 0 (a0 0x11, a1 0x2158e0e8), 1 in all; mask 0x0 pending 0x0
+@@L     tid 128: blocked in read(0x11, 0x2158e0e8, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x132e54db
+@@L       worker: last syscall 0 (a0 0xe, a1 0x2198e468), 1 in all; mask 0x0 pending 0x0
+@@L     tid 129: blocked in read(0xe, 0x2198e468, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x132e54db
+@@L       worker: last syscall 0 (a0 0x15, a1 0x2302e468), 1 in all; mask 0x0 pending 0x0
+@@L     tid 131: blocked in read(0x15, 0x2302e468, 0x10, 0x0); 1 syscalls; dispatch table 1/16384; rip 0x132e54db
+@@L   pid 130 ppid 126  /opt/wine/lib/wine/x86_64-unix/wine notepad
+@@L       worker: last syscall 0 (a0 0x6, a1 0x22e2e858), 333 in all; mask 0x0 pending 0x0
+@@L     tid 130: blocked in read(0x6, 0x22e2e858, 0x10, 0x0); 284 syscalls; dispatch table 463/16384; rip 0x21f354db
+@@L [app] 6s memory in use elsewhere +113 MB (system 4759 MB, app 71 MB)
+@@L [page] exit 124 after 6834 ms
+@@R {"appAvailableMB":8120,"appFootprintMB":71,"cpuCount":6,"elsewhereMaxRiseMB":193,"exit":124,"ms":7049.5017090141773,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"query":"restore=desk3&env={\"WINEDEBUG\":\"-all\"}&timeout=5&clicks=17.34.1500&shot=3.5&shotName=restored_menu","suite":"linux","webContentLastMB":-1,"webContentMaxMB":0,"webcontentTerminated":false}
+@@R {"ms":7172.1691249907017,"name":"linux:restore=desk3&env={\"WINEDEBUG\":\"-all\"}&timeout=5&clicks=17.34.1500&shot=3.5&shotName=restored_menu","suite":"timing"}
+@@S done
+@@DONE

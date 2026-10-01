@@ -1,0 +1,27 @@
+@@R {"appAvailableMB":8185,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["url:js\/probe\/memprobe.html?timeout=120","url:js\/probe\/stackprobe.html?timeout=120"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running url:js/probe/memprobe.html?timeout=120
+@@L [memprobe] Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148
+@@L max 65536 pages, grown to 0: 3 memories RangeError: Out of memory
+@@L max 32768 pages, grown to 0: 4 memories RangeError: Out of memory
+@@L max 16384 pages, grown to 0: 6 memories RangeError: Out of memory
+@@L max 8192 pages, grown to 0: 10 memories RangeError: Out of memory
+@@L max 4096 pages, grown to 0: 18 memories RangeError: Out of memory
+@@L max 2048 pages, grown to 0: 34 memories RangeError: Out of memory
+@@L max 32768 pages, grown to 32767: 3 memories RangeError: Out of memory
+@@L max 8192 pages, grown to 8191: 10 memories RangeError: Out of memory
+@@L [page] exit 0
+@@R {"appAvailableMB":8179,"appFootprintMB":12,"cpuCount":6,"exit":0,"ms":263.88504099845886,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"query":"js\/probe\/memprobe.html?timeout=120","suite":"linux","webcontentTerminated":false}
+@@R {"ms":384.80708301067352,"name":"url:js\/probe\/memprobe.html?timeout=120","suite":"timing"}
+@@S running url:js/probe/stackprobe.html?timeout=120
+@@L [stackprobe] Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148
+@@L locals 8: depth 2048, in WebAssembly.promising 8274
+@@L locals 256: depth 81, in WebAssembly.promising 81
+@@L locals 1024: depth 22, in WebAssembly.promising 22
+@@L locals 2048: depth 10, in WebAssembly.promising 10
+@@L locals 4096: depth 5, in WebAssembly.promising 5
+@@L [page] exit 0
+@@R {"appAvailableMB":8179,"appFootprintMB":12,"cpuCount":6,"exit":0,"ms":263.4116670191288,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"query":"js\/probe\/stackprobe.html?timeout=120","suite":"linux","webcontentTerminated":false}
+@@R {"ms":370.51362502574921,"name":"url:js\/probe\/stackprobe.html?timeout=120","suite":"timing"}
+@@S done
+@@DONE

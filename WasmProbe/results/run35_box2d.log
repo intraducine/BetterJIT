@@ -1,0 +1,57 @@
+@@R {"appAvailableMB":6137,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["native_fexkernels","page:localhost","w:fexkernels"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running native_fexkernels
+@@R {"chk":3085797194,"kernel":"intmix","ms":19.263832986354828,"n":10000000,"suite":"native_fexkernels"}
+@@R {"chk":564163,"kernel":"sieve","ms":5.4239580035209656,"n":1,"suite":"native_fexkernels"}
+@@R {"chk":3580142796,"kernel":"qsort","ms":41.543457984924316,"n":1,"suite":"native_fexkernels"}
+@@R {"chk":3932197050,"kernel":"hash","ms":8.5740000009536743,"n":4,"suite":"native_fexkernels"}
+@@R {"chk":3505435665,"kernel":"interp","ms":11.273290991783142,"n":2000000,"suite":"native_fexkernels"}
+@@R {"chk":180552,"kernel":"ptrchase","ms":13.072290986776352,"n":1000000,"suite":"native_fexkernels"}
+@@R {"chk":2657,"kernel":"memcpy","ms":4.4394589960575104,"n":20,"suite":"native_fexkernels"}
+@@R {"chk":3247728246,"kernel":"crc32","ms":28.506249994039536,"n":1,"suite":"native_fexkernels"}
+@@R {"chk":3391113217,"kernel":"tree","ms":18.051459014415741,"n":200000,"suite":"native_fexkernels"}
+@@R {"chk":4242,"kernel":"matmul","ms":3.4631249904632568,"n":4,"suite":"native_fexkernels"}
+@@R {"chk":140469700,"kernel":"nbody","ms":6.7057499885559082,"n":300000,"suite":"native_fexkernels"}
+@@R {"chk":1949010561,"kernel":"calls","ms":8.1463330090045929,"n":10000000,"suite":"native_fexkernels"}
+@@R {"chk":4287507785,"kernel":"switch","ms":12.469417005777359,"n":10000000,"suite":"native_fexkernels"}
+@@R {"chk":3914506433,"kernel":"vcall","ms":6.8693749904632568,"n":10000000,"suite":"native_fexkernels"}
+@@R {"chk":1223800,"kernel":"fib","ms":1.4831660091876984,"n":200,"suite":"native_fexkernels"}
+@@R {"chk":485791668,"kernel":"rswitch","ms":13.332249999046326,"n":10000000,"suite":"native_fexkernels"}
+@@R {"chk":1379570532,"kernel":"walk","ms":1.4404999911785126,"n":2000,"suite":"native_fexkernels"}
+@@R {"chk":1978893933,"kernel":"coremark","ms":33.231083005666733,"n":2000,"suite":"native_fexkernels"}
+@@R {"chk":4271793258,"kernel":"box2d","ms":37.419082999229431,"n":30,"suite":"native_fexkernels"}
+@@R {"chk":1063764377,"kernel":"box2d_tumbler","ms":15.181500017642975,"n":60,"suite":"native_fexkernels"}
+@@R {"chk":2859769992,"kernel":"box2d_joints","ms":38.778499990701675,"n":20,"suite":"native_fexkernels"}
+@@R {"chk":2107500561,"kernel":"box2d_rain","ms":56.681333005428314,"n":100,"suite":"native_fexkernels"}
+@@R {"ms":511.60395899415016,"name":"native_fexkernels","suite":"timing"}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:47113\/index.html?ws=47114"}
+@@R {"ms":139.18862500786781,"name":"page:localhost","suite":"timing"}
+@@S running w:fexkernels
+@@R {"chk":3085797194,"dispatches":1,"engine":"webview","kernel":"intmix","macNativeMs":24.949999999999999,"macWasmMs":24.23,"match":true,"ms":12.5,"n":10000000,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":564163,"dispatches":2,"engine":"webview","kernel":"sieve","macNativeMs":10.17,"macWasmMs":12.699999999999999,"match":true,"ms":5.9200000000000017,"n":1,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":3580142796,"dispatches":5,"engine":"webview","kernel":"qsort","macNativeMs":76.030000000000001,"macWasmMs":89.739999999999995,"match":true,"ms":48.02000000000001,"n":1,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":3932197050,"dispatches":6,"engine":"webview","kernel":"hash","macNativeMs":16.309999999999999,"macWasmMs":16.379999999999999,"match":true,"ms":8.660000000000025,"n":4,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":3505435665,"dispatches":19,"engine":"webview","kernel":"interp","macNativeMs":22.43,"macWasmMs":40.299999999999997,"match":true,"ms":23.199999999999989,"n":2000000,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":180552,"dispatches":20,"engine":"webview","kernel":"ptrchase","macNativeMs":39.200000000000003,"macWasmMs":39.25,"match":true,"ms":12.280000000000001,"n":1000000,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":2657,"dispatches":21,"engine":"webview","kernel":"memcpy","macNativeMs":6.5800000000000001,"macWasmMs":6.7199999999999998,"match":true,"ms":4.3400000000000034,"n":20,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":3247728246,"dispatches":22,"engine":"webview","kernel":"crc32","macNativeMs":53.380000000000003,"macWasmMs":66.430000000000007,"match":true,"ms":31.879999999999995,"n":1,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":3391113217,"dispatches":23,"engine":"webview","kernel":"tree","macNativeMs":36.700000000000003,"macWasmMs":49.390000000000001,"match":true,"ms":23.54000000000002,"n":200000,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":4242,"dispatches":24,"engine":"webview","kernel":"matmul","macNativeMs":6.8300000000000001,"macWasmMs":6.54,"match":true,"ms":3.4600000000000364,"n":4,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":140469700,"dispatches":25,"engine":"webview","kernel":"nbody","macNativeMs":14.039999999999999,"macWasmMs":16.690000000000001,"match":true,"ms":8.2400000000000091,"n":300000,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":1949010561,"dispatches":26,"engine":"webview","kernel":"calls","macNativeMs":15.49,"macWasmMs":15.48,"match":true,"ms":8.2399999999999523,"n":10000000,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":4287507785,"dispatches":35,"engine":"webview","kernel":"switch","macNativeMs":25.940000000000001,"macWasmMs":8.9000000000000004,"match":true,"ms":4.6399999999999864,"n":10000000,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":3914506433,"dispatches":42,"engine":"webview","kernel":"vcall","macNativeMs":16.34,"macWasmMs":19.800000000000001,"match":true,"ms":8.1599999999999682,"n":10000000,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":1223800,"dispatches":48,"engine":"webview","kernel":"fib","macNativeMs":3.8300000000000001,"macWasmMs":8.0500000000000007,"match":true,"ms":4.5600000000000023,"n":200,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":485791668,"dispatches":58,"engine":"webview","kernel":"rswitch","macNativeMs":25.329999999999998,"macWasmMs":133.63,"match":true,"ms":68.620000000000005,"n":10000000,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":1379570532,"dispatches":65,"engine":"webview","kernel":"walk","macNativeMs":2.9100000000000001,"macWasmMs":10.52,"match":true,"ms":6.1800000000000068,"n":2000,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":1978893933,"dispatches":117,"engine":"webview","kernel":"coremark","macNativeMs":67,"macWasmMs":99.180000000000007,"match":true,"ms":50.839999999999975,"n":2000,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":4271793258,"dispatches":336,"engine":"webview","kernel":"box2d","macNativeMs":74.420000000000002,"macWasmMs":153,"match":true,"ms":74.659999999999968,"n":30,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":1063764377,"dispatches":395,"engine":"webview","kernel":"box2d_tumbler","macNativeMs":29.699999999999999,"macWasmMs":121.17,"match":true,"ms":50.599999999999909,"n":60,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":2859769992,"dispatches":415,"engine":"webview","kernel":"box2d_joints","macNativeMs":68.069999999999993,"macWasmMs":170.25,"match":true,"ms":99.360000000000014,"n":20,"origin":"localhost","suite":"fexkernels"}
+@@R {"chk":2107500561,"dispatches":455,"engine":"webview","kernel":"box2d_rain","macNativeMs":89.579999999999998,"macWasmMs":286.83999999999997,"match":true,"ms":142.21999999999991,"n":100,"origin":"localhost","suite":"fexkernels"}
+@@R {"engine":"webview","origin":"localhost","regionMisses":0,"regionsAvailable":141,"stats":{"compileMs":38.260000000000126,"jsDispatches":0,"misses":455,"regions":141,"regionUnits":148,"translateMs":2.5000000000001847,"units":455,"wasmBytes":5516458},"suite":"fexkernels"}
+@@R {"name":"fexkernels","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":1034.4231249988079,"name":"w:fexkernels","suite":"timing"}
+@@S done
+@@DONE

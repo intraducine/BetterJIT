@@ -1,0 +1,42 @@
+@@R {"appAvailableMB":3369,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["jsc_kernels","jsc_dispatch"]}
+@@R {"http":50298,"suite":"servers","ws":50299}
+@@S running jsc_kernels
+@@R {"engine":"jsc","features":"{\"simd128\":true,\"relaxed_simd\":false,\"threads_shared_memory\":false,\"atomics\":false,\"tail_call\":true,\"exceptions_legacy\":true,\"exceptions_exnref\":true,\"multi_memory\":false,\"memory64\":false,\"gc_struct\":true,\"function_references\":true,\"extended_const\":true,\"bulk_memory\":true,\"reference_types\":true,\"multi_value\":true,\"custom_page_sizes\":false,\"jspi\":true,\"js_string_builtins\":true,\"compileStreaming\":false,\"SharedArrayBuffer\":false,\"memory64_js_api\":{\"basic\":\"ok:65536\",\"over4GB\":\"RangeError: WebAssembly.Memory 'maximum' page count is too large\"},\"shared_memory_js_api\":\"ArrayBuffer\"}","suite":"env","typeofWebAssembly":"object"}
+@@R {"engine":"jsc","event":"instantiate","ms":0.3632500022649765,"suite":"kernels"}
+@@R {"chk":55925708,"engine":"jsc","firstMs":1498.2477499991655,"kernel":"intmix","ms":1498.2477499991655,"n":100000000,"suite":"kernels"}
+@@R {"chk":5641630,"engine":"jsc","firstMs":1464.5955000072718,"kernel":"sieve","ms":1464.5955000072718,"n":10,"suite":"kernels"}
+@@R {"chk":2691920017,"engine":"jsc","firstMs":1544.7463750094175,"kernel":"qsort","ms":1544.7463750094175,"n":4,"suite":"kernels"}
+@@R {"chk":61970,"engine":"jsc","firstMs":2908.7495409995317,"kernel":"matmul","ms":2908.7495409995317,"n":60,"suite":"kernels"}
+@@R {"chk":1460891968,"engine":"jsc","firstMs":2322.2717919945717,"kernel":"nbody","ms":2322.2717919945717,"n":3000000,"suite":"kernels"}
+@@R {"chk":2611654466,"engine":"jsc","firstMs":663.23054198920727,"kernel":"hash","ms":663.23054198920727,"n":40,"suite":"kernels"}
+@@R {"chk":735489014,"engine":"jsc","firstMs":4805.3922920078039,"kernel":"interp","ms":4805.3922920078039,"n":20000000,"suite":"kernels"}
+@@R {"chk":2801444,"engine":"jsc","firstMs":145.7650830000639,"kernel":"ptrchase","ms":145.7650830000639,"n":5000000,"suite":"kernels"}
+@@R {"chk":25491,"engine":"jsc","firstMs":44.580874994397163,"kernel":"memcpy","ms":44.580874994397163,"n":200,"suite":"kernels"}
+@@R {"chk":518206936,"engine":"jsc","firstMs":796.33516700565815,"kernel":"crc32","ms":796.33516700565815,"n":4,"suite":"kernels"}
+@@R {"chk":1198459393,"engine":"jsc","firstMs":591.48220901191235,"kernel":"tree","ms":591.48220901191235,"n":1000000,"suite":"kernels"}
+@@R {"ms":16793.025499999523,"name":"jsc_kernels","suite":"timing"}
+@@S running jsc_dispatch
+@@R {"engine":"jsc","features":"{\"simd128\":true,\"relaxed_simd\":false,\"threads_shared_memory\":false,\"atomics\":false,\"tail_call\":true,\"exceptions_legacy\":true,\"exceptions_exnref\":true,\"multi_memory\":false,\"memory64\":false,\"gc_struct\":true,\"function_references\":true,\"extended_const\":true,\"bulk_memory\":true,\"reference_types\":true,\"multi_value\":true,\"custom_page_sizes\":false,\"jspi\":true,\"js_string_builtins\":true,\"compileStreaming\":false,\"SharedArrayBuffer\":false,\"memory64_js_api\":{\"basic\":\"ok:65536\",\"over4GB\":\"RangeError: WebAssembly.Memory 'maximum' page count is too large\"},\"shared_memory_js_api\":\"ArrayBuffer\"}","suite":"env","typeofWebAssembly":"object"}
+@@R {"engine":"jsc","event":"start","suite":"dispatch","variant":"switch"}
+@@R {"blocks":512,"chk":3387061629,"coldMs":7.7937920093536377,"compileMs":14.690875008702278,"engine":"jsc","genMs":14.284125000238419,"ms":8.193791002035141,"nsPerBlock":40.968955010175705,"steps":200000,"suite":"dispatch","variant":"switch","wasmBytes":83694}
+@@R {"engine":"jsc","event":"start","suite":"dispatch","variant":"switch+pagecheck"}
+@@R {"blocks":512,"chk":3387061629,"coldMs":8.9804159998893738,"compileMs":17.169375002384186,"engine":"jsc","genMs":16.672750011086464,"ms":9.0692089945077896,"nsPerBlock":45.346044972538948,"steps":200000,"suite":"dispatch","variant":"switch+pagecheck","wasmBytes":106950}
+@@R {"engine":"jsc","event":"start","suite":"dispatch","variant":"fnptr"}
+@@R {"blocks":512,"chk":3387061629,"coldMs":18.792292013764381,"compileMs":26.838375002145767,"engine":"jsc","genMs":26.345875009894371,"ms":18.613916993141174,"nsPerBlock":93.069584965705872,"steps":200000,"suite":"dispatch","variant":"fnptr","wasmBytes":157832}
+@@R {"engine":"jsc","event":"start","suite":"dispatch","variant":"fnptr+pagecheck"}
+@@R {"blocks":512,"chk":3387061629,"coldMs":20.310500010848045,"compileMs":29.094499990344048,"engine":"jsc","genMs":28.490291997790337,"ms":19.712083995342255,"nsPerBlock":98.560419976711273,"steps":200000,"suite":"dispatch","variant":"fnptr+pagecheck","wasmBytes":181088}
+@@R {"engine":"jsc","event":"start","suite":"dispatch","variant":"tail"}
+@@R {"blocks":512,"chk":3387061629,"coldMs":18.411458998918533,"compileMs":27.201082989573479,"engine":"jsc","genMs":26.688415989279747,"ms":18.050875008106232,"nsPerBlock":90.254375040531158,"steps":200000,"suite":"dispatch","variant":"tail","wasmBytes":166517}
+@@R {"engine":"jsc","event":"start","suite":"dispatch","variant":"permodule-ret"}
+@@R {"blocks":512,"chk":3387061629,"coldMs":19.157624989748001,"compileMs":37.060666993260384,"engine":"jsc","modules":513,"ms":19.124959006905556,"nsPerBlock":95.624795034527779,"steps":200000,"suite":"dispatch","variant":"permodule-ret","wasmBytes":184466}
+@@R {"blocks":512,"chk":3387061629,"coldMs":21.474416986107826,"compileMs":0,"engine":"jsc","ms":21.440708011388779,"nsPerBlock":107.20354005694389,"steps":200000,"suite":"dispatch","variant":"js-dispatch"}
+@@R {"engine":"jsc","event":"start","suite":"dispatch","variant":"permodule-tail"}
+@@R {"blocks":512,"chk":3387061629,"coldMs":18.462416008114815,"compileMs":39.625583007931709,"engine":"jsc","modules":513,"ms":17.934707999229431,"nsPerBlock":89.673539996147156,"steps":200000,"suite":"dispatch","variant":"permodule-tail","wasmBytes":198802}
+@@R {"avgBytes":360.28515625,"avgUs":7.983650139067322,"engine":"jsc","modules":512,"p50Us":7.1669965982437134,"p99Us":12.333005666732788,"suite":"jitcost","test":"module-per-block-sync","totalMs":4.9329170137643814}
+@@R {"blocksPerModule":8,"bytesPerBlock":320.78515625,"engine":"jsc","modules":64,"suite":"jitcost","test":"batched-sync","totalMs":1.2715409994125366,"usPerBlock":2.4834785144776106}
+@@R {"blocksPerModule":64,"bytesPerBlock":308.98828125,"engine":"jsc","modules":8,"suite":"jitcost","test":"batched-sync","totalMs":0.55620703101158142,"usPerBlock":1.086341857444495}
+@@R {"blocksPerModule":512,"bytesPerBlock":308.265625,"engine":"jsc","modules":1,"suite":"jitcost","test":"batched-sync","totalMs":0.47241699695587158,"usPerBlock":0.92268944717943668}
+@@R {"chunkSteps":5000,"engine":"jsc","nsPerBlockByChunk":[112.59999999999999,112.59999999999999,102.40000000000001,97.900000000000006,122.3,106.59999999999999,115.09999999999999,152.80000000000001,99.099999999999994,111.90000000000001,98.799999999999997,95.5,98.200000000000003,93.099999999999994,92.299999999999997,92,105,99.599999999999994,98.5,108.2],"suite":"jitcost","test":"tierup-curve","totalMs":10.651292011141777}
+@@R {"ms":851.2963339984417,"name":"jsc_dispatch","suite":"timing"}
+@@S done
+@@DONE

@@ -1,0 +1,52 @@
+@@R {"appAvailableMB":3369,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["page:localhost","w:memres","page:localhost","w:memtouch","meminfo"]}
+@@R {"http":50302,"suite":"servers","ws":50303}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:50302\/index.html?ws=50303"}
+@@R {"ms":124.79399999976158,"name":"page:localhost","suite":"timing"}
+@@S running w:memres
+@@R {"engine":"webview","hash_ms_by_instance":[14.5,14.5,14.5,14.5,14.5,14.5,14.5,14.5,14.5,14.5,14.5,14.5,14.5,14.5,14.5,14.5],"initial_1024MB":"ok","initial_2048MB":"ok","initial_3072MB":"ok","initial_4096MB":"ok","instances":16,"origin":"localhost","shared_max4GB":"ok","suite":"memres"}
+@@R {"name":"memres","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":781.53812500834465,"name":"w:memres","suite":"timing"}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:50302\/index.html?ws=50303"}
+@@R {"ms":66.949625000357628,"name":"page:localhost","suite":"timing"}
+@@S running w:memtouch
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":64.0625,"origin":"localhost","suite":"memtouch","totalMB":64,"touchMs":2.2000000000000002}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":128.0625,"origin":"localhost","suite":"memtouch","totalMB":128,"touchMs":2.6000000000000001}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":192.0625,"origin":"localhost","suite":"memtouch","totalMB":192,"touchMs":3.1000000000000001}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":256.0625,"origin":"localhost","suite":"memtouch","totalMB":256,"touchMs":4.0999999999999996}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":320.0625,"origin":"localhost","suite":"memtouch","totalMB":320,"touchMs":5}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":384.0625,"origin":"localhost","suite":"memtouch","totalMB":384,"touchMs":7.7000000000000002}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":448.0625,"origin":"localhost","suite":"memtouch","totalMB":448,"touchMs":10.1}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":512.0625,"origin":"localhost","suite":"memtouch","totalMB":512,"touchMs":6.2999999999999998}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":576.0625,"origin":"localhost","suite":"memtouch","totalMB":576,"touchMs":5.7000000000000002}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":640.0625,"origin":"localhost","suite":"memtouch","totalMB":640,"touchMs":6.5999999999999996}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":704.0625,"origin":"localhost","suite":"memtouch","totalMB":704,"touchMs":10.4}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":768.0625,"origin":"localhost","suite":"memtouch","totalMB":768,"touchMs":11.300000000000001}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":832.0625,"origin":"localhost","suite":"memtouch","totalMB":832,"touchMs":10.199999999999999}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":896.0625,"origin":"localhost","suite":"memtouch","totalMB":896,"touchMs":6.2999999999999998}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":960.0625,"origin":"localhost","suite":"memtouch","totalMB":960,"touchMs":6.5}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1024.0625,"origin":"localhost","suite":"memtouch","totalMB":1024,"touchMs":6.4000000000000004}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1088.0625,"origin":"localhost","suite":"memtouch","totalMB":1088,"touchMs":10.300000000000001}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1152.0625,"origin":"localhost","suite":"memtouch","totalMB":1152,"touchMs":10.800000000000001}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1216.0625,"origin":"localhost","suite":"memtouch","totalMB":1216,"touchMs":10.5}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1280.0625,"origin":"localhost","suite":"memtouch","totalMB":1280,"touchMs":7.2999999999999998}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1344.0625,"origin":"localhost","suite":"memtouch","totalMB":1344,"touchMs":7.4000000000000004}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1408.0625,"origin":"localhost","suite":"memtouch","totalMB":1408,"touchMs":7.5}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1472.0625,"origin":"localhost","suite":"memtouch","totalMB":1472,"touchMs":12.1}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1536.0625,"origin":"localhost","suite":"memtouch","totalMB":1536,"touchMs":11}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1600.0625,"origin":"localhost","suite":"memtouch","totalMB":1600,"touchMs":10.800000000000001}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1664.0625,"origin":"localhost","suite":"memtouch","totalMB":1664,"touchMs":7}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1728.0625,"origin":"localhost","suite":"memtouch","totalMB":1728,"touchMs":7.2000000000000002}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1792.0625,"origin":"localhost","suite":"memtouch","totalMB":1792,"touchMs":6.5}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1856.0625,"origin":"localhost","suite":"memtouch","totalMB":1856,"touchMs":10.5}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1920.0625,"origin":"localhost","suite":"memtouch","totalMB":1920,"touchMs":10.5}
+@@R {"engine":"webview","event":"progress","memIdx":0,"memMB":1984.0625,"origin":"localhost","suite":"memtouch","totalMB":1984,"touchMs":7}
+@@R {"appAvailableMB":3363,"appFootprintMB":12,"cpuCount":6,"origin":"localhost","os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"webcontent-terminated"}
+@@R {"name":"memtouch","origin":"localhost","return":"error: Error Domain=WKErrorDomain Code=5 \"JavaScript execution returned a result of an unsupported type\" UserInfo={NSLocalizedDescription=JavaScript execution returned a result of an unsupported type}","suite":"call"}
+@@R {"ms":1587.5686669945717,"name":"w:memtouch","suite":"timing"}
+@@S running meminfo
+@@R {"appAvailableMB":3363,"appFootprintMB":12,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"meminfo"}
+@@R {"ms":0.19437499344348907,"name":"meminfo","suite":"timing"}
+@@S done
+@@DONE

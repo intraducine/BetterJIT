@@ -1,0 +1,55 @@
+name: Runtime SDK validation
+on:
+  workflow_dispatch:
+    inputs:
+      build_fex:
+        description: Build optional native FEX library and independent iOS FEX consumer
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  sdk:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - run: bash scripts/check-sdk.sh
+      - name: Device-suite runner and report regression checks (not device execution)
+        run: bash scripts/check-fexhost.sh
+      - name: Native binding ownership checks (test shim, not FEX)
+        run: python3 tests/sdk/native-binding.test.py
+      - name: Real macOS WebKit lifecycle and native service
+        run: swift test -j 2 --filter AppleHostTests
+      - name: Install guest/sample build tools
+        run: brew install llvm xcodegen
+      - name: Compile C guest and native reference
+        run: WASM_CLANG="$(brew --prefix llvm)/bin/clang" bash Examples/CGuest/build.sh
+      - name: Chromium JSPI, real Swift service, C differential checks and saved FEX replay
+        run: |
+          python3 -m venv .build/browser-venv
+          .build/browser-venv/bin/pip install playwright==1.57.0
+          .build/browser-venv/bin/python -m playwright install chromium
+          .build/browser-venv/bin/python tests/sdk/browser-sdk.py --c-guest --native-service --research-fixtures
+      - name: Compile standalone iOS Wasm consumer without signing
+        run: |
+          cd Examples/MinimalHost
+          xcodegen generate
+          xcodebuild -project BetterJITExample.xcodeproj -scheme BetterJITExample -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+  native-fex:
+    if: inputs.build_fex
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: brew install cmake ninja xcodegen
+      - name: Build native FEX and its independent consumer (compile only)
+        run: |
+          bash Backends/FEX/build-ios.sh
+          python3 Examples/FEXHost/prepare.py
+          cd Examples/FEXHost
+          xcodebuild -project BetterJITFEXHost.xcodeproj -scheme BetterJITFEXHost -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+# No automatic compilation, source/binary uploads, signing, publication or account restrictions.

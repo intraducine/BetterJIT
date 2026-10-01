@@ -1,0 +1,27 @@
+.DS_Store
+.build/
+.swiftpm/
+*.xcodeproj/
+*.xcworkspace/
+/FEX/
+fexwasm/out/
+WasmProbe/build/
+artifacts/
+__pycache__/
+*.pyc
+
+.private/
+.betterjit-addon/
+fexwasm/guest/out/
+*.xcuserdata/
+
+# Local identities, credentials and generated distribution artifacts.
+*.local.json
+.env
+.env.*
+*.p12
+*.pfx
+*.mobileprovision
+*.ipa
+dist/
+Examples/**/.generated/

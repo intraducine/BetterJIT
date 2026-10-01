@@ -1,0 +1,27 @@
+@@R {"appAvailableMB":8185,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["native_cleanup","page:localhost","opfs_map","appram:7","opfs_cleanup"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running native_cleanup
+@@R {"removed":[],"suite":"native_cleanup"}
+@@R {"ms":1.3707920014858246,"name":"native_cleanup","suite":"timing"}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:47113\/index.html?ws=47114"}
+@@R {"ms":148.61154100298882,"name":"page:localhost","suite":"timing"}
+@@S running opfs_map
+@@R {"engine":"webview","op":"open","origin":"localhost","result":{"openMs":0.099999999999999645,"proto":["constructor","truncate","getSize","flush","close","read","write"],"size":0},"suite":"opfs","worker":"A"}
+@@R {"engine":"webview","op":"header","origin":"localhost","result":{"size":4194304},"suite":"opfs","worker":"A"}
+@@R {"bytes":4194304,"suite":"opfs_map"}
+@@R {"ms":11.284541010856628,"name":"opfs_map","suite":"timing"}
+@@S running appram:7
+@@R {"bigfill":{"effectiveGBps":1.6699999999999999,"ms":4188,"pageIns":0,"phase":"fill","ret":458752,"usPerFault":9.1300000000000008,"writeBacks":393216,"zeroFills":458752},"engine":"webview","event":"progress","origin":"localhost","suite":"opfs","worker":"A"}
+@@R {"engine":"webview","op":"bigfill","origin":"localhost","result":{"backing":"app","check":{"effectiveGBps":1.5,"ms":4662,"pageIns":458752,"phase":"check","ret":0,"usPerFault":10.16,"writeBacks":65536,"zeroFills":0},"fill":{"effectiveGBps":1.6699999999999999,"ms":4188,"pageIns":0,"phase":"fill","ret":458752,"usPerFault":9.1300000000000008,"writeBacks":393216,"zeroFills":458752},"mismatches":0,"npages":458752,"residentMB":1024,"spanGB":7},"suite":"opfs","worker":"A"}
+@@R {"appAvailableMB":1008,"appFootprintMB":7183,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"served":851971,"suite":"app_pager"}
+@@R {"crossOriginIsolated":true,"engine":"webview","features":{"atomics":true,"bulk_memory":true,"compileStreaming":true,"custom_page_sizes":false,"exceptions_exnref":true,"exceptions_legacy":true,"extended_const":true,"function_references":true,"gc_struct":true,"js_string_builtins":true,"jspi":true,"memory64":false,"memory64_js_api":{"basic":"ok:65536","over4GB":"RangeError: WebAssembly.Memory 'maximum' page count is too large"},"multi_memory":false,"multi_value":true,"reference_types":true,"relaxed_simd":false,"shared_memory_js_api":"SharedArrayBuffer","SharedArrayBuffer":true,"simd128":true,"tail_call":true,"threads_shared_memory":true},"hardwareConcurrency":4,"origin":"http:\/\/127.0.0.1:47113","secureContext":true,"suite":"env","timerResolutionMs":0.019999999998617568,"u8ToBase64":true,"ua":"Mozilla\/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit\/605.1.15 (KHTML, like Gecko) Mobile\/15E148","webgpu":true}
+@@R {"appAvailableMB":8179,"appFootprintMB":12,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"appram","webcontentAliveAfter":"ok"}
+@@R {"ms":8968.3147919923067,"name":"appram:7","suite":"timing"}
+@@S running opfs_cleanup
+@@R {"engine":"webview","op":"remove","origin":"localhost","result":"removed","suite":"opfs","worker":"A"}
+@@R {"engine":"webview","op":"estimate","origin":"localhost","result":{"quota":10307921511,"usage":8388608},"suite":"opfs","worker":"A"}
+@@R {"estimateAfter":{"quota":10307921511,"usage":8388608},"suite":"opfs_cleanup"}
+@@R {"ms":1.1888329982757568,"name":"opfs_cleanup","suite":"timing"}
+@@S done
+@@DONE

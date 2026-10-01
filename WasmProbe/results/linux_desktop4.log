@@ -1,0 +1,79 @@
+@@R {"appAvailableMB":8185,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["linux:argv=\/opt\/wine\/bin\/wine|explorer|\/desktop=shell%2C1024x768|cmd|\/c|echo|desktop-ok&env={\"WINEDEBUG\":\"-all\"}&timeout=100&traceExec=1&memLog=5"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running linux:argv=/opt/wine/bin/wine|explorer|/desktop=shell%2C1024x768|cmd|/c|echo|desktop-ok&env={"WINEDEBUG":"-all"}&timeout=100&traceExec=1&memLog=5
+@@L [app] 0s memory in use elsewhere +-132 MB (system 4489 MB, app 12 MB)
+@@L [page] engine ready: 2018 files in the index, 371 ms
+@@L [pid 101] unimplemented syscall 323 (?)
+@@L [1.33s] [pid 102] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\wineboot.exe","--init"] (space 1)
+@@L [app] 2s memory in use elsewhere +-117 MB (system 4534 MB, app 42 MB)
+@@L [app] 4s memory in use elsewhere +-136 MB (system 4552 MB, app 79 MB)
+@@L [4.18s] [pid 103] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\services.exe"] (space 1)
+@@L [mem] 5s guest 86 MB in use (at most 87), 88 MB ever written; 4 processes, 4 threads
+@@L [app] 6s memory in use elsewhere +-51 MB (system 4653 MB, app 95 MB)
+@@L [app] 8s memory in use elsewhere +-36 MB (system 4663 MB, app 90 MB)
+@@L [8.33s] [pid 105] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\winedevice.exe"] (space 1)
+@@L [mem] 10s guest 132 MB in use (at most 132), 134 MB ever written; 5 processes, 6 threads
+@@L [app] 10s memory in use elsewhere +35 MB (system 4760 MB, app 116 MB)
+@@L [app] 12s memory in use elsewhere +89 MB (system 4816 MB, app 118 MB)
+@@L [13.39s] [pid 113] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\winedevice.exe"] (space 1)
+@@L [app] 14s memory in use elsewhere +194 MB (system 4934 MB, app 131 MB)
+@@L [mem] 15s guest 192 MB in use (at most 192), 195 MB ever written; 6 processes, 13 threads
+@@L [app] 16s memory in use elsewhere +244 MB (system 4995 MB, app 142 MB)
+@@L [app] 18s memory in use elsewhere +317 MB (system 5076 MB, app 150 MB)
+@@L [mem] 20s guest 231 MB in use (at most 231), 234 MB ever written; 6 processes, 18 threads
+@@L [app] 21s memory in use elsewhere +492 MB (system 5324 MB, app 223 MB)
+@@L [21.94s] [pid 102] exit 0 (C:\windows\system32\wineboot.exe)
+@@L [app] 23s memory in use elsewhere +597 MB (system 5422 MB, app 216 MB)
+@@L [23.06s] [pid 125] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\conhost.exe","--unix"] (space 1)
+@@L wine: could not open working directory L"unix\\", starting in the Windows directory.
+@@L [app] 25s memory in use elsewhere +640 MB (system 5448 MB, app 199 MB)
+@@L [mem] 25s guest 301 MB in use (at most 301), 305 MB ever written; 6 processes, 21 threads
+@@L [26.37s] [pid 126] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\explorer.exe","/desktop=shell,1024x768"] (space 1)
+@@L [app] 27s memory in use elsewhere +689 MB (system 5520 MB, app 222 MB)
+@@L wine: could not open working directory L"unix\\", starting in the Windows directory.
+@@L [app] 29s memory in use elsewhere +671 MB (system 5548 MB, app 268 MB)
+@@L [29.79s] [pid 127] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\explorer.exe","/desktop"] (space 1)
+@@L [mem] 30s guest 333 MB in use (at most 333), 339 MB ever written; 8 processes, 22 threads
+@@L [app] 31s memory in use elsewhere +741 MB (system 5698 MB, app 348 MB)
+@@L [app] 33s memory in use elsewhere +757 MB (system 5770 MB, app 404 MB)
+@@L [mem] 35s guest 358 MB in use (at most 358), 363 MB ever written; 8 processes, 22 threads
+@@L [app] 35s memory in use elsewhere +759 MB (system 5869 MB, app 501 MB)
+@@L [app] 37s memory in use elsewhere +757 MB (system 5867 MB, app 501 MB)
+@@L [app] 39s memory in use elsewhere +802 MB (system 5915 MB, app 504 MB)
+@@L [mem] 40s guest 385 MB in use (at most 385), 391 MB ever written; 8 processes, 24 threads
+@@L [app] 41s memory in use elsewhere +813 MB (system 5950 MB, app 528 MB)
+@@L [app] 44s memory in use elsewhere +789 MB (system 6007 MB, app 609 MB)
+@@L [mem] 45s guest 413 MB in use (at most 413), 419 MB ever written; 8 processes, 27 threads
+@@L [45.46s] [pid 136] execve /opt/wine/lib/wine/x86_64-unix/wine ["cmd","/c"] (space 1)
+@@L [app] 46s memory in use elsewhere +861 MB (system 6084 MB, app 614 MB)
+@@L [pid 100] unimplemented syscall 294 (inotify_init1)
+@@L [pid 100] unimplemented syscall 253 (inotify_init)
+@@L [47.71s] [pid 140] execve /opt/wine/lib/wine/x86_64-unix/wine ["C:\\windows\\system32\\conhost.exe","--server"] (space 1)
+@@L [app] 48s memory in use elsewhere +903 MB (system 6176 MB, app 664 MB)
+@@L [app] 50s memory in use elsewhere +878 MB (system 6259 MB, app 772 MB)
+@@L [mem] 50s guest 515 MB in use (at most 515), 523 MB ever written; 10 processes, 32 threads
+@@L [app] 52s memory in use elsewhere +868 MB (system 6345 MB, app 868 MB)
+@@L [app] 54s memory in use elsewhere +843 MB (system 6382 MB, app 930 MB)
+@@L [mem] 55s guest 525 MB in use (at most 525), 533 MB ever written; 10 processes, 31 threads
+@@L [app] 56s memory in use elsewhere +875 MB (system 6445 MB, app 961 MB)
+@@L [56.75s] [pid 136] exit 0 (cmd)
+@@L [56.88s] [pid 140] exit 0 (C:\windows\system32\conhost.exe)
+@@L [app] 58s memory in use elsewhere +999 MB (system 6446 MB, app 838 MB)
+@@L [58.35s] [pid 126] exit 0 (C:\windows\system32\explorer.exe)
+@@L [58.46s] [pid 101] exit 0 (explorer)
+@@L [pid 101] exited with status 0
+@@L [58.53s] [pid 125] exit 0 (C:\windows\system32\conhost.exe)
+@@L [59.95s] [pid 127] exit 0 (C:\windows\system32\explorer.exe)
+@@L [mem] 60s guest 539 MB in use (at most 539), 547 MB ever written; 4 processes, 20 threads
+@@L [app] 60s memory in use elsewhere +1241 MB (system 6488 MB, app 638 MB)
+@@L [app] 62s memory in use elsewhere +1243 MB (system 6437 MB, app 585 MB)
+@@L [63.18s] [pid 105] exit 0 (C:\windows\system32\winedevice.exe)
+@@L [63.26s] [pid 113] exit 0 (C:\windows\system32\winedevice.exe)
+@@L [63.48s] [pid 103] exit 0 (C:\windows\system32\services.exe)
+@@L [63.55s] [pid 100] exit 0 (-f)
+@@L [page] 245490 kernel syscalls; handlers 5035 ms, shared-memory sync 944 ms, idle 56456 ms; files fetched 168 (73.6 MB, 2246 ms)
+@@L [page] exit 0 after 63932 ms
+@@R {"appAvailableMB":7675,"appFootprintMB":516,"cpuCount":6,"elsewhereMaxRiseMB":1243,"exit":0,"ms":64054.728583008051,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"query":"argv=\/opt\/wine\/bin\/wine|explorer|\/desktop=shell%2C1024x768|cmd|\/c|echo|desktop-ok&env={\"WINEDEBUG\":\"-all\"}&timeout=100&traceExec=1&memLog=5","suite":"linux","webContentLastMB":-1,"webContentMaxMB":0,"webcontentTerminated":false}
+@@R {"ms":64220.396082997322,"name":"linux:argv=\/opt\/wine\/bin\/wine|explorer|\/desktop=shell%2C1024x768|cmd|\/c|echo|desktop-ok&env={\"WINEDEBUG\":\"-all\"}&timeout=100&traceExec=1&memLog=5","suite":"timing"}
+@@S done
+@@DONE

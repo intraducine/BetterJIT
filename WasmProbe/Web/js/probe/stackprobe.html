@@ -1,0 +1,48 @@
+<!doctype html><meta charset="utf-8"><title>stack probe</title><pre id="o"></pre>
+<script>
+// How deep can wasm recurse in a worker, per frame size? (locals: i64 count per frame)
+const src = `
+function wat(n) {
+  // (func $f (param i32) (result i32) (local i64 x n) ...): touches its locals, recurses
+  return n;
+}
+`;
+function makeModule(nlocals) {
+  // hand-assembled: type (i32)->i32; func with nlocals i64 locals; body: if param==0 return 0; set locals; call self(param-1)+1
+  const b = [0,0x61,0x73,0x6d,1,0,0,0];
+  const sec = (id, bytes) => { b.push(id, ...leb(bytes.length), ...bytes); };
+  const leb = (v) => { const o=[]; do { let x=v&0x7f; v>>>=7; if (v) x|=0x80; o.push(x);} while(v); return o; };
+  sec(1, [1, 0x60, 1, 0x7f, 1, 0x7f]);
+  sec(3, [1, 0]);
+  sec(7, [1, 1, 0x66, 0, 0]); // export "f"
+  const body = [1, ...leb(nlocals), 0x7e];
+  // locals are initialized: use each (so they aren't dropped): local.get i; drop  (cheap) — BBQ keeps slots anyway
+  body.push(0x20, 0, 0x45, 0x04, 0x40, 0x41, 0, 0x0f, 0x0b); // if (p==0) return 0
+  for (let i = 1; i <= nlocals; i += Math.max(1, Math.floor(nlocals / 64))) body.push(0x20, ...leb(i), 0x42, 1, 0x7c, 0x21, ...leb(i)); // l_i += 1
+  body.push(0x20, 0, 0x41, 1, 0x6b, 0x10, 0, 0x41, 1, 0x6a); // f(p-1)+1
+  body.push(0x0b);
+  sec(10, [1, ...leb(body.length), ...body]);
+  return new Uint8Array(b);
+}
+const workerSrc = `onmessage = async (e) => {
+  const res = [];
+  for (const [n, bytes] of e.data) {
+    const f = new WebAssembly.Instance(new WebAssembly.Module(bytes)).exports.f;
+    let lo = 1, hi = 1 << 20;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; try { f(mid); lo = mid; } catch (x) { hi = mid - 1; } }
+    let plo = 1, phi = 1 << 20, pf = null;
+    try { pf = WebAssembly.promising(f); } catch (x) {}
+    if (pf) while (plo < phi) { const mid = (plo + phi + 1) >> 1; try { await pf(mid); plo = mid; } catch (x) { phi = mid - 1; } }
+    res.push([n, lo, pf ? plo : -1]);
+  }
+  postMessage(res);
+};`;
+const w = new Worker(URL.createObjectURL(new Blob([workerSrc], {type: 'text/javascript'})));
+const sizes = [8, 256, 1024, 2048, 4096];
+w.onmessage = (e) => {
+  const lines = e.data.map(([n, d, p]) => `locals ${n}: depth ${d}, in WebAssembly.promising ${p}`);
+  document.getElementById('o').textContent = lines.join('\n');
+  fetch('/log', {method: 'POST', body: '[stackprobe] ' + navigator.userAgent + '\n' + lines.join('\n') + '\n[page] exit 0\n'});
+};
+w.postMessage(sizes.map((n) => [n, makeModule(n)]));
+</script>

@@ -1,0 +1,177 @@
+diff --git a/FEXCore/Source/Interface/Core/Core.cpp b/FEXCore/Source/Interface/Core/Core.cpp
+index 8ee0552a6..25fdd0862 100644
+--- a/FEXCore/Source/Interface/Core/Core.cpp
++++ b/FEXCore/Source/Interface/Core/Core.cpp
+@@ -1459,6 +1459,7 @@ uintptr_t ContextImpl::CompileBlock(FEXCore::Core::CpuStateFrame* Frame, uint64_
+    * entry happened). Key on the entry COUNTER in the static capture buffer instead, and print the
+    * full captured entry state; x16/x17 are the interesting ones since a `br` through an IP register
+    * is the most plausible way to arrive with LR=0. */
++#ifdef FEX_IOS_HOST
+   /* iOS-Madeira ml316: report ExitToX64 FFS bypasses (native short-circuit of an EC target
+    * reached via its x64 fast-forward sequence -- preserves the x4/x5 varargs contract that
+    * the emulation round trip destroys; see Module.S). Same change-detection pattern as
+@@ -1490,6 +1491,8 @@ uintptr_t ContextImpl::CompileBlock(FEXCore::Core::CpuStateFrame* Frame, uint64_
+     }
+   }
+ 
++#endif
++
+   /* iOS-Madeira: refuse to compile obviously-invalid guest RIPs. After a
+    * NULL-vtable virtual call (`call [rax+8]` with rax=0), control flow
+    * lands at RIP=0x8, which then loops compiling thousands of garbage
+diff --git a/FEXCore/Source/Interface/Core/Frontend.cpp b/FEXCore/Source/Interface/Core/Frontend.cpp
+index 44240aaf4..9fa6061dc 100644
+--- a/FEXCore/Source/Interface/Core/Frontend.cpp
++++ b/FEXCore/Source/Interface/Core/Frontend.cpp
+@@ -1348,8 +1348,22 @@ void Decoder::AddBranchTarget(uint64_t Target) {
+ extern "C" uint64_t IosSubfloorToReal(uint64_t Addr);
+ #endif
+ 
++// fexwasm: the host supplies the code bytes for a guest RIP (null: read the
++// guest address itself). The translator's host process needn't map the guest
++// at its addresses -- on iOS it can't -- so only the byte source moves, as for
++// VSyscall below; guest addresses keep their meaning everywhere else.
++const uint8_t* (*GuestCodeSource)(uint64_t RIP) = nullptr;
++
+ const Decoder::DecodeStream Decoder::AdjustAddrForSpecialRegion(const uint8_t* _InstStream, uint64_t EntryPoint, uint64_t RIP) {
+   constexpr uint64_t VSyscall_Base = 0xFFFF'FFFF'FF60'0000ULL;
++  if (GuestCodeSource) {
++    if (const uint8_t* Bytes = GuestCodeSource(RIP)) {
++      return DecodeStream {
++        .InstStream = _InstStream - EntryPoint + RIP,
++        .AdjustedInstStream = Bytes,
++      };
++    }
++  }
+   constexpr uint64_t VSyscall_End = VSyscall_Base + 0x1000;
+ 
+   if (OSABI == FEXCore::HLE::SyscallOSABI::OS_LINUX64 && RIP >= VSyscall_Base && RIP < VSyscall_End) {
+diff --git a/FEXCore/Source/Interface/IR/Passes/RedundantFlagCalculationElimination.cpp b/FEXCore/Source/Interface/IR/Passes/RedundantFlagCalculationElimination.cpp
+index ae8900e81..ba740067c 100644
+--- a/FEXCore/Source/Interface/IR/Passes/RedundantFlagCalculationElimination.cpp
++++ b/FEXCore/Source/Interface/IR/Passes/RedundantFlagCalculationElimination.cpp
+@@ -19,6 +19,8 @@ $end_info$
+ #include <FEXCore/fextl/deque.h>
+ #include <FEXCore/fextl/vector.h>
+ 
++#include <functional>
++
+ // Flag bit flags
+ #define FLAG_V (1U << 0)
+ #define FLAG_C (1U << 1)
+@@ -32,6 +34,28 @@ $end_info$
+ #define FLAG_ALL (FLAG_NZCV | FLAG_A | FLAG_P)
+ 
+ namespace FEXCore::IR {
++// fexwasm: treat the flags as dead at call and return exits (see above).
++bool ABILocalFlags = false;
++// fexwasm: a unit's flags live at its entry, reported when the pass has
++// converged; and whether a jump to a RIP finds the flags dead there (its
++// unit writes them all before reading any), so a jump exit reads none.
++std::function<void(uint64_t, uint32_t)> NoteEntryFlags;
++std::function<bool(uint64_t)> FlagsDeadAtEntry;
++
++// The constant RIP a node evaluates to, if any.
++static bool ConstantTarget(const IRListView& IR, OrderedNodeWrapper W, uint64_t* Target) {
++  if (W.IsInvalid()) {
++    return false;
++  }
++  auto* H = IR.GetOp<IROp_Header>(W);
++  switch (H->Op) {
++  case OP_CONSTANT: *Target = H->C<IROp_Constant>()->Constant; return true;
++  case OP_INLINECONSTANT: *Target = H->C<IROp_InlineConstant>()->Constant; return true;
++  case OP_ENTRYPOINTOFFSET: *Target = IR.GetHeader()->OriginalRIP + H->C<IROp_EntrypointOffset>()->Offset; return true;
++  case OP_INLINEENTRYPOINTOFFSET: *Target = IR.GetHeader()->OriginalRIP + H->C<IROp_InlineEntrypointOffset>()->Offset; return true;
++  default: return false;
++  }
++}
+ 
+ struct FlagInfoUnpacked {
+   // Set of flags read by the instruction.
+@@ -657,6 +681,18 @@ bool DeadFlagCalculationEliminination::ProcessBlock(IREmitter* IREmit, IRListVie
+     FlagsRead = CFG.Get(Op->TrueBlock)->Flags | CFG.Get(Op->FalseBlock)->Flags;
+   } else if (ExitOp->Op == IR::OP_JUMP) {
+     FlagsRead = CFG.Get(ExitOp->Args[0])->Flags;
++  } else if (ExitOp->Op == IR::OP_EXITFUNCTION) {
++    // fexwasm: the x86-64 calling conventions leave the flags undefined
++    // across calls and returns, so nothing reads them past one. And a jump
++    // to code that writes the flags before reading them reads none.
++    const auto* EF = ExitOp->C<IR::IROp_ExitFunction>();
++    uint64_t Target;
++    if (ABILocalFlags && (EF->Hint == BranchHint::Return || EF->Hint == BranchHint::Call)) {
++      FlagsRead = 0;
++    } else if (FlagsDeadAtEntry && EF->Hint != BranchHint::Return && EF->Hint != BranchHint::Call &&
++               ConstantTarget(CurrentIR, EF->NewRIP, &Target) && FlagsDeadAtEntry(Target)) {
++      FlagsRead = 0;
++    }
+   }
+ 
+   // iOS-Madeira ml597/ml599: BOUND THE REVERSE WALK (backstop).
+@@ -828,8 +864,13 @@ void DeadFlagCalculationEliminination::Run(IREmitter* IREmit) {
+   CFG.Init(Worklist, CurrentIR.GetHeader()->BlockCount);
+ 
+   // Gather CFG
++  uint32_t EntryBlockID = UINT32_MAX;
++  bool Converged = true;
+   for (auto [BlockNode, BlockHeader] : CurrentIR.GetBlocks()) {
+     auto Block = BlockHeader->C<IROp_CodeBlock>();
++    if (EntryBlockID == UINT32_MAX) {
++      EntryBlockID = Block->ID;
++    }
+     auto CodeLast = CurrentIR.at(Block->Last);
+     --CodeLast;
+     auto [ExitNode, ExitOp] = CodeLast();
+@@ -991,6 +1032,7 @@ void DeadFlagCalculationEliminination::Run(IREmitter* IREmit) {
+                         "(last block {}) -- flag dataflow is not converging; abandoning "
+                         "global propagation (fail-open)",
+                         WorklistBudget, Block);
++      Converged = false;
+       break;
+     }
+ 
+@@ -1017,6 +1059,9 @@ void DeadFlagCalculationEliminination::Run(IREmitter* IREmit) {
+     // stale entries across compilations.
+     FEXCore::Utils::AllocWatch::Clear();
+   }
++  if (NoteEntryFlags && Converged && !CFG.BadIDs && EntryBlockID != UINT32_MAX && CFG.IDValid(EntryBlockID)) {
++    NoteEntryFlags(CurrentIR.GetHeader()->OriginalRIP, CFG.Get(EntryBlockID)->Flags);
++  }
+   if (CFG.BadIDs) {
+     LogMan::Msg::EFmt("[dfe-cfg] ml605 summary: {} out-of-range block id(s), first={}, "
+                       "blockmap={} rip=0x{:x} -- all served the conservative sentinel, "
+diff --git a/FEXCore/Source/Utils/AllocatorHooks.cpp b/FEXCore/Source/Utils/AllocatorHooks.cpp
+index 8d4840120..7a4994d69 100644
+--- a/FEXCore/Source/Utils/AllocatorHooks.cpp
++++ b/FEXCore/Source/Utils/AllocatorHooks.cpp
+@@ -17,6 +17,11 @@
+ #else
+ #include <malloc.h>
+ #endif
++
++// Madeira defines this only with ENABLE_FEX_ALLOCATOR; the Apple fallback path uses it too.
++#ifndef IOS_RPM_GUARD
++#define IOS_RPM_GUARD() ((void)0)
++#endif
+ #include <stdlib.h>
+ #include <stdio.h>
+ #include <string.h>
+diff --git a/FEXCore/Source/Utils/ArchHelpers/Arm64.cpp b/FEXCore/Source/Utils/ArchHelpers/Arm64.cpp
+index 3d63fa254..89bb1b722 100644
+--- a/FEXCore/Source/Utils/ArchHelpers/Arm64.cpp
++++ b/FEXCore/Source/Utils/ArchHelpers/Arm64.cpp
+@@ -704,6 +704,7 @@ static void IosLogUnimplementedCASPAL(uint32_t Size, uint64_t* GPRs, uint32_t Ad
+    * which we DUAL-MAP (RW alias + RX alias). Aliased mappings are exactly where atomics
+    * can fault despite correct alignment. Report what the region actually is, so "guest
+    * data in a dual-mapped pool page" is distinguishable from ordinary private memory. */
++#ifdef _WIN32
+   MEMORY_BASIC_INFORMATION mbi {};
+   const char* type = "?";
+   if (VirtualQuery(reinterpret_cast<LPCVOID>(GPRs[AddressReg]), &mbi, sizeof(mbi))) {
+@@ -714,6 +715,7 @@ static void IosLogUnimplementedCASPAL(uint32_t Size, uint64_t* GPRs, uint32_t Ad
+                     Size, AddressReg, GPRs[AddressReg], GPRs[AddressReg] & 15,
+                     (GPRs[AddressReg] & 15) ? "yes" : "no", mbi.BaseAddress, mbi.RegionSize,
+                     mbi.Protect, type, mbi.State);
++#endif
+ }
+ 
+ static bool HandleCASPAL(uint32_t Instr, uint64_t* GPRs, uint32_t* StrictSplitLockMutex) {

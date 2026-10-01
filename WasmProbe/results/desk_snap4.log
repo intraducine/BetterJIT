@@ -1,0 +1,37 @@
+@@R {"appAvailableMB":6137,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["linux:argv=\/opt\/wine\/bin\/wine|explorer|\/desktop=shell%2C1024x768|notepad&env={\"WINEDEBUG\":\"-all\"}&timeout=60&snapshot=desk4&snapshotAt=40&snapshotExit=1"]}
+@@R {"http":47113,"suite":"servers","ws":47114}
+@@S running linux:argv=/opt/wine/bin/wine|explorer|/desktop=shell%2C1024x768|notepad&env={"WINEDEBUG":"-all"}&timeout=60&snapshot=desk4&snapshotAt=40&snapshotExit=1
+@@L [app] 0s memory in use elsewhere +-112 MB (system 4485 MB, app 13 MB)
+@@L [page] engine ready: 2018 files in the index, 348 ms
+@@L [pid 101] unimplemented syscall 323 (?)
+@@L [app] 2s memory in use elsewhere +-130 MB (system 4487 MB, app 33 MB)
+@@L [app] 4s memory in use elsewhere +-63 MB (system 4580 MB, app 59 MB)
+@@L [app] 6s memory in use elsewhere +-47 MB (system 4596 MB, app 59 MB)
+@@L [app] 8s memory in use elsewhere +-10 MB (system 4637 MB, app 63 MB)
+@@L [app] 10s memory in use elsewhere +49 MB (system 4701 MB, app 68 MB)
+@@L [app] 12s memory in use elsewhere +106 MB (system 4790 MB, app 100 MB)
+@@L [app] 14s memory in use elsewhere +186 MB (system 4920 MB, app 150 MB)
+@@L wine: could not open working directory L"unix\\", starting in the Windows directory.
+@@L [app] 16s memory in use elsewhere +312 MB (system 5018 MB, app 122 MB)
+@@L wine: could not open working directory L"unix\\", starting in the Windows directory.
+@@L [app] 18s memory in use elsewhere +379 MB (system 5094 MB, app 131 MB)
+@@L [app] 21s memory in use elsewhere +337 MB (system 5139 MB, app 218 MB)
+@@L [app] 23s memory in use elsewhere +472 MB (system 5273 MB, app 217 MB)
+@@L [pid 100] unimplemented syscall 294 (inotify_init1)
+@@L [pid 100] unimplemented syscall 253 (inotify_init)
+@@L [app] 25s memory in use elsewhere +562 MB (system 5371 MB, app 225 MB)
+@@L [app] 27s memory in use elsewhere +625 MB (system 5464 MB, app 255 MB)
+@@L [app] 29s memory in use elsewhere +628 MB (system 5475 MB, app 263 MB)
+@@L [app] 31s memory in use elsewhere +639 MB (system 5496 MB, app 273 MB)
+@@L [app] 33s memory in use elsewhere +643 MB (system 5494 MB, app 267 MB)
+@@L [app] 35s memory in use elsewhere +643 MB (system 5494 MB, app 267 MB)
+@@L [app] 37s memory in use elsewhere +644 MB (system 5494 MB, app 266 MB)
+@@L [app] 39s memory in use elsewhere +644 MB (system 5494 MB, app 266 MB)
+@@L [snapshot] 26 threads frozen in 1 ms; saved 178.2 MB (42087 memory pages, 177.2 MB of data) in 383 ms
+@@L [page] units: 49561 requests, 12796 modules compiled (70.8 MB); translator 30714 ms, compile waits 1069 ms
+@@L [page] 171848 kernel syscalls; handlers 1274 ms, shared-memory sync 729 ms, idle 36894 ms; files fetched 170 (74.4 MB, 227 ms)
+@@L [page] exit 0 after 40747 ms
+@@R {"appAvailableMB":7925,"appFootprintMB":266,"cpuCount":6,"elsewhereMaxRiseMB":644,"exit":0,"ms":40866.813165992498,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"query":"argv=\/opt\/wine\/bin\/wine|explorer|\/desktop=shell%2C1024x768|notepad&env={\"WINEDEBUG\":\"-all\"}&timeout=60&snapshot=desk4&snapshotAt=40&snapshotExit=1","suite":"linux","webContentLastMB":-1,"webContentMaxMB":0,"webcontentTerminated":false}
+@@R {"ms":41017.735958009958,"name":"linux:argv=\/opt\/wine\/bin\/wine|explorer|\/desktop=shell%2C1024x768|notepad&env={\"WINEDEBUG\":\"-all\"}&timeout=60&snapshot=desk4&snapshotAt=40&snapshotExit=1","suite":"timing"}
+@@S done
+@@DONE

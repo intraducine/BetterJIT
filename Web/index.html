@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BetterJIT Wasm / OPFS probe</title>
+<style>
+body { font: 16px system-ui; margin: 20px; line-height: 1.5; }
+h1 { font-size: 1.4rem; } button { font: inherit; padding: 10px 16px; margin: 10px 10px 10px 0; }
+label { display: block; } pre { font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<h1>BetterJIT Wasm / OPFS probe</h1>
+<p>Native translation, WebKit execution, and file-backed transport. This is not yet FEX, Wine, or a game runtime.</p>
+<label><input id="large" type="checkbox"> Also test a sparse file offset above 2 GiB.</label>
+<p>The optional test may consume storage quota. It does not allocate 2 GiB of RAM or prove a higher WebView memory limit.</p>
+<button id="run">Run tests</button><button id="export">Export report</button>
+<pre role="log" aria-live="polite"></pre>
+<script type="module" src="./app.mjs"></script>
+</body>
+</html>

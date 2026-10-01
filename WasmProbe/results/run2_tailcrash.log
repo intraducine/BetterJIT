@@ -1,0 +1,33 @@
+@@R {"appAvailableMB":3369,"appFootprintMB":6,"cpuCount":6,"os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"device","suites":["page:localhost","w:dispatch:{\"only\":[\"permodule-tail\"];\"steps\":1000;\"reps\":1}","w:dispatch:{\"only\":[\"permodule-tail\"];\"steps\":100000;\"reps\":1}","w:dispatch:{\"only\":[\"permodule-tail\"];\"steps\":2000000;\"reps\":1}","w:dispatch:{\"only\":[\"tail\"];\"steps\":2000000;\"reps\":1}"]}
+@@R {"http":50292,"suite":"servers","ws":50293}
+@@S running page:localhost
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:50292\/index.html?ws=50293"}
+@@R {"ms":132.29133300483227,"name":"page:localhost","suite":"timing"}
+@@S running w:dispatch:{"only":["permodule-tail"];"steps":1000;"reps":1}
+@@R {"engine":"webview","event":"start","origin":"localhost","suite":"dispatch","variant":"permodule-tail"}
+@@R {"appAvailableMB":3363,"appFootprintMB":12,"cpuCount":6,"origin":"localhost","os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"webcontent-terminated"}
+@@R {"name":"dispatch","origin":"localhost","return":"error: Error Domain=WKErrorDomain Code=5 \"JavaScript execution returned a result of an unsupported type\" UserInfo={NSLocalizedDescription=JavaScript execution returned a result of an unsupported type}","suite":"call"}
+@@R {"ms":29.793458998203278,"name":"w:dispatch:{\"only\":[\"permodule-tail\"];\"steps\":1000;\"reps\":1}","suite":"timing"}
+@@S running w:dispatch:{"only":["permodule-tail"];"steps":100000;"reps":1}
+@@R {"event":"reloading after WebContent termination","suite":"page"}
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:50292\/index.html?ws=50293"}
+@@R {"engine":"webview","event":"start","origin":"localhost","suite":"dispatch","variant":"permodule-tail"}
+@@R {"appAvailableMB":3362,"appFootprintMB":13,"cpuCount":6,"origin":"localhost","os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"webcontent-terminated"}
+@@R {"name":"dispatch","origin":"localhost","return":"error: Error Domain=WKErrorDomain Code=5 \"JavaScript execution returned a result of an unsupported type\" UserInfo={NSLocalizedDescription=JavaScript execution returned a result of an unsupported type}","suite":"call"}
+@@R {"ms":96.271791994571686,"name":"w:dispatch:{\"only\":[\"permodule-tail\"];\"steps\":100000;\"reps\":1}","suite":"timing"}
+@@S running w:dispatch:{"only":["permodule-tail"];"steps":2000000;"reps":1}
+@@R {"event":"reloading after WebContent termination","suite":"page"}
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:50292\/index.html?ws=50293"}
+@@R {"engine":"webview","event":"start","origin":"localhost","suite":"dispatch","variant":"permodule-tail"}
+@@R {"appAvailableMB":3362,"appFootprintMB":13,"cpuCount":6,"origin":"localhost","os":"Version 27.0 (Build 24A437)","physicalMemoryMB":11543,"suite":"webcontent-terminated"}
+@@R {"name":"dispatch","origin":"localhost","return":"error: Error Domain=WKErrorDomain Code=5 \"JavaScript execution returned a result of an unsupported type\" UserInfo={NSLocalizedDescription=JavaScript execution returned a result of an unsupported type}","suite":"call"}
+@@R {"ms":97.83720800280571,"name":"w:dispatch:{\"only\":[\"permodule-tail\"];\"steps\":2000000;\"reps\":1}","suite":"timing"}
+@@S running w:dispatch:{"only":["tail"];"steps":2000000;"reps":1}
+@@R {"event":"reloading after WebContent termination","suite":"page"}
+@@R {"loaded":true,"origin":"localhost","suite":"page","url":"http:\/\/127.0.0.1:50292\/index.html?ws=50293"}
+@@R {"engine":"webview","event":"start","origin":"localhost","suite":"dispatch","variant":"tail"}
+@@R {"blocks":512,"chk":2424211462,"coldMs":6.7399999999999984,"compileMs":9.5,"engine":"webview","genMs":8.9200000000000017,"ms":6.4799999999999969,"nsPerBlock":3.2399999999999984,"origin":"localhost","steps":2000000,"suite":"dispatch","variant":"tail","wasmBytes":166517}
+@@R {"name":"dispatch","origin":"localhost","return":"ok","suite":"call"}
+@@R {"ms":100.87091700732708,"name":"w:dispatch:{\"only\":[\"tail\"];\"steps\":2000000;\"reps\":1}","suite":"timing"}
+@@S done
+@@DONE

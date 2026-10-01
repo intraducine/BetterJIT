@@ -1,0 +1,21 @@
+name: Manual FEX research probe
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fex-ios:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install build tools
+        run: brew install cmake ninja xcodegen
+      - name: Build FEX diagnostics only (not an Iridium add-on device test)
+        run: |
+          bash scripts/prepare-fex.sh
+          bash fexwasm/build_ios.sh
+          cd WasmProbe
+          xcodegen generate
+          xcodebuild -project WasmProbe.xcodeproj -scheme WasmProbe -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+# Deliberately no automatic runs, publishing, source archives or IPA uploads.
