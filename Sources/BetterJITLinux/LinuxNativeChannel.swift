@@ -15,6 +15,7 @@ final class LinuxNativeChannel: @unchecked Sendable {
     private let lock=NSLock()
     private let done=DispatchSemaphore(value:0)
     private var stopping=false
+    private var cleaned=false
 
     init(path:String,magic:String,handler:@escaping (Data,Int)throws->LinuxChannelReply) throws {
         let fd=open(path,O_RDWR|O_NOFOLLOW|O_CLOEXEC)
@@ -40,7 +41,11 @@ final class LinuxNativeChannel: @unchecked Sendable {
         storeU32(136,1)
         work.async { [weak self] in
             guard let self else { return }
-            defer { self.done.signal() }
+            defer {
+                self.storeU32(136,0)
+                self.cleanup()
+                self.done.signal()
+            }
             var last=self.loadU32(128)
             while !self.shouldStop() {
                 let seq=self.loadU32(64)
@@ -64,15 +69,22 @@ final class LinuxNativeChannel: @unchecked Sendable {
                 }
                 self.storeU32(128,seq); last=seq
             }
-            self.storeU32(136,0)
         }
     }
 
     func stop() {
         lock.lock(); let already=stopping; stopping=true; lock.unlock()
         guard !already else { return }
-        _=done.wait(timeout:.now()+1)
-        _=munmap(base,Self.fileSize); _=Darwin.close(fd)
+        _=done.wait(timeout:.now()+5)
+    }
+
+    private func cleanup() {
+        lock.lock()
+        if cleaned { lock.unlock(); return }
+        cleaned=true
+        lock.unlock()
+        _=munmap(base,Self.fileSize)
+        _=Darwin.close(fd)
     }
     deinit { stop() }
 
