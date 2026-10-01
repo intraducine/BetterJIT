@@ -181,7 +181,15 @@ final class LinuxLoopbackServer: @unchecked Sendable {
             case ("POST","/shot"):
                 onShot(req.query["name"] ?? "shot",req.body); return Response(status:200,type:"text/plain",body:Data())
             case ("GET","/chan/attach"):
-                return Response(status:501,type:"text/plain",body:Data("native channel disabled; HTTP/binary transport fallback active".utf8))
+                #if canImport(Darwin)
+                guard let kind=req.query["kind"], let magic=req.query["magic"] else {
+                    return Response(status:400,type:"text/plain",body:Data("missing channel metadata".utf8))
+                }
+                try attachChannel(kind:kind,magic:magic)
+                return Response(status:200,type:"text/plain",body:Data("ok".utf8))
+                #else
+                return Response(status:501,type:"text/plain",body:Data("native OPFS channels require Darwin".utf8))
+                #endif
             default:
                 return Response(status:404,type:"text/plain",body:Data("not found".utf8))
             }
@@ -189,6 +197,82 @@ final class LinuxLoopbackServer: @unchecked Sendable {
             return Response(status:500,type:"text/plain",body:Data("linux runtime request failed".utf8))
         }
     }
+    #if canImport(Darwin)
+    private func attachChannel(kind:String,magic:String)throws {
+        let path=try LinuxNativeChannel.discover(magic:magic)
+        let channel=try LinuxNativeChannel(path:path,magic:magic) { [weak self] request,capacity in
+            guard let self else { return LinuxChannelReply(result:-5) }
+            return try self.channel(kind:kind,request:request,capacity:capacity)
+        }
+        channels.append(channel)
+        channel.start()
+    }
+
+    private func channel(kind:String,request:Data,capacity:Int)throws->LinuxChannelReply {
+        if kind=="gpu" {
+            return try gpuHandler?(request,capacity) ?? LinuxChannelReply(result:-38)
+        }
+        guard request.count >= 32 else { return LinuxChannelReply(result:-22) }
+        let bytes=[UInt8](request)
+        func u32(_ at:Int)->UInt32 {
+            UInt32(bytes[at]) | UInt32(bytes[at+1])<<8 | UInt32(bytes[at+2])<<16 | UInt32(bytes[at+3])<<24
+        }
+        func u64(_ at:Int)->UInt64 {
+            (0..<8).reduce(UInt64(0)) { partial,index in
+                partial | UInt64(bytes[at+index]) << UInt64(8*index)
+            }
+        }
+        let op=u32(0),rawSpace=u32(4),a=u64(8),b=u64(16),c=u64(24)
+        let space=rawSpace & 0x00ff_ffff
+        let abi=rawSpace >> 24
+        switch kind {
+        case "xlat":
+            switch op {
+            case 1:
+                guard a <= UInt64(UInt32.max) else { return LinuxChannelReply(result:-22) }
+                let data=try backend.unit(space:space,rip:UInt32(a))
+                guard data.count <= capacity else { return LinuxChannelReply(result:-7) }
+                return LinuxChannelReply(result:Int32(data.count),data:data)
+            case 6:
+                let body=request.subdata(in:32..<request.count)
+                try backend.patchCode(space:space,address:a,bytes:body)
+                return LinuxChannelReply(result:0)
+            default:
+                return LinuxChannelReply(result:-38)
+            }
+        case "kern":
+            switch op {
+            case 2:
+                let body=request.subdata(in:32..<request.count)
+                guard a <= UInt64.max-c else { return LinuxChannelReply(result:-22) }
+                try backend.mapCode(space:space,address:a+c,bytes:body,abi:abi)
+                return LinuxChannelReply(result:0)
+            case 3:
+                let path=String(decoding:bytes[32...],as:UTF8.self)
+                let total=try fileSystem.fileSize(path:path)
+                let off=Int(min(a,UInt64(Int.max)))
+                let maxPayload=max(0,capacity-8)
+                let wanted=b==0 ? maxPayload : min(Int(min(b,UInt64(Int.max))),maxPayload)
+                let data=try fileSystem.readFile(path:path,offset:off,length:wanted)
+                var out=Data()
+                var totalLE=UInt64(total).littleEndian
+                withUnsafeBytes(of:&totalLE) { out.append(contentsOf:$0) }
+                out.append(data)
+                return LinuxChannelReply(result:Int32(out.count),data:out)
+            case 4:
+                try backend.unmapCode(space:space,address:a,size:b)
+                return LinuxChannelReply(result:0)
+            case 5:
+                backend.drop(space:space)
+                return LinuxChannelReply(result:0)
+            default:
+                return LinuxChannelReply(result:-38)
+            }
+        default:
+            return try gpuHandler?(request,capacity) ?? LinuxChannelReply(result:-38)
+        }
+    }
+    #endif
 }
 
 private final class LinuxHTTPConnection {
