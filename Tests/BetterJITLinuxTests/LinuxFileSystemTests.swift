@@ -12,8 +12,11 @@ final class LinuxFileSystemTests: XCTestCase {
         let object=try JSONSerialization.jsonObject(with:fs.indexJSON()) as! [String:Any]
         let entries=object["entries"] as! [[Any]]
         XCTAssertTrue(entries.contains { ($0.first as? String) == "/test/hello" })
+        XCTAssertEqual(try fs.fileSize(path:"/test/hello"),4)
+        XCTAssertEqual(try fs.fileSize(path:"/host.bin"),5)
         XCTAssertEqual(try fs.readFile(path:"/test/hello",offset:1,length:2),Data([8,7]))
         XCTAssertEqual(try fs.readFile(path:"/host.bin",offset:2,length:2),Data([3,4]))
         XCTAssertThrowsError(try fs.readFile(path:"/../escape",offset:nil,length:nil))
+        XCTAssertThrowsError(try fs.fileSize(path:"/../escape"))
     }
 }

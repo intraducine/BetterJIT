@@ -50,12 +50,18 @@ arbitrary games already render. The promoted Linux stack contains the Wine
 process/syscall/VFS/ntsync/audio/compositor machinery; native DXMT command
 handling and Metal presentation remain an application-supplied graphics backend.
 
-The first integration uses the runtime's HTTP fallback for synchronous code/file
-operations (`chan=0`) because it is correctness-first and does not require a
-second OPFS channel protocol. Large FEX service traffic in the ordinary
-BetterJIT execution path already uses the validated typed binary mapped lane.
-A native channel backend can replace the Linux HTTP fallback without changing
-the guest kernel contract.
+The runtime enables the existing OPFS channel protocol by default. WebKit workers
+create fixed-size per-kind channel files, the native host discovers and MAP_SHARED
+maps those files by an unguessable magic header, and dedicated responders handle
+translator-unit requests plus kernel code/file operations without loopback HTTP
+round trips. Channel files use bounded request/response regions and fixed headers.
+
+If OPFS discovery/attachment fails, the JavaScript runtime retains its existing
+same-origin HTTP fallback for translator and filesystem operations. GPU channel
+requests use the same mechanism but are delegated to the application's optional
+`LinuxGPUChannelHandler`; BetterJIT does not fabricate a DXMT implementation.
+The ordinary BetterJIT execution API separately keeps its validated typed-binary
+mapped service lane for high-volume registered native services.
 
 ## Filesystem
 
@@ -72,3 +78,16 @@ The guest address space is WebAssembly memory32 and therefore remains below
 WebKit/OS memory pressure still applies. The software-paging experiments remain
 a separate backing strategy rather than silently pretending a larger resident
 Wasm memory exists.
+
+
+## Native channels
+
+The xlat channel currently handles translated-unit lookup and writable/executable
+code patch notifications. The kernel channel handles executable-code mapping,
+unmapping, address-space drops, and bounded file range reads. Region translation
+remains on the authenticated same-origin request path because it is asynchronous
+and not on the synchronous syscall critical path.
+
+The channel backing file is accepted only when it is a regular single-link file
+of the exact expected size, is opened with `O_NOFOLLOW`, and begins with the
+session magic supplied by the WebKit worker. Native mappings are non-executable.
