@@ -173,7 +173,7 @@ public final class DirectoryLinuxFileSystem: LinuxFileSystemSource {
             throw LinuxRuntimeError.guest("Invalid guest file path.")
         }
         if let data = overlay[path] {
-            return try Self.slice(data, offset: offset, length: length)
+            return Self.slice(data, offset: offset, length: length)
         }
         let relative = path.split(separator:"/").map(String.init)
         var url = root
