@@ -21,6 +21,7 @@ public protocol LinuxTranslationBackend: AnyObject {
 
 public protocol LinuxFileSystemSource: AnyObject {
     func indexJSON() throws -> Data
+    func fileSize(path: String) throws -> Int
     func readFile(path: String, offset: Int?, length: Int?) throws -> Data
 }
 
@@ -178,6 +179,16 @@ public final class DirectoryLinuxFileSystem: LinuxFileSystemSource {
         return try JSONSerialization.data(withJSONObject: object)
     }
 
+    public func fileSize(path: String) throws -> Int {
+        guard Self.validGuestPath(path), path != "/.symlinks.json" else {
+            throw LinuxRuntimeError.guest("Invalid guest file path.")
+        }
+        if let data = overlay[path] { return data.count }
+        let resolved = try resolvedRegularFile(path)
+        let attrs = try fm.attributesOfItem(atPath: resolved.path)
+        return (attrs[.size] as? NSNumber)?.intValue ?? 0
+    }
+
     public func readFile(path: String, offset: Int?, length: Int?) throws -> Data {
         guard Self.validGuestPath(path), path != "/.symlinks.json" else {
             throw LinuxRuntimeError.guest("Invalid guest file path.")
@@ -185,25 +196,32 @@ public final class DirectoryLinuxFileSystem: LinuxFileSystemSource {
         if let data = overlay[path] {
             return Self.slice(data, offset: offset, length: length)
         }
-        let relative = path.split(separator:"/").map(String.init)
-        var url = root
-        for component in relative { url.appendPathComponent(component, isDirectory:false) }
-        let standardized = url.standardizedFileURL
-        let base = root.path.hasSuffix("/") ? root.path : root.path + "/"
-        guard standardized.path == root.path || standardized.path.hasPrefix(base) else {
-            throw LinuxRuntimeError.guest("Guest file escaped its root.")
-        }
-        let attrs = try fm.attributesOfItem(atPath: standardized.path)
-        guard attrs[.type] as? FileAttributeType == .typeRegular else {
-            throw LinuxRuntimeError.guest("Guest file is not a regular file.")
-        }
-        let handle = try FileHandle(forReadingFrom: standardized)
+        let resolved = try resolvedRegularFile(path)
+        let attrs = try fm.attributesOfItem(atPath: resolved.path)
+        let handle = try FileHandle(forReadingFrom: resolved)
         defer { try? handle.close() }
         let fileSize = (attrs[.size] as? NSNumber)?.intValue ?? 0
         let start = max(0, min(offset ?? 0, fileSize))
         let requested = length.map { max(0, min($0, fileSize - start)) } ?? (fileSize - start)
         try handle.seek(toOffset: UInt64(start))
         return try handle.read(upToCount: requested) ?? Data()
+    }
+
+    private func resolvedRegularFile(_ path: String) throws -> URL {
+        let relative = path.split(separator:"/").map(String.init)
+        var candidate = root
+        for component in relative { candidate.appendPathComponent(component, isDirectory:false) }
+        let resolved = candidate.resolvingSymlinksInPath().standardizedFileURL
+        let resolvedRoot = root.resolvingSymlinksInPath().standardizedFileURL
+        let prefix = resolvedRoot.path.hasSuffix("/") ? resolvedRoot.path : resolvedRoot.path + "/"
+        guard resolved.path == resolvedRoot.path || resolved.path.hasPrefix(prefix) else {
+            throw LinuxRuntimeError.guest("Guest file escaped its root.")
+        }
+        let attrs = try fm.attributesOfItem(atPath: resolved.path)
+        guard attrs[.type] as? FileAttributeType == .typeRegular else {
+            throw LinuxRuntimeError.guest("Guest file is not a regular file.")
+        }
+        return resolved
     }
 
     private static func slice(_ data: Data, offset: Int?, length: Int?) -> Data {
