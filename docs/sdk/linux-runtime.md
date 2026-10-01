@@ -41,7 +41,19 @@ Stage the existing Wine root tree at:
 
 `Documents/linuxroot`
 
-with `/opt/wine/bin/wine` present. **Run Wine cmd** launches:
+with `/opt/wine/bin/wine` present. The FEX Host enables iOS file sharing, so
+its Documents directory is visible in Files/Finder. If you have the historical
+BetterJIT build outputs on a Mac, assemble the expected single-root layout with:
+
+```bash
+python3 scripts/stage-linux-runtime.py --clean --strict
+```
+
+The default output is `.build/device-linuxroot`; copy/rename that directory to
+`linuxroot` inside the app's Documents directory. The staging tool merges the
+historical root, musl `lib`, `/opt/wine`, and test mounts and writes
+`.symlinks.json` plus `.modes.json` so guest symlinks and executable modes do
+not depend on metadata surviving the transfer. **Run Wine cmd** launches:
 
 `/opt/wine/bin/wine cmd /c ver`
 
@@ -68,8 +80,8 @@ mapped service lane for high-volume registered native services.
 `DirectoryLinuxFileSystem` indexes a directory lazily and supports bounded
 range reads for large game data files. An overlay dictionary can inject bundled
 files without copying them into Documents; the sample uses this for the smoke
-ELF. `.symlinks.json` is honored for roots staged by tools that cannot preserve
-all Unix symlinks.
+ELF. `.symlinks.json` and `.modes.json` are honored for roots staged by tools
+or Files providers that cannot preserve Unix symlinks and executable modes.
 
 ## Boundaries
 

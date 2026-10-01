@@ -4,6 +4,7 @@ cd "$(dirname "$0")/.."
 # Do not omit newly added SDK tests by matching only the original class names.
 swift test -j 2 --filter 'BetterJITTests|BetterJITFEXTests|BetterJITLinuxTests'
 node --test tests/sdk/*.test.mjs
+python3 -m py_compile scripts/stage-linux-runtime.py
 for test in tests/sdk/tooling.test.py tests/sdk/cleanup.test.py; do
   if [[ -f "$test" ]]; then python3 "$test"; fi
 done

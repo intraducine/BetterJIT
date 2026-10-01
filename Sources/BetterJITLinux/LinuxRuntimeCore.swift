@@ -105,10 +105,18 @@ public enum LinuxRuntimeError: Error, LocalizedError, Sendable, Equatable {
 public final class DirectoryLinuxFileSystem: LinuxFileSystemSource {
     public let root: URL
     private let overlay: [String:Data]
+    private let modeOverrides: [String:Int]
     private let fm = FileManager.default
 
     public init(root: URL, overlay: [String:Data] = [:]) throws {
-        self.root = root.standardizedFileURL
+        let rootURL = root.standardizedFileURL
+        self.root = rootURL
+        if let data = try? Data(contentsOf: rootURL.appendingPathComponent(".modes.json")),
+           let raw = try? JSONDecoder().decode([String:Int].self, from: data) {
+            self.modeOverrides = raw.filter { Self.validGuestPath($0.key) && (0...0o7777).contains($0.value) }
+        } else {
+            self.modeOverrides = [:]
+        }
         var checked: [String:Data] = [:]
         for (path,data) in overlay {
             guard Self.validGuestPath(path) else {
@@ -128,10 +136,11 @@ public final class DirectoryLinuxFileSystem: LinuxFileSystemSource {
             entries.append(row)
         }
         func walk(_ url: URL, guest: String) {
-            guard guest != "/.symlinks.json",
+            guard !["/.symlinks.json","/.modes.json","/.betterjit-linux-root.json"].contains(guest),
                   let attrs = try? fm.attributesOfItem(atPath: url.path) else { return }
             let type = attrs[.type] as? FileAttributeType
-            let mode = (attrs[.posixPermissions] as? NSNumber)?.intValue ?? 0o644
+            let diskMode = (attrs[.posixPermissions] as? NSNumber)?.intValue ?? 0o644
+            let mode = modeOverrides[guest] ?? diskMode
             let mtime = ((attrs[.modificationDate] as? Date) ?? Date()).timeIntervalSince1970 * 1000
             if type == .typeSymbolicLink {
                 let target = (try? fm.destinationOfSymbolicLink(atPath: url.path)) ?? ""
@@ -180,7 +189,8 @@ public final class DirectoryLinuxFileSystem: LinuxFileSystemSource {
     }
 
     public func fileSize(path: String) throws -> Int {
-        guard Self.validGuestPath(path), path != "/.symlinks.json" else {
+        guard Self.validGuestPath(path),
+              !["/.symlinks.json","/.modes.json","/.betterjit-linux-root.json"].contains(path) else {
             throw LinuxRuntimeError.guest("Invalid guest file path.")
         }
         if let data = overlay[path] { return data.count }
@@ -190,7 +200,8 @@ public final class DirectoryLinuxFileSystem: LinuxFileSystemSource {
     }
 
     public func readFile(path: String, offset: Int?, length: Int?) throws -> Data {
-        guard Self.validGuestPath(path), path != "/.symlinks.json" else {
+        guard Self.validGuestPath(path),
+              !["/.symlinks.json","/.modes.json","/.betterjit-linux-root.json"].contains(path) else {
             throw LinuxRuntimeError.guest("Invalid guest file path.")
         }
         if let data = overlay[path] {

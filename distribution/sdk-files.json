@@ -110,6 +110,7 @@
     "Examples/FEXHost/LinuxSmokeFixture.swift": "Examples/FEXHost/LinuxSmokeFixture.swift",
     "Examples/FEXHost/LinuxHarness.swift": "Examples/FEXHost/LinuxHarness.swift",
     "docs/sdk/linux-runtime.md": "docs/sdk/linux-runtime.md",
-    "Sources/BetterJITLinux/LinuxNativeChannel.swift": "Sources/BetterJITLinux/LinuxNativeChannel.swift"
+    "Sources/BetterJITLinux/LinuxNativeChannel.swift": "Sources/BetterJITLinux/LinuxNativeChannel.swift",
+    "scripts/stage-linux-runtime.py": "scripts/stage-linux-runtime.py"
   }
 }
