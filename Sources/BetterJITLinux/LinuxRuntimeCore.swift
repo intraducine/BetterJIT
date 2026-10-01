@@ -24,6 +24,13 @@ public protocol LinuxFileSystemSource: AnyObject {
     func readFile(path: String, offset: Int?, length: Int?) throws -> Data
 }
 
+public struct LinuxChannelReply: Sendable, Equatable {
+    public let result: Int32
+    public let data: Data
+    public init(result: Int32, data: Data = Data()) { self.result=result; self.data=data }
+}
+public typealias LinuxGPUChannelHandler = @Sendable (_ request: Data, _ responseCapacity: Int) throws -> LinuxChannelReply
+
 public struct LinuxRuntimeConfiguration: Sendable, Equatable {
     public var arguments: [String]
     public var environment: [String:String]
@@ -38,6 +45,7 @@ public struct LinuxRuntimeConfiguration: Sendable, Equatable {
     public var slowWaitMilliseconds: Double
     public var kernelSpinMilliseconds: Double
     public var threadSpinMilliseconds: Double
+    public var useNativeChannels: Bool
 
     public init(arguments: [String],
                 environment: [String:String] = [:],
@@ -51,7 +59,8 @@ public struct LinuxRuntimeConfiguration: Sendable, Equatable {
                 traceMaps: Bool = false,
                 slowWaitMilliseconds: Double = 0,
                 kernelSpinMilliseconds: Double = 0.05,
-                threadSpinMilliseconds: Double = 0.02) {
+                threadSpinMilliseconds: Double = 0.02,
+                useNativeChannels: Bool = true) {
         self.arguments = arguments
         self.environment = environment
         self.currentDirectory = currentDirectory
@@ -65,6 +74,7 @@ public struct LinuxRuntimeConfiguration: Sendable, Equatable {
         self.slowWaitMilliseconds = slowWaitMilliseconds
         self.kernelSpinMilliseconds = kernelSpinMilliseconds
         self.threadSpinMilliseconds = threadSpinMilliseconds
+        self.useNativeChannels = useNativeChannels
     }
 }
 
