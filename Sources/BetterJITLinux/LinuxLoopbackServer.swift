@@ -15,6 +15,9 @@ final class LinuxLoopbackServer: @unchecked Sendable {
     private var listener: NWListener?
     private var started: CheckedContinuation<UInt16,Error>?
     private var connections: [UUID:LinuxHTTPConnection] = [:]
+    #if canImport(Darwin)
+    private var channels: [LinuxNativeChannel] = []
+    #endif
     private var stopped = false
     private let token: String
     private let assets: [String:(Data,String)]
@@ -24,6 +27,7 @@ final class LinuxLoopbackServer: @unchecked Sendable {
     private let onExit: @Sendable (Int) -> Void
     private let onWindow: @Sendable ([String:String]) -> Void
     private let onShot: @Sendable (String,Data) -> Void
+    private let gpuHandler: LinuxGPUChannelHandler?
 
     init(token: String,
          assets: [String:(Data,String)],
@@ -32,9 +36,11 @@ final class LinuxLoopbackServer: @unchecked Sendable {
          onLog: @escaping @Sendable (String)->Void,
          onExit: @escaping @Sendable (Int)->Void,
          onWindow: @escaping @Sendable ([String:String])->Void = { _ in },
-         onShot: @escaping @Sendable (String,Data)->Void = { _,_ in }) {
+         onShot: @escaping @Sendable (String,Data)->Void = { _,_ in },
+         gpuHandler: LinuxGPUChannelHandler? = nil) {
         self.token=token; self.assets=assets; self.backend=backend; self.fileSystem=fileSystem
         self.onLog=onLog; self.onExit=onExit; self.onWindow=onWindow; self.onShot=onShot
+        self.gpuHandler=gpuHandler
     }
 
     func start(timeout: Double) async throws -> UInt16 {
@@ -83,6 +89,10 @@ final class LinuxLoopbackServer: @unchecked Sendable {
         listener?.stateUpdateHandler=nil; listener?.newConnectionHandler=nil; listener?.cancel(); listener=nil
         let current=Array(connections.values); connections.removeAll()
         for c in current { c.stop() }
+        #if canImport(Darwin)
+        let activeChannels=channels; channels.removeAll()
+        for channel in activeChannels { channel.stop() }
+        #endif
         backend.close(); finishStart(.failure(LinuxRuntimeError.closed))
     }
     private func accept(_ connection: NWConnection) {
