@@ -17,6 +17,7 @@ import WebKit
     private let backend: LinuxTranslationBackend
     private let fileSystem: LinuxFileSystemSource
     private let configuration: LinuxRuntimeConfiguration
+    private let gpuHandler: LinuxGPUChannelHandler?
     private let token=UUID().uuidString.lowercased()
     private var server: LinuxLoopbackServer?
     private var navigation: CheckedContinuation<Void,Error>?
@@ -28,7 +29,8 @@ import WebKit
 
     public init(backend: LinuxTranslationBackend,
                 fileSystem: LinuxFileSystemSource,
-                configuration: LinuxRuntimeConfiguration) throws {
+                configuration: LinuxRuntimeConfiguration,
+                gpuHandler: LinuxGPUChannelHandler? = nil) throws {
         guard !configuration.arguments.isEmpty,
               configuration.arguments.count <= 256,
               configuration.arguments.allSatisfy({ $0.utf8.count <= 4096 && !$0.contains("\0") }),
@@ -39,6 +41,7 @@ import WebKit
             throw LinuxRuntimeError.invalidConfiguration("Invalid Linux runtime arguments, environment, timeout or cwd.")
         }
         self.backend=backend; self.fileSystem=fileSystem; self.configuration=configuration
+        self.gpuHandler=gpuHandler
         let c=WKWebViewConfiguration()
         c.websiteDataStore = .default()
         c.defaultWebpagePreferences.allowsContentJavaScript=true
@@ -55,7 +58,8 @@ import WebKit
                 onLog:{ [weak self] text in Task { @MainActor in self?.receiveLog(text) } },
                 onExit:{ [weak self] code in Task { @MainActor in self?.receiveExit(code) } },
                 onWindow:{ [weak self] event in Task { @MainActor in self?.onWindow?(event) } },
-                onShot:{ [weak self] name,data in Task { @MainActor in self?.onScreenshot?(name,data) } })
+                onShot:{ [weak self] name,data in Task { @MainActor in self?.onScreenshot?(name,data) } },
+                gpuHandler:gpuHandler)
             self.server=server
             let port=try await server.start(timeout:10); self.port=port
             let url=try launchURL(port:port)
@@ -157,7 +161,7 @@ import WebKit
             URLQueryItem(name:"env",value:e),
             URLQueryItem(name:"cwd",value:configuration.currentDirectory),
             URLQueryItem(name:"timeout",value:String(Int(configuration.timeoutSeconds))),
-            URLQueryItem(name:"chan",value:"0"),
+            URLQueryItem(name:"chan",value:configuration.useNativeChannels ? "1":"0"),
             URLQueryItem(name:"regions",value:configuration.regions ? "1":"0"),
             URLQueryItem(name:"trace",value:configuration.trace ? "1":"0"),
             URLQueryItem(name:"traceCode",value:configuration.traceCode ? "1":"0"),
