@@ -89,6 +89,26 @@
     "Sources/BetterJITWebKit/Resources/diagnostics.mjs": "Sources/BetterJITWebKit/Resources/diagnostics.mjs",
     "Sources/BetterJITWebKit/Resources/diagnostic-worker.mjs": "Sources/BetterJITWebKit/Resources/diagnostic-worker.mjs",
     "tests/fexhost/DiagnosticTests.swift": "tests/fexhost/DiagnosticTests.swift",
-    "tests/sdk/diagnostics.test.mjs": "tests/sdk/diagnostics.test.mjs"
+    "tests/sdk/diagnostics.test.mjs": "tests/sdk/diagnostics.test.mjs",
+    "Sources/BetterJITLinux/LinuxRuntimeCore.swift": "Sources/BetterJITLinux/LinuxRuntimeCore.swift",
+    "Sources/BetterJITLinux/LinuxLoopbackServer.swift": "Sources/BetterJITLinux/LinuxLoopbackServer.swift",
+    "Sources/BetterJITLinux/LinuxRuntimeSession.swift": "Sources/BetterJITLinux/LinuxRuntimeSession.swift",
+    "Sources/BetterJITLinux/Resources/runtime.js": "Sources/BetterJITLinux/Resources/runtime.js",
+    "Sources/BetterJITLinux/Resources/linux/thread_core.js": "Sources/BetterJITLinux/Resources/linux/thread_core.js",
+    "Sources/BetterJITLinux/Resources/linux/compositor.js": "Sources/BetterJITLinux/Resources/linux/compositor.js",
+    "Sources/BetterJITLinux/Resources/linux/web/linux.html": "Sources/BetterJITLinux/Resources/linux/web/linux.html",
+    "Sources/BetterJITLinux/Resources/linux/web/linux_main.js": "Sources/BetterJITLinux/Resources/linux/web/linux_main.js",
+    "Sources/BetterJITLinux/Resources/linux/web/kworker_web.js": "Sources/BetterJITLinux/Resources/linux/web/kworker_web.js",
+    "Sources/BetterJITLinux/Resources/linux/web/thread_web.js": "Sources/BetterJITLinux/Resources/linux/web/thread_web.js",
+    "Sources/BetterJITLinux/Resources/linux/web/chan_web.js": "Sources/BetterJITLinux/Resources/linux/web/chan_web.js",
+    "Sources/BetterJITLinux/Resources/linux/web/chan_file.js": "Sources/BetterJITLinux/Resources/linux/web/chan_file.js",
+    "Sources/BetterJITLinux/Resources/linux/web/sampler.js": "Sources/BetterJITLinux/Resources/linux/web/sampler.js",
+    "Sources/BetterJITLinux/Resources/linux/web/probe_worker.js": "Sources/BetterJITLinux/Resources/linux/web/probe_worker.js",
+    "Sources/BetterJITLinux/Resources/linux/web/linux-kernel.js": "Sources/BetterJITLinux/Resources/linux/web/linux-kernel.js",
+    "Tests/BetterJITLinuxTests/LinuxFileSystemTests.swift": "Tests/BetterJITLinuxTests/LinuxFileSystemTests.swift",
+    "Examples/FEXHost/LinkedLinuxFEXBackend.swift": "Examples/FEXHost/LinkedLinuxFEXBackend.swift",
+    "Examples/FEXHost/LinuxSmokeFixture.swift": "Examples/FEXHost/LinuxSmokeFixture.swift",
+    "Examples/FEXHost/LinuxHarness.swift": "Examples/FEXHost/LinuxHarness.swift",
+    "docs/sdk/linux-runtime.md": "docs/sdk/linux-runtime.md"
   }
 }

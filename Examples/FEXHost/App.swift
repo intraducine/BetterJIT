@@ -4,6 +4,7 @@ import UIKit
 import Darwin
 import WebKit
 import BetterJITWebKit
+import BetterJITLinux
 
 @main struct FEXHostApp: App {
     var body: some Scene { WindowGroup { FEXHostView() } }
@@ -17,9 +18,17 @@ import BetterJITWebKit
     @Published var storageError: String?
     @Published var diagnosticReport: DiagnosticReport?
     @Published var diagnosticReportURL: URL?
+    @Published var linuxSession: LinuxRuntimeSession?
+    @Published var linuxStatus = "Not started"
+    @Published var linuxLog = ""
     private var task: Task<Void, Never>?
     private var runner: SuiteRunner?
     private var diagnosticRunner: DiagnosticRunner?
+    private lazy var linuxHarness = LinuxHarness { [weak self] session, status, log in
+        self?.linuxSession = session
+        self?.linuxStatus = status
+        self?.linuxLog = log
+    }
     init() {
         do {
             let url = try directory().appendingPathComponent("latest.json")
@@ -83,9 +92,26 @@ import BetterJITWebKit
             self.transport=nil; self.running=false; self.diagnosticRunner=nil; self.task=nil
         }
     }
+    func runLinux(wine: Bool) {
+        guard !running else { return }
+        running = true; storageError = nil; linuxLog = ""
+        task = Task { [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await self.linuxHarness.run(wine ? .wineCommand : .smoke)
+            } catch {
+                self.storageError = error.localizedDescription
+            }
+            self.running = false; self.task = nil
+        }
+    }
     func stop(interrupted: Bool = false) {
-        guard running else { return }
-        runner?.stop(interrupted: interrupted); diagnosticRunner?.stop(interrupted: interrupted); task?.cancel()
+        guard running || linuxSession != nil else { return }
+        runner?.stop(interrupted: interrupted)
+        diagnosticRunner?.stop(interrupted: interrupted)
+        linuxHarness.stop()
+        task?.cancel()
+        running = false
     }
     private func directory() throws -> URL {
         let documents = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
@@ -146,6 +172,25 @@ import BetterJITWebKit
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    Text("Linux / Wine runtime").font(.headline)
+                    Text("The SDK now runs the promoted x86-64 Linux process/kernel stack directly in WebKit with native on-device FEX translation. The smoke test is bundled; Wine uses Documents/linuxroot.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        Button("Run Linux ELF") { model.runLinux(wine: false) }.disabled(model.running)
+                        Button("Run Wine cmd") { model.runLinux(wine: true) }.disabled(model.running || !LinuxHarness.winePresent)
+                        if model.running && model.linuxSession != nil { Button("Stop") { model.stop() } }
+                    }.buttonStyle(.borderedProminent)
+                    Text("Wine root: \(LinuxHarness.rootURL.path)\n\(LinuxHarness.winePresent ? "wine executable found" : "wine rootfs not staged yet")")
+                        .font(.caption.monospaced()).textSelection(.enabled)
+                    Text(model.linuxStatus).font(.subheadline.bold()).textSelection(.enabled)
+                    if let session = model.linuxSession {
+                        LinuxExecutorView(session: session).id(ObjectIdentifier(session)).frame(height: 260)
+                    }
+                    if !model.linuxLog.isEmpty {
+                        Text(model.linuxLog.suffix(12000)).font(.caption.monospaced()).textSelection(.enabled)
+                    }
+
+                    Divider()
                     Text("Runtime diagnostics").font(.headline)
                     Toggle("Launched from Home Screen, without debugger", isOn:$standalone).disabled(model.running)
                     Toggle("Wi-Fi and cellular are off", isOn:$offline).disabled(model.running)
@@ -240,5 +285,11 @@ import BetterJITWebKit
 private struct ExecutorView: UIViewRepresentable {
     let transport: WebKitTransport
     func makeUIView(context: Context) -> WKWebView { transport.webView }
+    func updateUIView(_ view: WKWebView, context: Context) {}
+}
+
+private struct LinuxExecutorView: UIViewRepresentable {
+    let session: LinuxRuntimeSession
+    func makeUIView(context: Context) -> WKWebView { session.webView }
     func updateUIView(_ view: WKWebView, context: Context) {}
 }

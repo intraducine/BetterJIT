@@ -16,6 +16,9 @@ unmodified application native JIT, unrestricted RAM, or App Store approval.
   memory transfers and explicitly registered native services.
 - `BetterJITFEX`: optional serialized FEX translation service and SysV/Win64
   integer/pointer function-call adapter. Native FEX is built separately.
+- `BetterJITLinux`: promoted x86-64 Linux/Wine process runtime: ELF loading,
+  shared guest memory/workers, syscall/VFS kernel, futex/signals and Wine-facing
+  synchronization/compositor infrastructure.
 
 ```swift
 import BetterJIT
@@ -65,9 +68,10 @@ signatures are checked before guest execution, and new operations are advertised
 through capability extensions. Timeouts, malformed typed replies and guest traps
 end a session; cancellation does not roll back native side effects.
 
-FEX supports one unshared guest-address window and 0–16 integer/pointer arguments,
-not complete Linux/Windows processes, multithreading, struct/float guest ABIs,
-Wine or DXMT. Unsupported syscalls fail rather than returning research stubs.
+The small direct-call FEX adapter supports one unshared guest-address window and
+0–16 integer/pointer arguments. `BetterJITLinux` separately promotes the
+repository's shared-memory Linux process/thread runtime and Wine-facing kernel
+stack. Native DXMT/Metal command handling remains application-supplied.
 FEX and application-defined native services still require hostile-input review.
 The default bridge copies bounded messages. OPFS/native-mapped paging remains
 research, not a stable or zero-copy SDK transport.

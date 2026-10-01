@@ -1,7 +1,8 @@
 # SDK integration
 
 Add the root Swift package to your application and select `BetterJIT` plus
-`BetterJITWebKit`. Ordinary Wasm consumers need neither Iridium nor FEX. The
+`BetterJITWebKit`. For full x86-64 Linux/Wine process execution, also select
+`BetterJITLinux`. Ordinary Wasm consumers need neither Iridium nor FEX. The
 public API is main-actor isolated; guest computation runs in a dedicated worker.
 Mount the transport's WKWebView, retain session/transport, and close explicitly.
 The app needs `NSAppTransportSecurity.NSAllowsLocalNetworking = true`. Only
@@ -63,8 +64,9 @@ let transport = try WebKitTransport(services: ["host.1": { payload in
 The service path requires WebAssembly JSPI and fails explicitly when absent.
 Honor cancellation and avoid blocking the main actor. A task deadline cannot
 forcibly stop arbitrary native C code or reverse side effects already performed.
-The default bridge copies data. OPFS fast transport and software paging remain
-separate experimental research; no zero-copy Wasm memory or extra RAM is implied.
+Large registered binary services can use the capability-negotiated OPFS/native
+mapped lane; the control plane remains copied RPC. This is shared file backing,
+not zero-copy Wasm linear memory and not extra RAM.
 
 ## Optional native FEX
 
@@ -91,8 +93,9 @@ await fex.close()
 
 The image must fit one 4-GiB guest-address window; this is not a 4-GiB RAM grant.
 Integer/pointer arguments are placed in ABI registers and stack/shadow slots.
-Floating-point/aggregate arguments, a guest loader/OS and thread management are
-not supplied. Syscalls explicitly fail without a guest OS adapter. Do not infer
+Floating-point/aggregate arguments are not supplied by the small direct-call
+adapter. Full guest loading, Linux syscalls/VFS and guest threads are provided
+separately by `BetterJITLinux`; see [Linux/Wine runtime](linux-runtime.md). Do not infer
 Windows game support from an integer checksum. Use trusted guest inputs until
 the native compiler and services receive hostile-input review.
 

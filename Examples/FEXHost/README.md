@@ -120,3 +120,16 @@ sections and unresolved relocations. Normal device builds need neither tool.
 The Apple UI/adapter still requires Xcode compilation and this suite requires a
 new physical-device run. The old addition-only device success is not reused as
 validation of the expanded suite.
+
+
+## Linux / Wine mode
+
+The app now includes the promoted `BetterJITLinux` runtime. **Run Linux ELF**
+uses a bundled x86-64 static ELF and needs no external root. **Run Wine cmd**
+uses `Documents/linuxroot` and becomes available when
+`Documents/linuxroot/opt/wine/bin/wine` exists.
+
+This path uses the real browser Linux kernel/VFS/thread runtime and dynamic
+native FEX code mapping. It currently selects the correctness-first HTTP
+fallback for kernel/translator file operations; the ordinary BetterJIT binary
+service lane remains the validated fast native/WebKit data plane.
