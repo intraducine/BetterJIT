@@ -25,7 +25,7 @@ class RootArchiveTests(unittest.TestCase):
     def test_rejects_paths_outside_root_and_unknown_special_nodes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=pathlib.Path(tmp);out=root/'root';out.mkdir();archive=root/'input.tar.gz'
-            for name,kind in [('../escape',tarfile.REGTYPE),('dev/unsupported',tarfile.CHRTYPE)]:
+            for name,kind in [('../escape',tarfile.REGTYPE),('var/native-device',tarfile.CHRTYPE)]:
                 with self.subTest(name=name):
                     with tarfile.open(archive,'w:gz') as tar:
                         member=tarfile.TarInfo(name);member.type=kind

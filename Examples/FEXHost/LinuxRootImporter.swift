@@ -10,7 +10,7 @@ actor LinuxRootImporter {
     private func perform(source:URL,target:URL,progress:@escaping @Sendable (Int)->Void) throws {
         let fm=FileManager.default
         let source=source.standardizedFileURL.resolvingSymlinksInPath()
-        guard source != target.standardizedFileURL,
+        guard source != target.standardizedFileURL.resolvingSymlinksInPath(),
               LinuxRootManifest.wineEntryExists(at:source) else {
             throw SuiteFailure("Select a staged root folder containing opt/wine/bin/wine, .symlinks.json and .modes.json.")
         }
@@ -28,12 +28,20 @@ actor LinuxRootImporter {
             count += 1
             guard count <= 150_000 else { throw SuiteFailure("Root exceeds 150,000 entries.") }
             let values=try item.resourceValues(forKeys:[.isRegularFileKey,.isDirectoryKey,.isSymbolicLinkKey,.fileSizeKey])
-            let relative=String(item.path.dropFirst(source.path.count+1))
-            let destination=staging.appendingPathComponent(relative)
             if values.isSymbolicLink == true {
                 // Use the staging tool's manifests so symlinks survive Files providers.
                 throw SuiteFailure("Root contains filesystem symlinks. Stage it with scripts/stage-linux-runtime.py first.")
-            } else if values.isDirectory == true {
+            }
+            // Apple Foundation may preserve a trailing directory slash or
+            // canonicalize /var as /private/var. Compare components instead of
+            // slicing a URL path by the source string's character count.
+            let components=item.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+            let prefix=source.pathComponents
+            guard components.starts(with:prefix), components.count > prefix.count else {
+                throw SuiteFailure("Imported entry is outside the selected root.")
+            }
+            let destination=components.dropFirst(prefix.count).reduce(staging) { $0.appendingPathComponent($1) }
+            if values.isDirectory == true {
                 try fm.createDirectory(at:destination,withIntermediateDirectories:true)
             } else if values.isRegularFile == true {
                 bytes += UInt64(max(0,values.fileSize ?? 0))
@@ -49,6 +57,9 @@ actor LinuxRootImporter {
             if count % 100 == 0 { progress(count) }
         }
         try Task.checkCancellation()
+        guard LinuxRootManifest.wineEntryExists(at:staging) else {
+            throw SuiteFailure("Copied root is missing its Wine executable; the existing root was retained.")
+        }
         if fm.fileExists(atPath:target.path) { try fm.moveItem(at:target,to:backup) }
         do { try fm.moveItem(at:staging,to:target) }
         catch { if fm.fileExists(atPath:backup.path) { try? fm.moveItem(at:backup,to:target) }; throw error }

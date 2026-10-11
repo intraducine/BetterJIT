@@ -16,6 +16,8 @@ mkdir -p /guest-root/opt/wine/bin /guest-root/home/user /guest-root/tmp /guest-r
 for name in wine wine64 wineserver; do
   if test -e /guest-root/usr/bin/$name || test -L /guest-root/usr/bin/$name; then ln -s /usr/bin/$name /guest-root/opt/wine/bin/$name; fi
 done
+ln -s /usr/lib /guest-root/opt/wine/lib
+ln -s /usr/share /guest-root/opt/wine/share
 # Keep Alpine's complete installed-package provenance and license identifiers.
 cp /guest-root/lib/apk/db/installed /output/installed-packages.txt
 apk --root /guest-root info -v > /output/package-versions.txt
@@ -48,8 +50,10 @@ def extract_input_archive(archive, out):
                 link=pathlib.PurePosixPath(member.linkname)
                 if link.is_absolute() or '..' in link.parts: raise ValueError('Invalid archive hard-link path')
                 links[guest]='/'+link.as_posix()
-            elif member.ischr() and guest in {'/dev/null','/dev/zero','/dev/random','/dev/urandom'}:
-                # These devices are implemented by the guest kernel, not host files.
+            elif (member.ischr() or member.isblk() or member.isfifo()) and relative.parts[0]=='dev':
+                # Native Linux device nodes cannot be embedded as iOS files.
+                # The kernel supplies its supported virtual devices; others
+                # remain unavailable rather than pretending to be regular files.
                 devices.append(guest); modes.pop(guest,None)
             else: raise ValueError(f'Unsupported archive member: {member.name} (type {member.type!r})')
     return links,modes,total,devices
@@ -91,7 +95,7 @@ def main():
                 'winePackageSource':'https://gitlab.alpinelinux.org/alpine/aports/-/tree/cb88bb7c5f6a0e878f4e7d2ce0f934116bcab490/community/wine',
                 'wineUpstreamSource':'https://dl.winehq.org/wine/source/10.x/wine-10.7.tar.xz',
                 'signatureVerification':'Alpine apk signed repository/package verification; no allow-untrusted',
-                'packageScriptsExecuted':False,'guestExecuted':False,'virtualDeviceEntriesOmitted':devices}
+                'packageScriptsExecuted':False,'guestExecuted':False,'nativeDeviceEntriesOmitted':devices}
             (out/'.betterjit-linux-root.json').write_text(json.dumps(provenance,indent=2,sort_keys=True)+'\n')
             notes=out/'usr/share/betterjit-root-provenance';notes.mkdir(parents=True,exist_ok=True)
             shutil.copyfile(work/'installed-packages.txt',notes/'installed-packages.txt')
