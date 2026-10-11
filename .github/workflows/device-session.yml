@@ -1,0 +1,76 @@
+name: One iPhone device session
+on:
+  push:
+    branches: [feature/one-device-session]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: betterjit-device-session-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  linux-fixture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Execute the bundled Linux workload directly (not FEX/device evidence)
+        run: python3 tests/fexhost/linux-session-native.py
+  iphone-app:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install tools
+        run: brew install cmake ninja xcodegen
+      - name: Validate SDK and complete device-session orchestration
+        run: |
+          bash scripts/check-sdk.sh
+          bash scripts/check-fexhost.sh
+          python3 scripts/export-sdk.py --check
+      - name: Build native FEX and the complete iPhone app
+        run: |
+          set -o pipefail
+          bash Backends/FEX/build-ios.sh 2>&1 | tee .build/native-fex-build.log
+          python3 Examples/FEXHost/prepare.py
+          xcodebuild -project Examples/FEXHost/BetterJITFEXHost.xcodeproj -scheme BetterJITFEXHost -configuration Release -destination 'generic/platform=iOS' -derivedDataPath .build/device-session CODE_SIGNING_ALLOWED=NO build 2>&1 | tee .build/device-session-build.log
+      - name: Package unsigned app for the user's existing signing/install route
+        run: |
+          mkdir -p .build/device-session-artifact/Payload
+          cp -R .build/device-session/Build/Products/Release-iphoneos/BetterJITFEXHost.app .build/device-session-artifact/Payload/
+          cp COPYING THIRD_PARTY.md .build/device-session-artifact/
+          cp -R LICENSES .build/device-session-artifact/
+          cp Examples/FEXHost/DEVICE-SESSION.md .build/device-session-artifact/PHONE-INSTRUCTIONS.md
+          cp .build/native-fex-build.log .build/device-session-build.log .build/device-session-artifact/
+          python3 - <<'PY'
+          import hashlib, json, pathlib, subprocess
+          root=pathlib.Path('.build/device-session-artifact')
+          manifest={'repository':'intraducine/BetterJIT','commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'signed':False,'deviceExecuted':False}
+          manifest['files']={str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in (root/'Payload').rglob('*') if p.is_file()}
+          (root/'BUILD-MANIFEST.json').write_text(json.dumps(manifest,indent=2)+'\n')
+          PY
+          cd .build/device-session-artifact
+          zip -qry BetterJIT-Device-Session-unsigned.ipa Payload
+      - name: Upload app and exact build evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: BetterJIT-Device-Session-${{ github.sha }}
+          path: |
+            .build/device-session-artifact/BetterJIT-Device-Session-unsigned.ipa
+            .build/device-session-artifact/BUILD-MANIFEST.json
+            .build/device-session-artifact/PHONE-INSTRUCTIONS.md
+            .build/device-session-artifact/COPYING
+            .build/device-session-artifact/THIRD_PARTY.md
+            .build/device-session-artifact/LICENSES/
+            .build/device-session-artifact/*-build.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve failure logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Device-session-build-failure-${{ github.sha }}
+          path: .build/*-build.log
+          if-no-files-found: ignore
+          retention-days: 7
+# Builds are unsigned. No secrets, automatic signing, merge, release or device claim.

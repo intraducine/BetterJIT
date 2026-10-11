@@ -17,6 +17,12 @@ swiftc -swift-version 5 -warnings-as-errors -o .build/diagnostic-tests \
   Examples/FEXHost/GuestImage.swift Examples/FEXHost/ExtendedGuest.swift \
   tests/fexhost/DiagnosticTests.swift
 .build/diagnostic-tests
+swiftc -swift-version 5 -warnings-as-errors -o .build/session-tests "${common[@]}" \
+  Examples/FEXHost/DiagnosticModel.swift Examples/FEXHost/DiagnosticPlan.swift \
+  Examples/FEXHost/LinuxSessionFixture.swift Examples/FEXHost/DeviceSessionReport.swift \
+  Examples/FEXHost/LinuxRootImporter.swift tests/fexhost/SessionTests.swift
+.build/session-tests
+python3 tests/fexhost/linux-session-native.py
 python3 tests/fexhost/extended-native.py
 .build/fexhost-tests
 python3 tests/fexhost/native-fixtures.py

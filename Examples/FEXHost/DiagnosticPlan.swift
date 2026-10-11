@@ -41,7 +41,7 @@ enum DiagnosticPlan {
         .init(id:"fex-region-win64", title:"FEX hot-region install / Win64", category:"FEX", kind:.fexRegionWin64),
         .init(id:"syscall-subset", title:"Minimal Linux syscall subset through FEX", category:"Guest OS", kind:.syscallSubset),
         .init(id:"process-lifecycle", title:"Repeated WebKit session create / execute / close", category:"Lifecycle", kind:.processLifecycle),
-        .init(id:"native-metal", title:"Native Metal command-queue smoke", category:"Graphics", kind:.nativeMetal),
+        .init(id:"native-metal", title:"Native Metal render / checked pixel readback", category:"Graphics", kind:.nativeMetal),
         .init(id:"wine-readiness", title:"Wine runtime readiness gate", category:"Readiness", kind:.wineReadiness),
         .init(id:"graphics-readiness", title:"DXMT / native graphics readiness gate", category:"Readiness", kind:.graphicsReadiness)
     ]

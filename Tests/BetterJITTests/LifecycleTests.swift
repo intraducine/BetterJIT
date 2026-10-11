@@ -57,7 +57,7 @@ final class LifecycleTests: XCTestCase {
         s.close(); t.onFailure?(RuntimeFault("worker", "Later crash"))
         XCTAssertEqual(s.state, .closed); XCTAssertEqual(s.failure?.code, "allocationFailed")
     }
-    @MainActor func testSessionDoesNotRetainItselfThroughFailureCallback() throws {
+    @MainActor func testSessionDoesNotRetainItselfThroughFailureCallback() async throws {
         let t = FailingTransport()
         weak var weakSession: RuntimeSession?
         do { let s = try RuntimeSession(transport: t, limits: RuntimeLimits()); weakSession = s }

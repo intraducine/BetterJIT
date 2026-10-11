@@ -111,6 +111,15 @@
     "Examples/FEXHost/LinuxHarness.swift": "Examples/FEXHost/LinuxHarness.swift",
     "docs/sdk/linux-runtime.md": "docs/sdk/linux-runtime.md",
     "Sources/BetterJITLinux/LinuxNativeChannel.swift": "Sources/BetterJITLinux/LinuxNativeChannel.swift",
-    "scripts/stage-linux-runtime.py": "scripts/stage-linux-runtime.py"
+    "scripts/stage-linux-runtime.py": "scripts/stage-linux-runtime.py",
+    "Examples/FEXHost/DeviceSessionModel.swift": "Examples/FEXHost/DeviceSessionModel.swift",
+    "Examples/FEXHost/DeviceSessionReport.swift": "Examples/FEXHost/DeviceSessionReport.swift",
+    "Examples/FEXHost/LinuxSessionFixture.swift": "Examples/FEXHost/LinuxSessionFixture.swift",
+    "Examples/FEXHost/LinuxRootImporter.swift": "Examples/FEXHost/LinuxRootImporter.swift",
+    "Examples/FEXHost/Guest/linux-session.S": "Examples/FEXHost/Guest/linux-session.S",
+    "Examples/FEXHost/Guest/build-linux.py": "Examples/FEXHost/Guest/build-linux.py",
+    "tests/fexhost/SessionTests.swift": "tests/fexhost/SessionTests.swift",
+    "tests/fexhost/linux-session-native.py": "tests/fexhost/linux-session-native.py",
+    "Examples/FEXHost/DEVICE-SESSION.md": "Examples/FEXHost/DEVICE-SESSION.md"
   }
 }

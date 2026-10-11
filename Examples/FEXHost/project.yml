@@ -13,6 +13,10 @@ targets:
     platform: iOS
     sources:
       - path: App.swift
+      - path: DeviceSessionModel.swift
+      - path: DeviceSessionReport.swift
+      - path: LinuxSessionFixture.swift
+      - path: LinuxRootImporter.swift
       - path: DeviceExecutor.swift
       - path: SuiteRunner.swift
       - path: SuitePlan.swift
@@ -49,14 +53,14 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: org.example.betterjit.fexhost
         SWIFT_VERSION: '5.0'
         TARGETED_DEVICE_FAMILY: '1,2'
-        MARKETING_VERSION: '0.5.0'
-        CURRENT_PROJECT_VERSION: '5'
+        MARKETING_VERSION: '0.6.0'
+        CURRENT_PROJECT_VERSION: '6'
         BETTERJIT_SOURCE_COMMIT: unrecorded
         BETTERJIT_SOURCE_STATE: unrecorded
     info:
       path: Info.plist
       properties:
-        CFBundleDisplayName: BetterJIT FEX Host
+        CFBundleDisplayName: BetterJIT Session
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         BetterJITSourceCommit: $(BETTERJIT_SOURCE_COMMIT)

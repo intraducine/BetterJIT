@@ -1,3 +1,14 @@
+# One iPhone device session
+
+The FEX Host now opens as **BetterJIT Session**. Tap **Run All** for real Linux
+ELF execution, an attempted Wine command, both complete extended FEX suites and
+the safe diagnostic matrix, with one persisted/exportable report. See
+[phone instructions and evidence boundaries](DEVICE-SESSION.md).
+
+The details below document the individual suites reused inside the session.
+Their old separate buttons and separate report-sharing flows are replaced by
+Run All and Share session report.
+
 # Device correctness and timing suite
 
 This expands the previously working FEX Host, not the SDK backend or Iridium.

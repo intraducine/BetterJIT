@@ -119,21 +119,56 @@ enum NativeDiagnostics {
     }
     static func metal() throws -> DiagnosticOutcome {
         #if canImport(Metal)
-        guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue(),
-              let buffer = device.makeBuffer(length: 1024 * 1024, options: .storageModeShared),
-              let command = queue.makeCommandBuffer() else {
-            return .unsupported("Metal device, queue or buffer is unavailable.")
+        guard let device=MTLCreateSystemDefaultDevice(), let queue=device.makeCommandQueue() else {
+            return .unsupported("Metal device or command queue is unavailable.")
         }
-        memset(buffer.contents(), 0x5a, buffer.length)
-        let start = DispatchTime.now().uptimeNanoseconds
-        command.commit(); command.waitUntilCompleted()
-        guard command.status == .completed else { throw SuiteFailure("Metal command buffer did not complete.") }
-        let details: [String:String] = ["metalAvailable":"true"]
-        let metrics: [String:Double] = [
-            "bufferBytes":Double(buffer.length),
-            "commandMilliseconds":elapsed(start)
-        ]
-        return .pass(details:details, metrics:metrics)
+        let source="""
+        #include <metal_stdlib>
+        using namespace metal;
+        vertex float4 session_vertex(uint id [[vertex_id]]) {
+            const float2 positions[3] = {float2(-1,-1),float2(3,-1),float2(-1,3)};
+            return float4(positions[id],0,1);
+        }
+        fragment float4 session_fragment() { return float4(0.25,0.5,0.75,1); }
+        """
+        let library=try device.makeLibrary(source:source,options:nil)
+        let pipeline=MTLRenderPipelineDescriptor()
+        pipeline.vertexFunction=library.makeFunction(name:"session_vertex")
+        pipeline.fragmentFunction=library.makeFunction(name:"session_fragment")
+        pipeline.colorAttachments[0].pixelFormat = .rgba8Unorm
+        let state=try device.makeRenderPipelineState(descriptor:pipeline)
+        let descriptor=MTLTextureDescriptor.texture2DDescriptor(pixelFormat:.rgba8Unorm,width:64,height:64,mipmapped:false)
+        descriptor.usage = [.renderTarget]; descriptor.storageMode = .private
+        guard let texture=device.makeTexture(descriptor:descriptor),
+              let buffer=device.makeBuffer(length:64*64*4,options:.storageModeShared),
+              let command=queue.makeCommandBuffer() else { throw SuiteFailure("Could not allocate Metal render resources.") }
+        let pass=MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture=texture
+        pass.colorAttachments[0].loadAction = .clear; pass.colorAttachments[0].storeAction = .store
+        pass.colorAttachments[0].clearColor=MTLClearColorMake(0,0,0,1)
+        guard let render=command.makeRenderCommandEncoder(descriptor:pass) else { throw SuiteFailure("Metal render encoder unavailable.") }
+        render.setRenderPipelineState(state); render.drawPrimitives(type:.triangle,vertexStart:0,vertexCount:3); render.endEncoding()
+        guard let blit=command.makeBlitCommandEncoder() else { throw SuiteFailure("Metal readback encoder unavailable.") }
+        blit.copy(from:texture,sourceSlice:0,sourceLevel:0,sourceOrigin:MTLOrigin(x:0,y:0,z:0),
+                  sourceSize:MTLSize(width:64,height:64,depth:1),to:buffer,destinationOffset:0,
+                  destinationBytesPerRow:256,destinationBytesPerImage:64*256)
+        blit.endEncoding()
+        let finished=DispatchSemaphore(value:0)
+        command.addCompletedHandler { _ in finished.signal() }
+        let start=DispatchTime.now().uptimeNanoseconds; command.commit()
+        guard finished.wait(timeout:.now()+5) == .success, command.status == .completed else {
+            throw SuiteFailure("Metal render did not complete within five seconds.")
+        }
+        let pixels=buffer.contents().bindMemory(to:UInt8.self,capacity:64*64*4)
+        let expected=[64,128,191,255]
+        for p in 0..<(64*64) {
+            for channel in 0..<4 where abs(Int(pixels[p*4+channel])-expected[channel])>1 {
+                throw SuiteFailure("Metal rendered pixel mismatch at pixel \(p), channel \(channel).")
+            }
+        }
+        return .pass(details:["metalAvailable":"true","render":"MSL fullscreen triangle; all 4096 RGBA pixels checked",
+                              "expectedRGBA":"64,128,191,255 (+/- 1)","integration":"Host Metal rendering; not guest DXMT"],
+                     metrics:["pixelsChecked":4096,"commandMilliseconds":elapsed(start)])
         #else
         return .unsupported("Metal framework is unavailable on this platform.")
         #endif
