@@ -263,6 +263,9 @@ import BetterJITLinux
         let hardware=withUnsafeBytes(of:machine.machine) { String(decoding:$0.prefix{$0 != 0},as:UTF8.self) }
         return ["os":ProcessInfo.processInfo.operatingSystemVersionString,"deviceClass":UIDevice.current.model,
             "hardwareModel":hardware,"appVersion":info["CFBundleShortVersionString"] as? String ?? "unknown",
+            "appBuild":info["CFBundleVersion"] as? String ?? "unknown",
+            "guestCompiler":CompiledGuest.compiler,"guestCompilerFlags":CompiledGuest.flags,
+            "simdCompiler":ExtendedGuest.compiler,"simdCompilerFlags":ExtendedGuest.flags,
             "sourceRevision":info["BetterJITSourceCommit"] as? String ?? "unrecorded",
             "sourceStateAtProjectGeneration":info["BetterJITSourceState"] as? String ?? "unrecorded",
             "thermalAtStart":String(ProcessInfo.processInfo.thermalState.rawValue),
