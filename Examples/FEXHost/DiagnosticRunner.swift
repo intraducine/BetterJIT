@@ -11,10 +11,10 @@ import BetterJITWebKit
     private var stopped: DiagnosticRunState?
     private var abortCurrent: (() -> Void)?
 
-    init(preset: DiagnosticPreset, includeStress: Bool, environment: [String:String],
+    init(preset: DiagnosticPreset, includeStress: Bool, includeWineReadiness: Bool = true, environment: [String:String],
          conditions: [String:String], mount: @escaping @MainActor (WebKitTransport?) -> Void,
          changed: @escaping @MainActor (DiagnosticReport) -> Void) {
-        specs = DiagnosticPlan.specs(preset, includeStress:includeStress)
+        specs = DiagnosticPlan.specs(preset, includeStress:includeStress).filter { includeWineReadiness || $0.kind != .wineReadiness }
         report = DiagnosticReport(preset:preset, includeStress:includeStress, environment:environment,
                                   conditions:conditions, specs:specs)
         self.mount = mount; self.changed = changed

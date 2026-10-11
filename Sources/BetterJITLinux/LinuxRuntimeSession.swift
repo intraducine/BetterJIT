@@ -10,6 +10,8 @@ import WebKit
     public private(set) var state: State = .idle
     public private(set) var result: LinuxRuntimeResult?
     public private(set) var failure: LinuxRuntimeError?
+    /// Counts successful native-channel replies; attachment alone is not usage.
+    public var nativeChannelStatistics: [String:Int] { server?.channelStatistics() ?? [:] }
     public var onLog: (@MainActor (String)->Void)?
     public var onWindow: (@MainActor ([String:String])->Void)?
     public var onScreenshot: (@MainActor (String,Data)->Void)?

@@ -12,6 +12,10 @@ targets:
     type: application
     platform: iOS
     sources:
+      - path: ../../.build/device-linuxroot
+        type: folder
+        buildPhase: resources
+        optional: true
       - path: App.swift
       - path: DeviceSessionModel.swift
       - path: DeviceSessionReport.swift

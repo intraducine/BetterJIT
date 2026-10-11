@@ -37,6 +37,15 @@ external rootfs. Use **Run Linux ELF** to exercise:
 
 ## Wine
 
+The combined FEX Host session can bundle a stock Alpine/musl Wine input candidate.
+`python3 scripts/prepare-wine-root.py` uses a digest-pinned official Alpine image,
+fixed Wine version, signed APK verification and recorded dependency/source
+provenance; it requires Docker/Linux-amd64 and repository download access.
+The device-session workflow transfers that prepared root to the Apple app build.
+It is not the historical patched Wine/wasmdrv stack and is not yet compatibility
+or DXMT evidence. Missing optional inputs remain explicitly unsupported.
+
+
 Stage the existing Wine root tree at:
 
 `Documents/linuxroot`

@@ -126,6 +126,19 @@ import BetterJITLinux
                 report?.phases[i].details["reason"]="Wine root is absent. Choose a staged linuxroot folder or copy it into Documents/linuxroot, then Run All again."
                 return
             }
+            if id == "wine" {
+                let root=LinuxHarness.rootURL
+                report?.phases[i].details["rootOrigin"]=root == LinuxHarness.documentsRootURL ? "imported Documents root" : "bundled input candidate"
+                if let handle=try? FileHandle(forReadingFrom:root.appendingPathComponent(".betterjit-linux-root.json")) {
+                    defer { try? handle.close() }
+                    if let data=try? handle.read(upToCount:1024*1024),
+                       let object=try? JSONSerialization.jsonObject(with:data) as? [String:Any] {
+                        for key in ["candidate","wineVersion","rootArchiveSHA256","baseImageID"] {
+                            if let value=object[key] as? String { report?.phases[i].details[key]=String(value.prefix(512)) }
+                        }
+                    }
+                }
+            }
             let channels=id == "linux-channels"
             let mode:LinuxHarness.Mode=id == "wine" ? .wineCommand : (id == "linux-smoke" ? .smoke : .services)
             let value=try await linux.run(mode,nativeChannels:channels)
@@ -135,8 +148,9 @@ import BetterJITLinux
             report?.phases[i].details["exitCode"]=String(value.exitCode)
             report?.phases[i].details["execution"]="Real guest ELF → native FEX → Wasm → Linux syscalls"
             report?.phases[i].details["nativeChannelsRequested"]=String(channels)
+            let usedNative=(linux.counters["xlatChannelCompletedRequests"] ?? 0)>0 && (linux.counters["kernChannelCompletedRequests"] ?? 0)>0
             let attached=value.log.contains("[xlat] channel ready") && value.log.contains("[kern] channel ready")
-            report?.phases[i].details["transportObserved"]=channels ? (attached ? "native OPFS channels attached" : "HTTP fallback; native channel attachment not observed") : "HTTP"
+            report?.phases[i].details["transportObserved"]=channels ? (usedNative ? "successful xlat and kernel native-channel replies" : (attached ? "attached, but successful use of both channels unproven" : "HTTP fallback; native channel attachment not observed")) : "HTTP"
             guard value.exitCode == 0, (linux.counters["unitRequests"] ?? 0)>0,
                   (linux.counters["codeMappings"] ?? 0)>0 else {
                 throw SuiteFailure("Guest did not exit 0 with live FEX translation and code mapping evidence.")
@@ -151,7 +165,11 @@ import BetterJITLinux
                     throw SuiteFailure("Guest success marker was not observed on stdout.")
                 }
             }
-            report?.phases[i].status = .passed
+            report?.phases[i].details["guestExecutionPassed"]="true"
+            report?.phases[i].status = channels && !usedNative ? .unsupported : .passed
+            if channels && !usedNative {
+                report?.phases[i].details["reason"]="Guest passed, but successful xlat and kernel native-channel requests were not both observed. HTTP fallback is not proof of native-channel execution."
+            }
             return
         }
         if id == "copied-suite" || id == "mapped-suite" {
@@ -189,7 +207,7 @@ import BetterJITLinux
             if value.overall != "PASS" { report?.phases[i].error="FEX suite \(value.overall); expand the cases for the first failure." }
             return
         }
-        let runner=DiagnosticRunner(preset:.full,includeStress:stress,environment:report!.environment,
+        let runner=DiagnosticRunner(preset:.full,includeStress:stress,includeWineReadiness:false,environment:report!.environment,
             conditions:report!.conditions,mount:{ [weak self] in self?.transport=$0 },
             changed:{ [weak self] value in
                 self?.report?.diagnostics=value
@@ -231,7 +249,7 @@ import BetterJITLinux
             let scoped=url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() }; self.importing=false; self.task=nil }
             do {
-                try await LinuxRootImporter.copy(from:url,to:LinuxHarness.rootURL,progress:{ [weak self] count in
+                try await LinuxRootImporter.copy(from:url,to:LinuxHarness.documentsRootURL,progress:{ [weak self] count in
                     Task { @MainActor in self?.liveStatus="Imported \(count) files" }
                 })
                 self.wineAvailable=LinuxHarness.winePresent; self.liveStatus="Wine root ready; tap Run All"

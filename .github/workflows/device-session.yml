@@ -16,7 +16,18 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Execute the bundled Linux workload directly (not FEX/device evidence)
         run: python3 tests/fexhost/linux-session-native.py
+      - name: Prepare signed stock Alpine Wine inputs for the app
+        run: |
+          python3 scripts/prepare-wine-root.py
+          tar -czf .build/bundled-wine-root.tar.gz -C .build device-linuxroot
+      - name: Transfer prepared Wine root to the Apple build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: bundled-wine-root-${{ github.sha }}
+          path: .build/bundled-wine-root.tar.gz
+          retention-days: 7
   iphone-app:
+    needs: linux-fixture
     runs-on: macos-15
     timeout-minutes: 60
     steps:
@@ -27,7 +38,15 @@ jobs:
         run: |
           bash scripts/check-sdk.sh
           bash scripts/check-fexhost.sh
+          swift test -j 2 --filter AppleHostTests
           python3 scripts/export-sdk.py --check
+      - name: Fetch the prepared Wine input candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: bundled-wine-root-${{ github.sha }}
+          path: .build
+      - name: Unpack the bundled root
+        run: tar -xzf .build/bundled-wine-root.tar.gz -C .build
       - name: Build native FEX and the complete iPhone app
         run: |
           set -o pipefail
@@ -40,6 +59,7 @@ jobs:
           cp -R .build/device-session/Build/Products/Release-iphoneos/BetterJITFEXHost.app .build/device-session-artifact/Payload/
           cp COPYING THIRD_PARTY.md .build/device-session-artifact/
           cp -R LICENSES .build/device-session-artifact/
+          cp .build/device-linuxroot/.betterjit-linux-root.json .build/device-session-artifact/WINE-ROOT-PROVENANCE.json
           cp Examples/FEXHost/DEVICE-SESSION.md .build/device-session-artifact/PHONE-INSTRUCTIONS.md
           cp .build/native-fex-build.log .build/device-session-build.log .build/device-session-artifact/
           python3 - <<'PY'
@@ -58,6 +78,7 @@ jobs:
           path: |
             .build/device-session-artifact/BetterJIT-Device-Session-unsigned.ipa
             .build/device-session-artifact/BUILD-MANIFEST.json
+            .build/device-session-artifact/WINE-ROOT-PROVENANCE.json
             .build/device-session-artifact/PHONE-INSTRUCTIONS.md
             .build/device-session-artifact/COPYING
             .build/device-session-artifact/THIRD_PARTY.md

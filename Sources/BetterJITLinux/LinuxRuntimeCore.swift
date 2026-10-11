@@ -177,6 +177,12 @@ public final class DirectoryLinuxFileSystem: LinuxFileSystemSource {
         }
         for (path,data) in overlay.sorted(by: { $0.key < $1.key }) {
             ensureParents(path)
+            // The byte provider already prefers overlays; advertise the same
+            // size/type when a staged root has a file at the injected path.
+            if known.contains(path) {
+                entries.removeAll { ($0.first as? String) == path }
+                known.remove(path)
+            }
             add([path,"f",0o755,data.count,Date().timeIntervalSince1970 * 1000])
         }
         for path in ["/proc","/dev","/sys","/tmp","/usr","/usr/bin","/bin","/home","/home/user","/test"] {

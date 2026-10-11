@@ -18,6 +18,11 @@ final class LinuxLoopbackServer: @unchecked Sendable {
     #if canImport(Darwin)
     private var channels: [LinuxNativeChannel] = []
     #endif
+    private let statisticsLock=NSLock()
+    private var channelCounts:[String:Int]=[:]
+    func channelStatistics() -> [String:Int] {
+        statisticsLock.lock(); defer { statisticsLock.unlock() }; return channelCounts
+    }
     private var stopped = false
     private let token: String
     private let assets: [String:(Data,String)]
@@ -202,7 +207,14 @@ final class LinuxLoopbackServer: @unchecked Sendable {
         let path=try LinuxNativeChannel.discover(magic:magic)
         let channel=try LinuxNativeChannel(path:path,magic:magic) { [weak self] request,capacity in
             guard let self else { return LinuxChannelReply(result:-5) }
-            return try self.channel(kind:kind,request:request,capacity:capacity)
+            let reply=try self.channel(kind:kind,request:request,capacity:capacity)
+            if reply.result >= 0 {
+                self.statisticsLock.lock()
+                self.channelCounts[kind+"ChannelCompletedRequests",default:0] += 1
+                self.channelCounts[kind+"ChannelReplyBytes",default:0] += reply.data.count
+                self.statisticsLock.unlock()
+            }
+            return reply
         }
         channels.append(channel)
         channel.start()
