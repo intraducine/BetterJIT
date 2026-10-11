@@ -12,8 +12,9 @@ before iOS will install it. No signing credentials are collected by this workflo
 The bundled Linux programs need no download or external root. The first must print
 `BetterJIT Linux OK` and exit 0. The larger static ELF reads exact file bytes,
 checks mmap/mprotect/munmap return values and mapped readback (not a write-fault test),
-queries the clock and random bytes, clones a guest thread and uses shared state
-and a futex wake (the parent may observe the value before waiting) before printing
+queries the clock and random bytes, and clones a guest thread with shared state.
+The assembly contains futex wait/wake paths; which calls complete depends on
+scheduling (the parent may observe the value before waiting) before printing
 `BetterJIT Linux services OK` and exiting 0. Each Linux success also requires
 observed native FEX code mapping and translation-unit requests.
 
