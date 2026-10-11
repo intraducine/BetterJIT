@@ -12,7 +12,7 @@ import BetterJITLinux
         FileManager.default.urls(for:.documentDirectory,in:.userDomainMask)[0].appendingPathComponent("linuxroot",isDirectory:true)
     }
     static var winePresent: Bool {
-        FileManager.default.fileExists(atPath:rootURL.appendingPathComponent("opt/wine/bin/wine").path)
+        LinuxRootManifest.wineEntryExists(at:rootURL)
     }
     func run(_ mode:Mode, nativeChannels:Bool = false) async throws -> LinuxRuntimeResult {
         let cache=FileManager.default.urls(for:.cachesDirectory,in:.userDomainMask)[0]

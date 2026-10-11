@@ -11,7 +11,7 @@ actor LinuxRootImporter {
         let fm=FileManager.default
         let source=source.standardizedFileURL.resolvingSymlinksInPath()
         guard source != target.standardizedFileURL,
-              fm.fileExists(atPath:source.appendingPathComponent("opt/wine/bin/wine").path) else {
+              LinuxRootManifest.wineEntryExists(at:source) else {
             throw SuiteFailure("Select a staged root folder containing opt/wine/bin/wine, .symlinks.json and .modes.json.")
         }
         let parent=target.deletingLastPathComponent()
@@ -53,5 +53,32 @@ actor LinuxRootImporter {
         do { try fm.moveItem(at:staging,to:target) }
         catch { if fm.fileExists(atPath:backup.path) { try? fm.moveItem(at:backup,to:target) }; throw error }
         try? fm.removeItem(at:backup); progress(count)
+    }
+}
+
+/// Staged roots represent symlinks in JSON because Files transfers may lose them.
+enum LinuxRootManifest {
+    static func wineEntryExists(at root:URL) -> Bool {
+        var path="/opt/wine/bin/wine"
+        let data=(try? Data(contentsOf:root.appendingPathComponent(".symlinks.json"))) ?? Data()
+        let links=data.count <= 8*1024*1024 ? (try? JSONDecoder().decode([String:String].self,from:data)) ?? [:] : [:]
+        var seen=Set<String>()
+        for _ in 0..<32 {
+            guard seen.insert(path).inserted else { return false }
+            if let target=links[path] {
+                let joined=target.hasPrefix("/") ? target : (path as NSString).deletingLastPathComponent+"/"+target
+                var parts:[String]=[]
+                for part in joined.split(separator:"/") {
+                    if part == "." { continue }
+                    if part == ".." { guard !parts.isEmpty else { return false }; parts.removeLast() }
+                    else { parts.append(String(part)) }
+                }
+                path="/"+parts.joined(separator:"/")
+            } else {
+                let file=root.appendingPathComponent(String(path.dropFirst()))
+                return (try? file.resourceValues(forKeys:[.isRegularFileKey]).isRegularFile) == true
+            }
+        }
+        return false
     }
 }

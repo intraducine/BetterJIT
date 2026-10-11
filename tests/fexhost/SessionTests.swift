@@ -10,6 +10,10 @@ import Foundation
         precondition(original.overall == "INTERRUPTED")
         precondition(original.phases[0].status == .passed && original.phases[1].status == .skipped)
         precondition(original.canResume)
+        var cancelled=DeviceSessionReport(environment:[:],conditions:[:])
+        cancelled.state = .cancelled; cancelled.phases[0].status = .running
+        cancelled.interrupt()
+        precondition(cancelled.overall == "CANCELLED" && cancelled.phases[0].status == .skipped)
         var resumed=DeviceSessionReport(environment:[:],conditions:[:],resuming:original)
         precondition(resumed.runID != original.runID && resumed.resumedFrom == original.runID)
         precondition(resumed.phases[0].status == .passed && resumed.phases[1].status == .pending)
@@ -42,6 +46,11 @@ import Foundation
         try Data("wine fixture".utf8).write(to:source.appendingPathComponent("opt/wine/bin/wine"))
         try await LinuxRootImporter.copy(from:source,to:target,progress:{ _ in })
         precondition(FileManager.default.fileExists(atPath:target.appendingPathComponent("opt/wine/bin/wine").path))
+        try FileManager.default.moveItem(at:source.appendingPathComponent("opt/wine/bin/wine"),to:source.appendingPathComponent("opt/wine/bin/wine64"))
+        try JSONEncoder().encode(["/opt/wine/bin/wine":"wine64"]).write(to:source.appendingPathComponent(".symlinks.json"))
+        precondition(LinuxRootManifest.wineEntryExists(at:source))
+        try await LinuxRootImporter.copy(from:source,to:target,progress:{ _ in })
+        precondition(LinuxRootManifest.wineEntryExists(at:target))
         print("PASS session interruption/resume, honest aggregate outcomes, JSON round trip and transactional root import")
     }
 }

@@ -58,8 +58,9 @@ struct DeviceSessionReport: Codable {
     var completedCount: Int { phases.filter { ![.pending,.running].contains($0.status) }.count }
     var canResume: Bool { state != .running && phases.contains { [.pending,.running,.skipped].contains($0.status) } }
     mutating func interrupt(_ reason:String = "App stopped before a completed result was saved.") {
-        guard state == .running else { return }
-        state = .interrupted; finishedAt=Date()
+        guard state != .completed else { return }
+        if state == .running { state = .interrupted }
+        finishedAt=Date()
         for i in phases.indices where [.pending,.running].contains(phases[i].status) {
             phases[i].status = .skipped; phases[i].error=reason
         }
