@@ -21,6 +21,39 @@ cp /guest-root/lib/apk/db/installed /output/installed-packages.txt
 apk --root /guest-root info -v > /output/package-versions.txt
 tar -czf /output/wine-root-input.tar.gz -C /guest-root .
 '''
+def extract_input_archive(archive, out):
+    links={}; modes={}; total=0; devices=[]
+    # Convert symlinks to the runtime's portable manifest. Never create
+    # host symlinks or extract an archive member outside the output root.
+    with tarfile.open(archive,'r:gz') as tar:
+        for member in tar:
+            parts=pathlib.PurePosixPath(member.name).parts
+            if pathlib.PurePosixPath(member.name).is_absolute() or '..' in parts:
+                raise ValueError('Invalid archive path')
+            relative=pathlib.PurePosixPath(*[x for x in parts if x not in ('.','')])
+            if str(relative)=='.': continue
+            guest='/'+relative.as_posix()
+            dest=out.joinpath(*relative.parts)
+            modes[guest]=member.mode
+            if member.isdir(): dest.mkdir(parents=True,exist_ok=True)
+            elif member.issym(): links[guest]=member.linkname
+            elif member.isreg():
+                total+=member.size
+                if total>8*1024**3: raise ValueError('Wine root exceeds 8 GiB')
+                dest.parent.mkdir(parents=True,exist_ok=True)
+                with tar.extractfile(member) as src, open(dest,'wb') as dst: shutil.copyfileobj(src,dst,1024*1024)
+            elif member.islnk():
+                # Alpine APK payloads normally use symlinks, but retain
+                # hard links as equivalent guest-root absolute links.
+                link=pathlib.PurePosixPath(member.linkname)
+                if link.is_absolute() or '..' in link.parts: raise ValueError('Invalid archive hard-link path')
+                links[guest]='/'+link.as_posix()
+            elif member.ischr() and guest in {'/dev/null','/dev/zero','/dev/random','/dev/urandom'}:
+                # These devices are implemented by the guest kernel, not host files.
+                devices.append(guest); modes.pop(guest,None)
+            else: raise ValueError(f'Unsupported archive member: {member.name} (type {member.type!r})')
+    return links,modes,total,devices
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--image',default=DEFAULT_IMAGE,help='Use alpine@sha256:<digest> from an earlier provenance file for replay')
@@ -45,32 +78,7 @@ def main():
         links={}; modes={}; total=0
         out.mkdir(parents=True)
         try:
-            # Convert symlinks to the runtime's portable manifest. Never create
-            # host symlinks or extract an archive member outside the output root.
-            with tarfile.open(archive,'r:gz') as tar:
-                for member in tar:
-                    parts=pathlib.PurePosixPath(member.name).parts
-                    if pathlib.PurePosixPath(member.name).is_absolute() or '..' in parts:
-                        raise ValueError('Invalid archive path')
-                    relative=pathlib.PurePosixPath(*[x for x in parts if x not in ('.','')])
-                    if str(relative)=='.': continue
-                    guest='/'+relative.as_posix()
-                    dest=out.joinpath(*relative.parts)
-                    modes[guest]=member.mode
-                    if member.isdir(): dest.mkdir(parents=True,exist_ok=True)
-                    elif member.issym(): links[guest]=member.linkname
-                    elif member.isreg():
-                        total+=member.size
-                        if total>8*1024**3: raise ValueError('Wine root exceeds 8 GiB')
-                        dest.parent.mkdir(parents=True,exist_ok=True)
-                        with tar.extractfile(member) as src, open(dest,'wb') as dst: shutil.copyfileobj(src,dst,1024*1024)
-                    elif member.islnk():
-                        # Alpine APK payloads normally use symlinks, but retain
-                        # hard links as equivalent guest-root absolute links.
-                        link=pathlib.PurePosixPath(member.linkname)
-                        if link.is_absolute() or '..' in link.parts: raise ValueError('Invalid archive hard-link path')
-                        links[guest]='/'+link.as_posix()
-                    else: raise ValueError('Unsupported archive member')
+            links,modes,total,devices=extract_input_archive(archive,out)
             versions=(work/'package-versions.txt').read_text()
             (out/'.symlinks.json').write_text(json.dumps(links,indent=2,sort_keys=True)+'\n')
             (out/'.modes.json').write_text(json.dumps(modes,indent=2,sort_keys=True)+'\n')
@@ -83,7 +91,7 @@ def main():
                 'winePackageSource':'https://gitlab.alpinelinux.org/alpine/aports/-/tree/cb88bb7c5f6a0e878f4e7d2ce0f934116bcab490/community/wine',
                 'wineUpstreamSource':'https://dl.winehq.org/wine/source/10.x/wine-10.7.tar.xz',
                 'signatureVerification':'Alpine apk signed repository/package verification; no allow-untrusted',
-                'packageScriptsExecuted':False,'guestExecuted':False}
+                'packageScriptsExecuted':False,'guestExecuted':False,'virtualDeviceEntriesOmitted':devices}
             (out/'.betterjit-linux-root.json').write_text(json.dumps(provenance,indent=2,sort_keys=True)+'\n')
             notes=out/'usr/share/betterjit-root-provenance';notes.mkdir(parents=True,exist_ok=True)
             shutil.copyfile(work/'installed-packages.txt',notes/'installed-packages.txt')

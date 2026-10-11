@@ -100,7 +100,12 @@ final class AppleHostTests: XCTestCase {
         let type: [UInt8] = nativeCall ? [2,0x60,5,0x7f,0x7f,0x7f,0x7f,0x7f,1,0x7f,0x60,0,1,0x7f]
             : loop ? [1,0x60,0,0] : [1,0x60,2,0x7f,0x7f,1,0x7f]
         bytes += section(1, type)
-        if nativeCall { bytes += section(2, [2] + name("betterjit") + name("memory") + [2,0,1] + name("betterjit") + name("call") + [0,0]) }
+        if nativeCall {
+            var imports: [UInt8] = [2]
+            imports += name("betterjit"); imports += name("memory"); imports += [2,0,1]
+            imports += name("betterjit"); imports += name("call"); imports += [0,0]
+            bytes += section(2, imports)
+        }
         bytes += section(3, [1,nativeCall ? 1 : 0])
         bytes += section(7, [1] + name("run") + [0,nativeCall ? 1 : 0])
         let instructions: [UInt8] = nativeCall ? [0x41,1,0x41,0,0x41,3,0x41,8,0x41,4,0x10,0]

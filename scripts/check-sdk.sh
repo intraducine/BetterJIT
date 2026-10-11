@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 swift test -j 2 --filter 'BetterJITTests|BetterJITFEXTests|BetterJITLinuxTests'
 node --test tests/sdk/*.test.mjs
 python3 -m py_compile scripts/stage-linux-runtime.py scripts/prepare-wine-root.py
-for test in tests/sdk/tooling.test.py tests/sdk/cleanup.test.py; do
+for test in tests/sdk/tooling.test.py tests/sdk/cleanup.test.py tests/sdk/wine-root.test.py; do
   if [[ -f "$test" ]]; then python3 "$test"; fi
 done
 for file in Sources/BetterJITWebKit/Resources/*.mjs Sources/BetterJITWebKit/Resources/*.js; do node --check "$file"; done
