@@ -17,10 +17,13 @@ jobs:
       - name: Execute the bundled Linux workload directly (not FEX/device evidence)
         run: python3 tests/fexhost/linux-session-native.py
       - name: Prepare signed stock Alpine Wine inputs for the app
+        id: wine-root
+        continue-on-error: true
         run: |
           python3 scripts/prepare-wine-root.py
           tar -czf .build/bundled-wine-root.tar.gz -C .build device-linuxroot
       - name: Transfer prepared Wine root to the Apple build
+        if: steps.wine-root.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: bundled-wine-root-${{ github.sha }}
@@ -41,11 +44,13 @@ jobs:
           swift test -j 2 --filter AppleHostTests
           python3 scripts/export-sdk.py --check
       - name: Fetch the prepared Wine input candidate
+        continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: bundled-wine-root-${{ github.sha }}
           path: .build
       - name: Unpack the bundled root
+        if: hashFiles('.build/bundled-wine-root.tar.gz') != ''
         run: tar -xzf .build/bundled-wine-root.tar.gz -C .build
       - name: Build native FEX and the complete iPhone app
         run: |
@@ -59,7 +64,11 @@ jobs:
           cp -R .build/device-session/Build/Products/Release-iphoneos/BetterJITFEXHost.app .build/device-session-artifact/Payload/
           cp COPYING THIRD_PARTY.md .build/device-session-artifact/
           cp -R LICENSES .build/device-session-artifact/
-          cp .build/device-linuxroot/.betterjit-linux-root.json .build/device-session-artifact/WINE-ROOT-PROVENANCE.json
+          if test -f .build/device-linuxroot/.betterjit-linux-root.json; then
+            cp .build/device-linuxroot/.betterjit-linux-root.json .build/device-session-artifact/WINE-ROOT-PROVENANCE.json
+          else
+            printf '%s\n' '{"bundled":false,"reason":"Wine input preparation was unavailable; use a staged root or report unsupported."}' > .build/device-session-artifact/WINE-ROOT-PROVENANCE.json
+          fi
           cp Examples/FEXHost/DEVICE-SESSION.md .build/device-session-artifact/PHONE-INSTRUCTIONS.md
           cp .build/native-fex-build.log .build/device-session-build.log .build/device-session-artifact/
           python3 - <<'PY'
