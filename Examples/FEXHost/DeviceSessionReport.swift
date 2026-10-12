@@ -29,7 +29,7 @@ struct DeviceSessionReport: Codable {
     var diagnostics: DiagnosticReport?
     static let plan: [SessionPhase] = [
         .init(id:"linux-smoke", title:"Linux ELF: stdout and exit", deadlineSeconds:40),
-        .init(id:"linux-services", title:"Linux files, mmap, clock, random, clone / futex", deadlineSeconds:50),
+        .init(id:"linux-services", title:"Linux files, GS base, mmap, clock, random, clone / futex", deadlineSeconds:50),
         .init(id:"linux-channels", title:"Linux workload with native channels requested", deadlineSeconds:50),
         .init(id:"linux-userspace", title:"Linux shell: files, pipes, signals and processes", deadlineSeconds:110),
         .init(id:"wine", title:"Wine: cmd /c ver", deadlineSeconds:110),

@@ -1300,6 +1300,7 @@ class Kernel {
       setFs: (v) => dv.setBigUint64(c + this.cfg.fsOff, BigInt(v), true),
       fs: () => dv.getBigUint64(c + this.cfg.fsOff, true),
       setGs: (v) => dv.setBigUint64(c + this.cfg.gsOff, BigInt(v), true),
+      gs: () => dv.getBigUint64(c + this.cfg.gsOff, true),
     };
   }
   // GPR indices (FEX order = x86 encoding order)

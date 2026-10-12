@@ -594,7 +594,7 @@ def('arch_prctl', function (t, a0, a1) {
   if (code === 0x1002) { c.setFs(BigInt.asUintN(64, a1)); return 0; } // ARCH_SET_FS
   if (code === 0x1001) { c.setGs(BigInt.asUintN(64, a1)); return 0; } // ARCH_SET_GS
   if (code === 0x1003) { t.proc.mm.dv.setBigUint64(addr(a1), c.fs(), true); return 0; }
-  if (code === 0x1004) { t.proc.mm.dv.setBigUint64(addr(a1), 0n, true); return 0; }
+  if (code === 0x1004) { t.proc.mm.dv.setBigUint64(addr(a1), c.gs(), true); return 0; }
   fail(E.INVAL);
 });
 def('set_tid_address', (t, a0) => {

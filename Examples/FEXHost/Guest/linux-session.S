@@ -37,6 +37,30 @@ compare:
     test %rax, %rax
     jne failed
 
+    # Full-width ARCH_SET_GS / ARCH_GET_GS round trip; base is a value, not
+    # a dereferenced address. Restore it before the other service checks.
+    mov $158, %eax
+    mov $0x1001, %edi
+    movabs $0x123456789a, %rsi
+    syscall
+    test %rax, %rax
+    jne failed
+    mov $158, %eax
+    mov $0x1004, %edi
+    lea scratch(%rip), %rsi
+    syscall
+    test %rax, %rax
+    jne failed
+    movabs $0x123456789a, %rax
+    cmp %rax, scratch(%rip)
+    jne failed
+    mov $158, %eax
+    mov $0x1001, %edi
+    xor %esi, %esi
+    syscall
+    test %rax, %rax
+    jne failed
+
     # anonymous mmap, read/write sentinel, mprotect read-only, then munmap
     mov $9, %eax
     xor %edi, %edi

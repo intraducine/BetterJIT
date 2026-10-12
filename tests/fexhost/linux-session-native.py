@@ -22,4 +22,4 @@ else:
                 assert answer.stdout==b'BetterJIT Linux services OK\n',answer.stdout
             else:
                 assert answer.returncode==1 and not answer.stdout,(answer.returncode,answer.stdout)
-    print('PASS exact native x86 Linux fixture: file bytes, mmap/mprotect/munmap, clock, random, clone/futex and exit; no FEX/device claim')
+    print('PASS exact native x86 Linux fixture: file bytes, full-width GS base, mmap/mprotect/munmap, clock, random, clone/futex and exit; no FEX/device claim')
