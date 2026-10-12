@@ -6,7 +6,7 @@ const {rootIndex}=require('./root.cjs');
 const REPO=path.resolve(__dirname,'../../..');
 const resources=path.join(REPO,'Sources/BetterJITLinux/Resources');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trace=false}) {
+async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trace=false,onProgress}) {
   if(typeof WebAssembly.Suspending!=='function'||typeof WebAssembly.promising!=='function')throw Error('Run Node with --experimental-wasm-jspi.');
   const port=await new Promise((resolve,reject)=>{const server=net.createServer();server.on('error',reject);server.listen(0,'127.0.0.1',()=>{const port=server.address().port;server.close(()=>resolve(port));});});
   const origin=`http://127.0.0.1:${port}`;
@@ -14,6 +14,13 @@ async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trac
   let translationLog='';server.stderr.on('data',bytes=>translationLog=(translationLog+bytes).slice(-65536));
   let bootError;server.on('error',error=>{bootError=error;});
   const threads=new Map();let kernel,timer,stdout='',stderr='';const started=performance.now();
+  let lastProgress=0;
+  function progress() {
+    const now=performance.now();
+    if(onProgress&&now-lastProgress>500) {
+      lastProgress=now;onProgress({stdout:stdout.slice(-65536),stderr:stderr.slice(-65536),translationLog,milliseconds:now-started});
+    }
+  }
   try {
     let ready=false;
     for(let i=0;i<200;i++) {
@@ -62,8 +69,8 @@ async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trac
             else route=`/xlat/drop?space=${message.space}`;
             const response=await fetch(origin+route,options);words[1]=response.ok?0:1;Atomics.store(words,0,1);Atomics.notify(words,0);break;
           }
-          case 'write':if(message.fd===2)stderr+=Buffer.from(message.bytes).toString();else stdout+=Buffer.from(message.bytes).toString();break;
-          case 'log':stderr+=message.message+'\n';break;
+          case 'write':if(message.fd===2)stderr+=Buffer.from(message.bytes).toString();else stdout+=Buffer.from(message.bytes).toString();progress();break;
+          case 'log':stderr+=message.message+'\n';progress();break;
           case 'fatal':reject(Error(message.message));break;
           case 'exit':resolve(message);break;
           }
