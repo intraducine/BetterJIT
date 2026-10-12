@@ -139,8 +139,13 @@ import BetterJITLinux
                     }
                 }
             }
+            if id == "linux-userspace", !FileManager.default.fileExists(atPath:LinuxHarness.rootURL.appendingPathComponent("bin/busybox").path) {
+                report?.phases[i].status = .unsupported
+                report?.phases[i].details["reason"]="BusyBox is missing from the selected Linux root. The bundled root includes it."
+                return
+            }
             let channels=id == "linux-channels"
-            let mode:LinuxHarness.Mode=id == "wine" ? .wineCommand : (id == "linux-smoke" ? .smoke : .services)
+            let mode:LinuxHarness.Mode=id == "wine" ? .wineCommand : (id == "linux-smoke" ? .smoke : (id == "linux-userspace" ? .userspace : .services))
             let value=try await linux.run(mode,nativeChannels:channels)
             try checkStop()
             report?.phases[i].log=String(value.log.suffix(128*1024))
@@ -160,7 +165,14 @@ import BetterJITLinux
                     throw SuiteFailure("Wine exited 0 but cmd /c ver did not print a Windows version.")
                 }
             } else {
-                let marker=id == "linux-smoke" ? "BetterJIT Linux OK" : LinuxSessionFixture.marker
+                let marker=id == "linux-smoke" ? "BetterJIT Linux OK" : (id == "linux-userspace" ? LinuxUserspaceWorkload.marker : LinuxSessionFixture.marker)
+                if id == "linux-userspace" {
+                    report?.phases[i].details["expectedSHA256"]=LinuxUserspaceWorkload.expectedSHA256
+                    report?.phases[i].details["inputBytes"]=String(LinuxUserspaceWorkload.payloadBytes)
+                    guard value.log.contains(LinuxUserspaceWorkload.expectedSHA256+"  -") else {
+                        throw SuiteFailure("Guest shell/pipeline SHA-256 did not match the bundled input.")
+                    }
+                }
                 guard value.log.split(separator:"\n").contains(where:{$0.trimmingCharacters(in:.whitespacesAndNewlines) == marker}) else {
                     throw SuiteFailure("Guest success marker was not observed on stdout.")
                 }

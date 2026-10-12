@@ -20,6 +20,7 @@ targets:
       - path: DeviceSessionModel.swift
       - path: DeviceSessionReport.swift
       - path: LinuxSessionFixture.swift
+      - path: LinuxUserspaceWorkload.swift
       - path: LinuxRootImporter.swift
       - path: DeviceExecutor.swift
       - path: SuiteRunner.swift
@@ -57,8 +58,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: org.example.betterjit.fexhost
         SWIFT_VERSION: '5.0'
         TARGETED_DEVICE_FAMILY: '1,2'
-        MARKETING_VERSION: '0.6.0'
-        CURRENT_PROJECT_VERSION: '6'
+        MARKETING_VERSION: '0.7.0'
+        CURRENT_PROJECT_VERSION: '7'
         BETTERJIT_SOURCE_COMMIT: unrecorded
         BETTERJIT_SOURCE_STATE: unrecorded
     info:

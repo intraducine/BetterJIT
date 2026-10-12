@@ -2,6 +2,17 @@ name: One iPhone device session
 on:
   push:
     branches: [feature/one-device-session]
+    paths:
+      - 'Sources/**'
+      - 'Examples/**'
+      - 'Backends/**'
+      - 'fexwasm/**'
+      - 'patches/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'distribution/**'
+      - 'Package.swift'
+      - '.github/workflows/device-session.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -35,8 +46,14 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
       - name: Install tools
         run: brew install cmake ninja xcodegen
+      - name: Record Apple toolchain cache identity
+        id: toolchain
+        run: echo "id=$(xcodebuild -version | shasum -a 256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
       - name: Validate SDK and complete device-session orchestration
         run: |
           bash scripts/check-sdk.sh
@@ -52,10 +69,51 @@ jobs:
       - name: Unpack the bundled root
         if: hashFiles('.build/bundled-wine-root.tar.gz') != ''
         run: tar -xzf .build/bundled-wine-root.tar.gz -C .build
-      - name: Build native FEX and the complete iPhone app
+      - name: Restore native FEX build
+        id: fex-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .build/FEXNativePackage
+          key: fex-ios-${{ runner.arch }}-${{ steps.toolchain.outputs.id }}-${{ hashFiles('fexwasm/src/**', 'fexwasm/build_ios.sh', 'fexwasm/build_id.sh', 'patches/fex-wasm.patch', 'scripts/prepare-fex.sh', 'Backends/FEX/build-ios.sh') }}
+      - name: Build native FEX for the app
+        if: steps.fex-cache.outputs.cache-hit != 'true'
         run: |
           set -o pipefail
           bash Backends/FEX/build-ios.sh 2>&1 | tee .build/native-fex-build.log
+      - name: Preserve reusable native FEX build
+        if: steps.fex-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .build/FEXNativePackage
+          key: ${{ steps.fex-cache.outputs.cache-primary-key }}
+      - name: Record reused native build
+        if: steps.fex-cache.outputs.cache-hit == 'true'
+        run: printf '%s\n' 'Reused native FEX build with matching source and Xcode cache identity.' > .build/native-fex-build.log
+      - name: Restore host translator
+        id: host-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .build/host-fex
+          key: fex-host-${{ runner.arch }}-${{ steps.toolchain.outputs.id }}-${{ hashFiles('fexwasm/src/**', 'fexwasm/tools/fexserve.cpp', 'fexwasm/build_id.sh', 'patches/fex-wasm.patch', 'scripts/prepare-fex.sh', 'Backends/FEX/build-host.sh') }}
+      - name: Build the live host translator
+        if: steps.host-cache.outputs.cache-hit != 'true'
+        run: |
+          set -o pipefail
+          bash Backends/FEX/build-host.sh 2>&1 | tee .build/host-fex-build.log
+      - name: Preserve reusable host translator
+        if: steps.host-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .build/host-fex
+          key: ${{ steps.host-cache.outputs.cache-primary-key }}
+      - name: Execute real Linux userspace through live FEX and the promoted runtime
+        if: hashFiles('.build/device-linuxroot/.betterjit-linux-root.json') != ''
+        run: |
+          set -o pipefail
+          node --experimental-wasm-jspi tests/sdk/live-linux.cjs .build/device-linuxroot .build/host-fex/fexserve .build/live-linux-results.json 2>&1 | tee .build/live-linux-build.log
+      - name: Build the complete iPhone app
+        run: |
+          set -o pipefail
           python3 Examples/FEXHost/prepare.py
           xcodebuild -project Examples/FEXHost/BetterJITFEXHost.xcodeproj -scheme BetterJITFEXHost -configuration Release -destination 'generic/platform=iOS' -derivedDataPath .build/device-session CODE_SIGNING_ALLOWED=NO build 2>&1 | tee .build/device-session-build.log
       - name: Package unsigned app for the user's existing signing/install route
@@ -71,6 +129,7 @@ jobs:
           fi
           cp Examples/FEXHost/DEVICE-SESSION.md .build/device-session-artifact/PHONE-INSTRUCTIONS.md
           cp .build/native-fex-build.log .build/device-session-build.log .build/device-session-artifact/
+          if test -f .build/live-linux-results.json; then cp .build/live-linux-results.json .build/device-session-artifact/LIVE-LINUX-RESULTS.json; fi
           python3 - <<'PY'
           import hashlib, json, pathlib, subprocess
           root=pathlib.Path('.build/device-session-artifact')
@@ -88,6 +147,7 @@ jobs:
             .build/device-session-artifact/BetterJIT-Device-Session-unsigned.ipa
             .build/device-session-artifact/BUILD-MANIFEST.json
             .build/device-session-artifact/WINE-ROOT-PROVENANCE.json
+            .build/device-session-artifact/LIVE-LINUX-RESULTS.json
             .build/device-session-artifact/PHONE-INSTRUCTIONS.md
             .build/device-session-artifact/COPYING
             .build/device-session-artifact/THIRD_PARTY.md
@@ -100,7 +160,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: Device-session-build-failure-${{ github.sha }}
-          path: .build/*-build.log
+          path: |
+            .build/*-build.log
+            .build/live-linux-results.json
           if-no-files-found: ignore
           retention-days: 7
 # Builds are unsigned. No secrets, automatic signing, merge, release or device claim.

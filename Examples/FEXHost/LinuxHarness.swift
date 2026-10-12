@@ -4,7 +4,7 @@ import Darwin
 import BetterJITLinux
 
 @MainActor final class LinuxHarness {
-    enum Mode { case smoke, services, wineCommand }
+    enum Mode { case smoke, services, userspace, wineCommand }
     private(set) var session: LinuxRuntimeSession?
     private(set) var counters: [String:Int] = [:]
     private let changed: @MainActor (LinuxRuntimeSession?,String,String)->Void
@@ -31,6 +31,7 @@ import BetterJITLinux
             "/test/hello-static":LinuxSmokeFixture.elf,
             "/test/session-static":LinuxSessionFixture.elf,
             "/test/session-input.txt":LinuxSessionFixture.input,
+            "/test/userspace.bin":LinuxUserspaceWorkload.payload,
             "/etc/passwd":Data("root:x:0:0:root:/root:/bin/sh\nuser:x:\(getuid()):\(getgid()):user:/home/user:/bin/sh\n".utf8),
             "/etc/group":Data("root:x:0:\nuser:x:\(getgid()):user\n".utf8)])
         let cfg:LinuxRuntimeConfiguration
@@ -42,6 +43,9 @@ import BetterJITLinux
             cfg=LinuxRuntimeConfiguration(arguments:["/test/session-static"],currentDirectory:"/test",
                                           timeoutSeconds:40,display:nil,regions:true,
                                           slowWaitMilliseconds:100,useNativeChannels:nativeChannels)
+        case .userspace:
+            cfg=LinuxRuntimeConfiguration(arguments:LinuxUserspaceWorkload.arguments,timeoutSeconds:90,
+                                          display:nil,regions:true,slowWaitMilliseconds:100,useNativeChannels:nativeChannels)
         case .wineCommand:
             guard Self.winePresent else {
                 throw LinuxRuntimeError.guest("Wine rootfs is missing at Documents/linuxroot/opt/wine/bin/wine.")

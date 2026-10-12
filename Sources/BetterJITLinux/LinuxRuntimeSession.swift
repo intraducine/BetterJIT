@@ -194,7 +194,8 @@ import WebKit
             "linux/thread_core.js","linux/compositor.js",
             "linux/web/linux.html","linux/web/linux_main.js","linux/web/kworker_web.js",
             "linux/web/thread_web.js","linux/web/chan_web.js","linux/web/chan_file.js",
-            "linux/web/sampler.js","linux/web/probe_worker.js","linux/web/linux-kernel.js"
+            "linux/web/sampler.js","linux/web/probe_worker.js","linux/web/linux-kernel.js",
+            "linux/web/file_transport.js"
         ]
         var out:[String:(Data,String)]=[:]
         for path in paths {

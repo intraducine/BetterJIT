@@ -8,6 +8,7 @@ python3 -m py_compile scripts/stage-linux-runtime.py scripts/prepare-wine-root.p
 for test in tests/sdk/tooling.test.py tests/sdk/cleanup.test.py tests/sdk/wine-root.test.py; do
   if [[ -f "$test" ]]; then python3 "$test"; fi
 done
+for file in tests/sdk/linux-host/*.cjs tests/sdk/live-linux.cjs; do node --check "$file"; done
 for file in Sources/BetterJITWebKit/Resources/*.mjs Sources/BetterJITWebKit/Resources/*.js; do node --check "$file"; done
 for file in Sources/BetterJITLinux/Resources/runtime.js Sources/BetterJITLinux/Resources/linux/*.js Sources/BetterJITLinux/Resources/linux/web/*.js; do node --check "$file"; done
 swiftc -parse Sources/BetterJITWebKit/*.swift Sources/BetterJITLinux/*.swift Backends/FEX/Swift/*.swift

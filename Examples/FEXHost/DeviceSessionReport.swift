@@ -31,6 +31,7 @@ struct DeviceSessionReport: Codable {
         .init(id:"linux-smoke", title:"Linux ELF: stdout and exit", deadlineSeconds:40),
         .init(id:"linux-services", title:"Linux files, mmap, clock, random, clone / futex", deadlineSeconds:50),
         .init(id:"linux-channels", title:"Linux workload with native channels requested", deadlineSeconds:50),
+        .init(id:"linux-userspace", title:"Linux userspace: shell, pipeline and SHA-256", deadlineSeconds:110),
         .init(id:"wine", title:"Wine: cmd /c ver", deadlineSeconds:110),
         .init(id:"copied-suite", title:"FEX ABI, SIMD, hot regions and timings / copied", deadlineSeconds:480),
         .init(id:"mapped-suite", title:"FEX ABI, SIMD, hot regions and timings / mapped", deadlineSeconds:480),
