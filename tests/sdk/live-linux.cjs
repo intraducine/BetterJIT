@@ -48,7 +48,7 @@ async function main() {
    if(result.memoryFaults.length)console.log(JSON.stringify({id:spec.id,expectedFault:spec.expectedFault??null,memoryFaults:result.memoryFaults}));
    if(!correct)console.error(JSON.stringify({id:spec.id,expectedDigest:spec.digest,stdout:result.stdout,stderr:result.stderr.slice(-8192),translationLog:result.translationLog.slice(-8192)}));
    if(!correct&&!spec.optional)requiredFailed=true;
-  } catch(error){report.records.push({id:spec.id,status:'failed',error:String(error.stack||error),cleanupError:error.cleanupError,stdout:error.stdout,stderr:error.stderr,translationLog:error.translationLog});console.error(`FAIL ${spec.id}: ${error}`);console.error(JSON.stringify({cleanupError:error.cleanupError,stdout:error.stdout,stderr:error.stderr?.slice(-8192),translationLog:error.translationLog}));if(!spec.optional)requiredFailed=true;}
+  } catch(error){report.records.push({id:spec.id,status:'failed',error:String(error.stack||error),cleanupError:error.cleanupError,translatorStatus:error.translatorStatus,causeDetail:error.causeDetail,stdout:error.stdout,stderr:error.stderr,translationLog:error.translationLog});console.error(`FAIL ${spec.id}: ${error}`);console.error(JSON.stringify({cleanupError:error.cleanupError,translatorStatus:error.translatorStatus,causeDetail:error.causeDetail,stdout:error.stdout,stderr:error.stderr?.slice(-8192),translationLog:error.translationLog}));if(!spec.optional)requiredFailed=true;}
   fs.writeFileSync(output,JSON.stringify(report,null,2)+'\n');
   // Fresh sessions let Wine/other cases expose independent blockers too.
  }

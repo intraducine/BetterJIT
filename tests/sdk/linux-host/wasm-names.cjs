@@ -11,4 +11,8 @@ function functionNames(module) {
  }
  return result;
 }
-module.exports={functionNames};
+function unitMetadata(rip,unit) {
+ return {rip:'0x'+BigInt(rip).toString(16),slot:unit.slot,
+  relocation:{displacementDecimal:String(unit.reloc?.d??0n),slots:unit.reloc?.s??[]}};
+}
+module.exports={functionNames,unitMetadata};

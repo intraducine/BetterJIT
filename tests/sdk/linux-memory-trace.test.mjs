@@ -5,7 +5,7 @@ import test from 'node:test';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import {createRequire} from 'node:module';
-const {functionNames}=createRequire(import.meta.url)('./linux-host/wasm-names.cjs');
+const {functionNames,unitMetadata}=createRequire(import.meta.url)('./linux-host/wasm-names.cjs');
 globalThis.self=globalThis;
 vm.runInThisContext(fs.readFileSync(new URL('../../Sources/BetterJITLinux/Resources/linux/thread_core.js',import.meta.url),'utf8'));
 test('memory fault metadata retains full address separately from Wasm memarg address and segment bases',()=>{
@@ -22,4 +22,9 @@ test('memory fault metadata retains full address separately from Wasm memarg add
 test('fault capture resolves named functions from real Wasm custom sections',()=>{
  const module=new WebAssembly.Module(Uint8Array.from([0,97,115,109,1,0,0,0,0,15,4,110,97,109,101,1,8,1,0,5,117,52,48,48,48]));
  assert.deepEqual(functionNames(module),['u4000']);
+});
+test('diagnostic manifests preserve signed 64-bit relocation displacement without JSON BigInt failure',()=>{
+ const data=JSON.parse(JSON.stringify(unitMetadata(0x400078,{slot:5,reloc:{d:-0x100000004n,s:[2,3]}})));
+ assert.equal(data.rip,'0x400078');assert.equal(data.relocation.displacementDecimal,'-4294967300');
+ assert.deepEqual(data.relocation.slots,[2,3]);assert.equal(data.slot,5);
 });

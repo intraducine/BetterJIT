@@ -4,7 +4,7 @@ const fs=require('fs'),path=require('path'),vm=require('vm'),net=require('net');
 const {Worker}=require('worker_threads'),{spawn}=require('child_process');
 const {rootIndex}=require('./root.cjs');
 const {GuestWorkers}=require('./workers.cjs');
-const {functionNames}=require('./wasm-names.cjs');
+const {functionNames,unitMetadata}=require('./wasm-names.cjs');
 const REPO=path.resolve(__dirname,'../../..');
 const resources=path.join(REPO,'Sources/BetterJITLinux/Resources');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -67,7 +67,7 @@ async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trac
                     if(dumpBytes>64*1024*1024)throw Error('Diagnostic unit capture exceeded 64 MiB.');
                     const stem=`space-${response.space}-rip-${response.rip.toString(16)}`;
                     fs.writeFileSync(path.join(debugDirectory,stem+'.wasm'),unit.code);
-                    fs.writeFileSync(path.join(debugDirectory,stem+'.json'),JSON.stringify({rip:response.rip,reloc:unit.reloc,slot:unit.slot})+'\n');
+                    fs.writeFileSync(path.join(debugDirectory,stem+'.json'),JSON.stringify(unitMetadata(response.rip,unit))+'\n');
                     for(const name of functionNames(unit.module))if(/^[ur][0-9a-f]+$/.test(name))capturedUnits.set(name,{code:unit.code,file:stem+'.wasm'});
                   }
                   worker.postMessage({op:'unit',id:response.id,...unit});
@@ -104,6 +104,8 @@ async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trac
       translator:totals,units:{...units.stats},memoryFaults,evidence:'Host Node workers use promoted SDK kernel/thread/runtime and live native FEX → Wasm; no native FEX JIT or recorded modules.'};
   } catch(error) {
     error.stdout=stdout;error.stderr=stderr.slice(-65536);error.translationLog=translationLog;
+    error.translatorStatus={exitCode:server.exitCode,signal:server.signalCode};
+    error.causeDetail=error.cause?String(error.cause.stack||error.cause):undefined;
     throw error;
   } finally {
     clearTimeout(timer);await kernel?.terminate();await threads.close();

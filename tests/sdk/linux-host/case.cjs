@@ -7,6 +7,6 @@ process.once('message',async spec=>{
   process.send({result},()=>process.exit(0));
  } catch(error) {
   process.send({error:{message:String(error.stack||error),stdout:error.stdout,stderr:error.stderr,
-    translationLog:error.translationLog}},()=>process.exit(0));
+    translationLog:error.translationLog,translatorStatus:error.translatorStatus,causeDetail:error.causeDetail}},()=>process.exit(0));
  }
 });
