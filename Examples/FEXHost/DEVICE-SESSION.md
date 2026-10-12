@@ -18,6 +18,12 @@ scheduling (the parent may observe the value before waiting) before printing
 `BetterJIT Linux services OK` and exiting 0. Each Linux success also requires
 observed native FEX code mapping and translation-unit requests.
 
+The bundled musl/BusyBox shell also copies, compares, renames, checksums and removes
+256 KiB of exact bytes; traps a self-sent USR1; checks a child exit status of 7;
+and sends the full input through a cat/sha256sum pipe. Every milestone marker and
+the exact pipeline digest are required. This uses the same script as live host
+validation and runs in the existing userspace phase without another build.
+
 Wine is attempted as `/opt/wine/bin/wine cmd /c ver`. Missing Wine inputs produce
 UNSUPPORTED. A present but broken root, failed exit, missing Windows version,
 trap or timeout produces FAIL. **Choose staged Wine root folder** can replace the bundled candidate with your
@@ -83,18 +89,23 @@ builds the app and uploads `BetterJIT-Device-Session-<exact SHA>` with the unsig
 IPA, build logs, file hashes and these instructions. Compilation and direct native
 x86 fixture checks are separate evidence from real execution on an iPhone.
 
-## Current cloud build blockers (2026-10-11)
+## Cloud validation
 
-Run `38178983059` failed before any steps executed, in both attempts. GitHub exposed
-no job log or artifacts. The connector rejects the annotations endpoint; the
-environment's authenticated `gh api` returns Forbidden for it. The runner cause
-is therefore unavailable; billing is not inferred. No Apple compile/device result
-or IPA is claimed. The saved execution environment remains connected.
+The automatic workflow has produced an unsigned iPhone build with the bundled
+stock Wine root (run `38182644711`, source `4fafbd7d`). That is Apple compilation,
+not a device execution result. Subsequent live arm64 host runs use the promoted
+SDK kernel/thread/runtime and fresh FEX-to-Wasm translation in Node workers;
+their per-case stdout, errors, syscall/fetch/translation statistics and exact
+source are included as `LIVE-LINUX-RESULTS.json` beside the IPA.
 
-The official Alpine base image downloaded successfully, at pinned digest
-`sha256:4b7ce07002c69e8f3d704a9c5d6fd3053be500b7f1c69fc0d80990c2ad8dd412`.
-Wine package preparation then failed because the environment denied access to the
-Alpine v3.22 main/community APK indexes (HTTPS CONNECT 403; APK Permission denied).
-No Wine root or compatibility result was produced here. The preparation recipe
-and automatic bundling route are checked in for execution where those downloads
-and the GitHub Apple runner are available.
+The first real BusyBox pipeline exposed partial-write data loss in `sendfile`:
+only 64 KiB reached the pipe while the input advanced 256 KiB. The kernel now
+advances by accepted bytes and bounds pipe read-ahead. Fresh Wine prefixes are
+bootstrapped by the client before prestarting wineserver. These fixes do not imply
+arbitrary Wine compatibility; inspect the actual Wine phase outcome. Host evidence
+is distinct from Apple WebKit and physical iPhone execution.
+
+This cloud workspace can run portable Swift/JavaScript checks and direct native
+Linux fixtures. Its Alpine APK downloads return Permission denied/HTTPS CONNECT
+403, so the supported GitHub route prepares the stock root and builds on Apple.
+No device result, successful DXMT integration or native-FEX speed ratio is claimed.

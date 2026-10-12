@@ -12,14 +12,16 @@ const {WebVfs}=LinuxBundle.require('./vfs_web.js');
 const {SYS,E,O}=LinuxBundle.require('./abi.js');
 function setup() {
  const bytes=Uint8Array.from({length:256*1024},(_,i)=>(i*31+7)&255);
- const vfs=new WebVfs([['/input','f',0o444,bytes.length,0]],()=>bytes,1000,1000);
+ const ranges=[],fetchFile=()=>{throw Error('sendfile must use bounded file ranges');};
+ fetchFile.range=(p,offset,length,into)=>{ranges.push(length);into.set(bytes.subarray(offset,offset+length));};
+ const vfs=new WebVfs([['/input','f',0o444,bytes.length,0]],fetchFile,1000,1000);
  const opened=vfs.open('/input',0,0),input=new HostFile(vfs,opened.fd,opened.path,0,false);
  const pipe=new Pipe(),reader=new PipeEnd(pipe,false),writer=new PipeEnd(pipe,true);
  const dv=new DataView(new ArrayBuffer(64));
  const t={proc:{file:fd=>fd===3?input:writer,mm:{dv}},waitingOn:new Set()};
  const k={pollChanged(){},signalThread(){},makeRunnable(){}};
  const send=ptr=>sys[SYS.sendfile].call(k,t,4n,3n,BigInt(ptr),1n<<24n);
- return {bytes,input,pipe,reader,writer,dv,t,k,send};
+ return {bytes,input,pipe,reader,writer,dv,t,k,send,ranges};
 }
 test('sendfile preserves all 256 KiB across partial pipe writes and blocked retries',()=>{
  const s=setup(),result=new Uint8Array(s.bytes.length);let total=0;
@@ -28,7 +30,7 @@ test('sendfile preserves all 256 KiB across partial pipe writes and blocked retr
   assert.equal(s.send(0),total+65536===result.length?0:BLOCK);assert.equal(s.input.pos,total+65536);
   const n=s.reader.read(s.k,s.t,result.subarray(total,total+65536));assert.equal(n,65536);total+=n;
  }
- assert.equal(s.send(0),0);assert.deepEqual(result,s.bytes);
+ assert.equal(s.send(0),0);assert.deepEqual(result,s.bytes);assert.ok(s.ranges.every(n=>n<=s.pipe.capacity));
 });
 test('explicit sendfile offset advances only accepted bytes and leaves file position unchanged',()=>{
  const s=setup();s.input.pos=123;s.dv.setBigInt64(8,17n,true);

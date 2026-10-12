@@ -3662,7 +3662,10 @@ def('sendfile', function (t, a0, a1, a2, a3) {
   const ptr = addr(a2), dv = t.proc.mm.dv;
   const off = ptr ? Number(dv.getBigInt64(ptr, true)) : inf.pos;
   if (!Number.isSafeInteger(off) || off < 0) fail(E.INVAL);
-  const buf = new Uint8Array(n);
+  // A pipe cannot accept more than its capacity. Bound read-ahead so large
+  // guest sendfile counts do not repeatedly fetch/allocate megabyte buffers.
+  const chunk = out.kind === 'pipe' ? Math.min(n, out.pipe.capacity) : n;
+  const buf = new Uint8Array(chunk);
   // Pipes may accept only part of a read, or block. Commit the input offset
   // only after the output accepted bytes; otherwise retries lose file data.
   const r = inf.pread(this, t, buf, off);

@@ -3,6 +3,7 @@ const fs=require('fs'),path=require('path'),crypto=require('crypto');
 const {runGuest}=require('./linux-host/run.cjs');
 const REPO=path.resolve(__dirname,'../..');
 function fixture(name){const source=fs.readFileSync(path.join(REPO,'Examples/FEXHost',name+'.swift'),'utf8');return Buffer.from(source.match(/Data\(base64Encoded:\s*"([A-Za-z0-9+/=]+)"/)[1],'base64');}
+function userspaceScript(){return fs.readFileSync(path.join(REPO,'Examples/FEXHost/LinuxUserspaceWorkload.swift'),'utf8').match(/static let script = #"""\n([\s\S]*?)\n\s*"""#/)[1].replace(/^    /gm,'');}
 async function main() {
  const root=path.resolve(process.argv[2]??'.build/device-linuxroot');
  const translator=path.resolve(process.argv[3]??'.build/host-fex/fexserve');
@@ -15,7 +16,8 @@ async function main() {
   {id:'linux-elf',argv:['/test/hello-static'],marker:'BetterJIT Linux OK'},
   {id:'linux-services',argv:['/test/session-static'],cwd:'/test',marker:'BetterJIT Linux services OK'},
   {id:'linux-file-hash',argv:['/bin/busybox','sha256sum','/test/userspace.bin'],digest},
-  {id:'linux-userspace',argv:['/bin/busybox','sh','-c','set -e; /bin/busybox cat /test/userspace.bin | /bin/busybox sha256sum; /bin/busybox printf "BetterJIT userspace OK\\n"'],marker:'BetterJIT userspace OK',digest},
+  {id:'linux-userspace',argv:['/bin/busybox','sh','-c',userspaceScript()],marker:'BetterJIT userspace OK',
+   markers:['BetterJIT files OK','BetterJIT signals OK','BetterJIT process status OK'],digest},
   {id:'wine-command',argv:['/opt/wine/bin/wine','cmd','/c','ver'],optional:true,timeout:120}
  ];
  const report={schema:1,source:process.env.GITHUB_SHA??null,evidence:'Live FEX→Wasm on host; not Apple WebKit or device evidence.',records:[]};
@@ -24,7 +26,7 @@ async function main() {
   try {
    const result=await runGuest({translator,root,overlay,...spec,trace:true});
    const correct=result.code===0 && result.translator.units>0 && result.units.compiled>0 &&
-    (!spec.marker||result.stdout.includes(spec.marker)) && (!spec.digest||result.stdout.includes(spec.digest)) &&
+    (!spec.marker||result.stdout.includes(spec.marker)) && (!spec.markers||spec.markers.every(m=>result.stdout.includes(m))) && (!spec.digest||result.stdout.includes(spec.digest)) &&
     (spec.id!=='wine-command'||/Windows[^\n]*\d+\.\d+/.test(result.stdout));
    report.records.push({id:spec.id,status:correct?'passed':'failed',...result});
    console.log(`${correct?'PASS':'FAIL'} ${spec.id}: exit ${result.code}, ${result.translator.units} native FEX units, ${result.units.compiled} Wasm modules, ${result.milliseconds.toFixed(0)} ms`);

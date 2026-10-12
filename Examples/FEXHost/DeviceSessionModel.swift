@@ -167,6 +167,9 @@ import BetterJITLinux
             } else {
                 let marker=id == "linux-smoke" ? "BetterJIT Linux OK" : (id == "linux-userspace" ? LinuxUserspaceWorkload.marker : LinuxSessionFixture.marker)
                 if id == "linux-userspace" {
+                    guard LinuxUserspaceWorkload.requiredMarkers.allSatisfy({ value.log.contains($0) }) else {
+                        throw SuiteFailure("Linux userspace did not complete every file, signal and process-status milestone.")
+                    }
                     report?.phases[i].details["expectedSHA256"]=LinuxUserspaceWorkload.expectedSHA256
                     report?.phases[i].details["inputBytes"]=String(LinuxUserspaceWorkload.payloadBytes)
                     guard value.log.contains(LinuxUserspaceWorkload.expectedSHA256+"  -") else {
