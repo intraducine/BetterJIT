@@ -161,8 +161,12 @@ jobs:
         with:
           name: Device-session-build-failure-${{ github.sha }}
           path: |
-            .build/*-build.log
+            .build/native-fex-build.log
+            .build/host-fex-build.log
+            .build/live-linux-build.log
             .build/live-linux-results.json
+            .build/device-session-build.log
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
 # Builds are unsigned. No secrets, automatic signing, merge, release or device claim.

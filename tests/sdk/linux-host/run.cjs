@@ -73,6 +73,9 @@ async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trac
     const totals=await get('/xlat/totals',true);
     return {...result,stdout,stderr,translationLog,milliseconds:performance.now()-started,
       translator:totals,units:{...units.stats},evidence:'Host Node workers use promoted SDK kernel/thread/runtime and live native FEX → Wasm; no native FEX JIT or recorded modules.'};
+  } catch(error) {
+    error.stdout=stdout;error.stderr=stderr.slice(-65536);error.translationLog=translationLog;
+    throw error;
   } finally {
     clearTimeout(timer);await kernel?.terminate();await Promise.all([...threads.values()].map(worker=>worker.terminate()));
     if(server.exitCode===null)server.kill();
