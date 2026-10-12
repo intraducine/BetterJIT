@@ -26,7 +26,9 @@ validation and runs in the existing userspace phase without another build.
 
 Wine is attempted as `/opt/wine/bin/wine cmd /c ver` in two independent phases.
 The second uses Wine's existing `WINELOADERNOEXEC=1` loader setting with
-`WINEARCH=win64` to attempt startup without its native Linux preloader. Both
+`WINEARCH=win64` to attempt startup without its native Linux preloader. The
+explicit session policy routes later Wine preloader execs to the requested real
+Wine ELF too, because Wine clears the startup variable during initialization. Both
 require actual Windows version output and exit 0; one failed path stays FAIL
 even if the other succeeds. Missing Wine inputs produce
 UNSUPPORTED. A present but broken root, failed exit, missing Windows version,
@@ -74,6 +76,8 @@ each full suite/matrix). SDK requests have their own limits. Native FEX compiler
 calls cannot be forcibly interrupted in the middle of a native function. Teardown
 must finish before a new session can start. Stress probes are off by default;
 enabling them may terminate WebContent and will be recorded as incomplete/failure.
+A single WebKit capability check is reused across Linux/Wine phases. Missing JSPI
+or shared Wasm memory produces UNSUPPORTED; actual guest traps stay FAIL.
 The aggregate says PARTIAL if any integration is unsupported, FAIL for failures,
 and PASS only when every phase passes. Transport timings are not game speed.
 

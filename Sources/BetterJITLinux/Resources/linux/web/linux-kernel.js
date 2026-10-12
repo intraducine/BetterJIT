@@ -1487,6 +1487,10 @@ class Kernel {
     return envp.concat(add);
   }
   boot(argv, envp) {
+    // Direct loading is an explicitly requested session policy. Wine clears
+    // WINELOADERNOEXEC during initialization, but its later Wine children still
+    // need the same policy when exec_wineloader names the native preloader.
+    this.directWineLoader = envp.includes('WINELOADERNOEXEC=1');
     // host.freezeTest: freeze the system that many seconds in, and thaw it a second later (snapshot.js)
     if (this.host.freezeTest) {
       this.addTimer(this.host.freezeTest * 1000, () => {
@@ -1544,6 +1548,12 @@ class Kernel {
   // Reads an executable (following #! scripts) and builds its new address space.
   // -> {mm, rip, rsp, space, exe, argv}
   loadImage(proc, path, argv, envp, depth) {
+    if (this.directWineLoader && /\/wine(64)?-preloader$/.test(path) &&
+        argv.length > 1 && /\/wine(64)?$/.test(argv[1])) {
+      const directEnv = envp.filter((e) => !e.startsWith('WINELOADERNOEXEC=')).concat('WINELOADERNOEXEC=1');
+      this.log(`[wine] direct loader: ${path} -> ${argv[1]}`);
+      return this.loadImage(proc, argv[1], argv.slice(1), directEnv, depth);
+    }
     const st = this.vfs.stat(path); // throws ENOENT etc.
     if ((st.mode & S_IF.MT) !== S_IF.REG) fail(E.ACCES);
     const bytes = this.vfs.readFile(path);

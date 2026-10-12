@@ -24,6 +24,7 @@ import BetterJITLinux
     private var expired=false
     private var activeIndex: Int?
     private var lastLogCheckpoint: UInt64=0
+    private var linuxEngineCapabilities: RuntimeCapabilities?
     private lazy var linux = LinuxHarness { [weak self] session,status,log in
         guard let self else { return }
         self.linuxSession=session
@@ -57,7 +58,7 @@ import BetterJITLinux
             storageError="This saved session used a different source revision. Use Run All for the current app build."
             return
         }
-        stopped=nil; expired=false; running=true; storageError=nil; reportURL=nil
+        stopped=nil; expired=false; running=true; storageError=nil; reportURL=nil; linuxEngineCapabilities=nil
         report=DeviceSessionReport(environment:currentEnvironment,conditions:[
             "userReportsHomeScreenNoDebugger":String(standalone),"userReportsOffline":String(offline),
             "conditionsIndependentlyVerified":"false","includeStress":String(stress)],resuming:previous)
@@ -145,6 +146,21 @@ import BetterJITLinux
                 report?.phases[i].status = .unsupported
                 report?.phases[i].details["reason"]="BusyBox is missing from the selected Linux root. The bundled root includes it."
                 return
+            }
+            if linuxEngineCapabilities == nil {
+                let probe=WebDiagnosticExecutor(mode:.copied,mount:{ [weak self] in self?.transport=$0 })
+                defer { probe.close() }
+                linuxEngineCapabilities=try await probe.start()
+                try checkStop()
+            }
+            if let caps=linuxEngineCapabilities {
+                report?.phases[i].details["engineJSPI"]=String(caps.jspi)
+                report?.phases[i].details["engineSharedMemory"]=String(caps.sharedMemory)
+                guard caps.jspi && caps.sharedMemory else {
+                    report?.phases[i].status = .unsupported
+                    report?.phases[i].details["reason"]="This WebKit engine lacks JSPI or shared Wasm memory required by the Linux/Wine runtime."
+                    return
+                }
             }
             let channels=id == "linux-channels"
             let mode:LinuxHarness.Mode=id == "wine-direct" ? .wineDirect : (id == "wine" ? .wineCommand : (id == "linux-smoke" ? .smoke : (id == "linux-userspace" ? .userspace : .services)))

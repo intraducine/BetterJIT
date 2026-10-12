@@ -60,3 +60,18 @@ test('Wine bootstraps a missing prefix with the client and can prestart an exist
  calls.length=0;Kernel.prototype.boot.call(k,argv,[...env,'WINEPREFIX=/new-prefix']);
  assert.deepEqual(calls[0][1],argv);
 });
+test('explicit direct Wine policy carries across preloader exec without changing stock or unrelated execs',()=>{
+ const stopped=Error('ordinary ELF loader reached'),calls=[];
+ const k={directWineLoader:true,log(){},vfs:{stat(){throw stopped;}},
+  loadImage:(...args)=>{calls.push(args);return 'redirected to real ELF loader';}};
+ const argv=['/usr/lib/wine/x86_64-unix/wine-preloader','/usr/lib/wine/x86_64-unix/wine','cmd','/c','ver'];
+ assert.equal(Kernel.prototype.loadImage.call(k,{},argv[0],argv,['HOME=/home/user','WINELOADERNOEXEC=0']),
+  'redirected to real ELF loader');
+ assert.equal(calls[0][1],argv[1]);assert.deepEqual(calls[0][2],argv.slice(1));
+ assert.deepEqual(calls[0][3],['HOME=/home/user','WINELOADERNOEXEC=1']);
+ k.directWineLoader=false;
+ assert.throws(()=>Kernel.prototype.loadImage.call(k,{},argv[0],argv,[]),e=>e===stopped);
+ k.directWineLoader=true;
+ assert.throws(()=>Kernel.prototype.loadImage.call(k,{},'/bin/busybox',argv,[]),e=>e===stopped);
+ assert.throws(()=>Kernel.prototype.loadImage.call(k,{},argv[0],[argv[0],'/bin/busybox'],[]),e=>e===stopped);
+});
