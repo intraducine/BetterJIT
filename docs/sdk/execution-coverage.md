@@ -40,3 +40,12 @@ outputs bind FEX source, patch, build scripts, architecture and Xcode identity;
 cache reuse does not replace fresh guest translation or correctness checks.
 
 The direct-loader setting follows the bundled Wine 10.7 [loader source](https://github.com/wine-mirror/wine/blob/wine-10.7/dlls/ntdll/unix/loader.c). It is an experimental compatibility policy, not evidence that the preloader or arbitrary Windows applications work.
+
+Observed live host checkpoint (`f61a6ea`, run `38292621515`): Linux services,
+direct BusyBox hashing and the expanded userspace workload passed. A supervisor
+cleanup race replaced the ELF result with Darwin `kill EPERM`; it was not a
+guest failure. The stock Wine preloader trapped. Carrying direct loading through
+children moved Wine into a later runtime path, then it trapped again without a
+Windows version; the captured CPU state included `r12=0x140003c40` while Wasm
+memory remained below 4 GiB. This is a concrete limit to investigate, not a proven
+instruction-level root cause or evidence that arbitrary Wine is supported.

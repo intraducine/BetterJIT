@@ -10,7 +10,7 @@ const {runIsolatedGuest}=createRequire(import.meta.url)('./linux-host/supervise.
 const temp=fs.mkdtempSync(path.join(os.tmpdir(),'betterjit-supervisor-'));
 const entry=path.join(temp,'case.cjs');
 fs.writeFileSync(entry,`process.once('message',spec=>{
- if(spec.done)process.send({result:{code:0,stdout:'fixture'}},()=>{});
+ if(spec.done)process.send({result:{code:0,stdout:'fixture'}},()=>process.exit(0));
  else process.send({progress:{stdout:'partial fixture evidence'}},()=>{while(true){}});
 });`);
 test('OS supervisor retains results and cleans up the owned runner',async()=>{
