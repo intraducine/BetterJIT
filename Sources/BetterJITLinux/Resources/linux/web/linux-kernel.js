@@ -583,7 +583,7 @@ class DevFile extends File {
 
 // The host console.
 class ConsoleFile extends File {
-  constructor(fd) { super('console'); this.fd = fd; }
+  constructor(fd) { super('console'); this.fd = fd; this.flags = fd === 0 ? 0 : O.WRONLY; }
   read() { return 0; }
   write(k, t, buf) { k.host.write(this.fd, buf.slice()); return buf.length; }
   ioctl(k, t, req, arg) {
@@ -1509,7 +1509,14 @@ class Kernel {
       this.addTimer(this.host.memLog * 1000, tick);
     }
     envp = this.wineEnv(envp);
-    if (this.host.sharedSpace && /\/wine(64)?$/.test(argv[0]) && !envp.some((e) => e.startsWith('WINE_NOSERVERFIRST='))) {
+    const env = (name) => envp.find((e) => e.startsWith(name + '='))?.slice(name.length + 1);
+    const prefix = env('WINEPREFIX') || (env('HOME') || '/home/user') + '/.wine';
+    let prefixExists = false;
+    try { prefixExists = (this.vfs.stat(prefix).mode & S_IF.MT) === S_IF.DIR; } catch (e) { if (!(e instanceof KError) || e.code !== E.NOENT) throw e; }
+    // A fresh stock Wine prefix is created by the client, not wineserver.
+    // Prestarting the server before bootstrap makes it fail its chdir and
+    // terminates the session without ever executing the requested command.
+    if (this.host.sharedSpace && prefixExists && /\/wine(64)?$/.test(argv[0]) && !envp.some((e) => e.startsWith('WINE_NOSERVERFIRST='))) {
       const server = argv[0].replace(/[^/]+$/, 'wineserver');
       this.onListen = () => {
         this.onListen = null;
@@ -3648,15 +3655,24 @@ def('lseek', function (t, a0, a1, a2) {
 });
 def('sendfile', function (t, a0, a1, a2, a3) {
   const out = t.proc.file(i32(a0)), inf = t.proc.file(i32(a1)), n = Math.min(Number(a3), 1 << 20);
+  if (n < 0) fail(E.INVAL);
+  if ((inf.flags & O.ACCMODE) === O.WRONLY || (out.flags & O.ACCMODE) === 0) fail(E.BADF);
+  if (out.flags & O.APPEND) fail(E.INVAL);
+  if (inf.kind !== 'file' && inf.kind !== 'buffer') fail(E.INVAL);
+  const ptr = addr(a2), dv = t.proc.mm.dv;
+  const off = ptr ? Number(dv.getBigInt64(ptr, true)) : inf.pos;
+  if (!Number.isSafeInteger(off) || off < 0) fail(E.INVAL);
   const buf = new Uint8Array(n);
-  let r;
-  if (addr(a2)) {
-    const dv = t.proc.mm.dv, off = Number(dv.getBigInt64(addr(a2), true));
-    r = inf.pread(this, t, buf, off);
-    dv.setBigInt64(addr(a2), BigInt(off + r), true);
-  } else r = inf.read(this, t, buf);
+  // Pipes may accept only part of a read, or block. Commit the input offset
+  // only after the output accepted bytes; otherwise retries lose file data.
+  const r = inf.pread(this, t, buf, off);
   if (r === BLOCK || r <= 0) return r;
-  return out.write(this, t, buf.subarray(0, r));
+  const written = out.write(this, t, buf.subarray(0, r));
+  if (written !== BLOCK && written > 0) {
+    if (ptr) dv.setBigInt64(ptr, BigInt(off + written), true);
+    else inf.pos = off + written;
+  }
+  return written;
 });
 
 // --- file system ---------------------------------------------------------------------------------

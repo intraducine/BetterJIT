@@ -455,7 +455,7 @@ class DevFile extends File {
 
 // The host console.
 class ConsoleFile extends File {
-  constructor(fd) { super('console'); this.fd = fd; }
+  constructor(fd) { super('console'); this.fd = fd; this.flags = fd === 0 ? 0 : O.WRONLY; }
   read() { return 0; }
   write(k, t, buf) { k.host.write(this.fd, buf.slice()); return buf.length; }
   ioctl(k, t, req, arg) {
@@ -1381,7 +1381,14 @@ class Kernel {
       this.addTimer(this.host.memLog * 1000, tick);
     }
     envp = this.wineEnv(envp);
-    if (this.host.sharedSpace && /\/wine(64)?$/.test(argv[0]) && !envp.some((e) => e.startsWith('WINE_NOSERVERFIRST='))) {
+    const env = (name) => envp.find((e) => e.startsWith(name + '='))?.slice(name.length + 1);
+    const prefix = env('WINEPREFIX') || (env('HOME') || '/home/user') + '/.wine';
+    let prefixExists = false;
+    try { prefixExists = (this.vfs.stat(prefix).mode & S_IF.MT) === S_IF.DIR; } catch (e) { if (!(e instanceof KError) || e.code !== E.NOENT) throw e; }
+    // A fresh stock Wine prefix is created by the client, not wineserver.
+    // Prestarting the server before bootstrap makes it fail its chdir and
+    // terminates the session without ever executing the requested command.
+    if (this.host.sharedSpace && prefixExists && /\/wine(64)?$/.test(argv[0]) && !envp.some((e) => e.startsWith('WINE_NOSERVERFIRST='))) {
       const server = argv[0].replace(/[^/]+$/, 'wineserver');
       this.onListen = () => {
         this.onListen = null;

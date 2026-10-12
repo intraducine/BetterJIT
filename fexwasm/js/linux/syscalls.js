@@ -1219,15 +1219,24 @@ def('lseek', function (t, a0, a1, a2) {
 });
 def('sendfile', function (t, a0, a1, a2, a3) {
   const out = t.proc.file(i32(a0)), inf = t.proc.file(i32(a1)), n = Math.min(Number(a3), 1 << 20);
+  if (n < 0) fail(E.INVAL);
+  if ((inf.flags & O.ACCMODE) === O.WRONLY || (out.flags & O.ACCMODE) === 0) fail(E.BADF);
+  if (out.flags & O.APPEND) fail(E.INVAL);
+  if (inf.kind !== 'file' && inf.kind !== 'buffer') fail(E.INVAL);
+  const ptr = addr(a2), dv = t.proc.mm.dv;
+  const off = ptr ? Number(dv.getBigInt64(ptr, true)) : inf.pos;
+  if (!Number.isSafeInteger(off) || off < 0) fail(E.INVAL);
   const buf = new Uint8Array(n);
-  let r;
-  if (addr(a2)) {
-    const dv = t.proc.mm.dv, off = Number(dv.getBigInt64(addr(a2), true));
-    r = inf.pread(this, t, buf, off);
-    dv.setBigInt64(addr(a2), BigInt(off + r), true);
-  } else r = inf.read(this, t, buf);
+  // Pipes may accept only part of a read, or block. Commit the input offset
+  // only after the output accepted bytes; otherwise retries lose file data.
+  const r = inf.pread(this, t, buf, off);
   if (r === BLOCK || r <= 0) return r;
-  return out.write(this, t, buf.subarray(0, r));
+  const written = out.write(this, t, buf.subarray(0, r));
+  if (written !== BLOCK && written > 0) {
+    if (ptr) dv.setBigInt64(ptr, BigInt(off + written), true);
+    else inf.pos = off + written;
+  }
+  return written;
 });
 
 // --- file system ---------------------------------------------------------------------------------

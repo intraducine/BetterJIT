@@ -133,6 +133,7 @@
     "tests/sdk/linux-host/root.cjs": "tests/sdk/linux-host/root.cjs",
     "tests/sdk/linux-host/kernel.cjs": "tests/sdk/linux-host/kernel.cjs",
     "tests/sdk/linux-host/thread.cjs": "tests/sdk/linux-host/thread.cjs",
-    "docs/sdk/execution-coverage.md": "docs/sdk/execution-coverage.md"
+    "docs/sdk/execution-coverage.md": "docs/sdk/execution-coverage.md",
+    "tests/sdk/linux-sendfile.test.mjs": "tests/sdk/linux-sendfile.test.mjs"
   }
 }
