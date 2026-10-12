@@ -4,17 +4,20 @@ const fs=require('fs'),path=require('path'),vm=require('vm'),net=require('net');
 const {Worker}=require('worker_threads'),{spawn}=require('child_process');
 const {rootIndex}=require('./root.cjs');
 const {GuestWorkers}=require('./workers.cjs');
+const {functionNames}=require('./wasm-names.cjs');
 const REPO=path.resolve(__dirname,'../../..');
 const resources=path.join(REPO,'Sources/BetterJITLinux/Resources');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trace=false,onProgress,environment={}}) {
+async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trace=false,onProgress,environment={},
+  translatorOptions='depth=24',debugDirectory}) {
   if(typeof WebAssembly.Suspending!=='function'||typeof WebAssembly.promising!=='function')throw Error('Run Node with --experimental-wasm-jspi.');
   const port=await new Promise((resolve,reject)=>{const server=net.createServer();server.on('error',reject);server.listen(0,'127.0.0.1',()=>{const port=server.address().port;server.close(()=>resolve(port));});});
   const origin=`http://127.0.0.1:${port}`;
-  const server=spawn(translator,['--linux',String(port),'depth=24'],{stdio:['ignore','pipe','pipe']});
+  const server=spawn(translator,['--linux',String(port),translatorOptions],{stdio:['ignore','pipe','pipe']});
   let translationLog='';server.stderr.on('data',bytes=>translationLog=(translationLog+bytes).slice(-65536));
   let bootError;server.on('error',error=>{bootError=error;});
-  const threads=new GuestWorkers();let kernel,timer,stdout='',stderr='';const started=performance.now();
+  const threads=new GuestWorkers(),memoryFaults=[],capturedUnits=new Map();let kernel,timer,stdout='',stderr='',dumpBytes=0;const started=performance.now();
+  if(debugDirectory)fs.mkdirSync(debugDirectory,{recursive:true});
   let lastProgress=0;
   function progress() {
     const now=performance.now();
@@ -33,6 +36,7 @@ async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trac
     if(!ready)throw Error('Native FEX translator startup exceeded 5 seconds: '+translationLog);
     async function get(route,json=false) {const response=await fetch(origin+route);if(!response.ok)throw Error(route+' '+response.status);return json?response.json():new Uint8Array(await response.arrayBuffer());}
     const cfg=await get('/xlat/config?space=0',true),dispatcher=await get('/xlat/dispatcher?space=0'),state=await get('/xlat/state?space=0');
+    if(debugDirectory)fs.writeFileSync(path.join(debugDirectory,'config.json'),JSON.stringify(cfg,null,2)+'\n');
     await get('/xlat/drop?space=0');
     globalThis.self=globalThis;vm.runInThisContext(fs.readFileSync(path.join(resources,'linux/thread_core.js'),'utf8'));
     const units=FexLinuxThread.UnitCache(origin),bridge=new SharedArrayBuffer(16),words=new Int32Array(bridge);
@@ -56,7 +60,24 @@ async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trac
             threads.add(message.tid,worker,()=>Atomics.store(new Int32Array(message.ksab),((256+message.slot*128)>>2)+26,0));
             worker.on('message',async response=>{
               try {
-                if(response.op==='unit')worker.postMessage({op:'unit',id:response.id,...await units.get(response.space,response.rip)});
+                if(response.op==='unit'){
+                  const unit=await units.get(response.space,response.rip,!!debugDirectory);
+                  if(unit?.code&&debugDirectory) {
+                    dumpBytes+=unit.code.length;
+                    if(dumpBytes>64*1024*1024)throw Error('Diagnostic unit capture exceeded 64 MiB.');
+                    const stem=`space-${response.space}-rip-${response.rip.toString(16)}`;
+                    fs.writeFileSync(path.join(debugDirectory,stem+'.wasm'),unit.code);
+                    fs.writeFileSync(path.join(debugDirectory,stem+'.json'),JSON.stringify({rip:response.rip,reloc:unit.reloc,slot:unit.slot})+'\n');
+                    for(const name of functionNames(unit.module))if(/^[ur][0-9a-f]+$/.test(name))capturedUnits.set(name,{code:unit.code,file:stem+'.wasm'});
+                  }
+                  worker.postMessage({op:'unit',id:response.id,...unit});
+                }
+                else if(response.op==='memoryFault') {
+                  const fault=response.fault,frame=/at ([ur][0-9a-f]+) \(wasm:[^\n]*?:0x([0-9a-f]+)\)/.exec(fault.stack),unit=frame&&capturedUnits.get(frame[1]);
+                  if(unit){const offset=parseInt(frame[2],16);Object.assign(fault,{wasmModule:unit.file,wasmByteOffset:'0x'+offset.toString(16),wasmOpcode:'0x'+unit.code[offset]?.toString(16)});}
+                  memoryFaults.push(fault);
+                  if(debugDirectory)fs.writeFileSync(path.join(debugDirectory,`fault-${response.pid}-${response.tid}.json`),JSON.stringify(fault,null,2)+'\n');
+                }
                 else if(response.op==='fatal')reject(Error(response.message));
                 else if(response.op==='log')stderr+=response.m+'\n';
               } catch(error){reject(error);}
@@ -80,7 +101,7 @@ async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trac
     });
     const totals=await get('/xlat/totals',true);
     return {...result,stdout,stderr,translationLog,milliseconds:performance.now()-started,
-      translator:totals,units:{...units.stats},evidence:'Host Node workers use promoted SDK kernel/thread/runtime and live native FEX → Wasm; no native FEX JIT or recorded modules.'};
+      translator:totals,units:{...units.stats},memoryFaults,evidence:'Host Node workers use promoted SDK kernel/thread/runtime and live native FEX → Wasm; no native FEX JIT or recorded modules.'};
   } catch(error) {
     error.stdout=stdout;error.stderr=stderr.slice(-65536);error.translationLog=translationLog;
     throw error;

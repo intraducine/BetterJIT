@@ -157,6 +157,7 @@ extern "C" const char* fexwasm_coverage() {
 }
 
 struct FexHost::Impl {
+  bool DebugGuestInstructions = false;
   std::map<uint64_t, std::unique_ptr<OwnedIR>> Cache;
   NullSignalDelegator Signals;
   NullSyscallHandler Syscalls;
@@ -168,6 +169,7 @@ struct FexHost::Impl {
 
 FexHost::FexHost(const Options& Opts)
   : P(std::make_unique<Impl>()) {
+  P->DebugGuestInstructions = Opts.DebugGuestInstructions;
 #if !TARGET_OS_IPHONE
   FEXCore::Allocator::mmap = JitAwareMmap;
   pthread_jit_write_protect_np(0);
@@ -376,7 +378,7 @@ const FEXCore::IR::IRListView* FexHost::GenerateIR(uint64_t RIP, uint64_t* Guest
     // this IR's own dependencies (FEX may be inside a translation that records too)
     std::vector<CodeDep> Mine, *Outer = Recording;
     Recording = &Mine;
-    auto R = CI->GenerateIR(P->Thread, RIP, false, 0);
+    auto R = CI->GenerateIR(P->Thread, RIP, P->DebugGuestInstructions, 0);
     Recording = Outer;
     std::unique_ptr<OwnedIR> O;
     if (R.IRView) {

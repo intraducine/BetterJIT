@@ -243,6 +243,7 @@ fexwasm_translator* fexwasm_create(const uint8_t* Image, size_t Size, uint64_t B
   Cfg.ProfAddr = Get("profrip", "0") == "1" ? 0x1C'2000 : 0; // (profiling: see BackendConfig::ProfAddr)
   Cfg.MaxCallDepth = uint32_t(std::stoul(Get("depth", "256")));
   Cfg.TrackRIP = Get("trackrip", "0") == "1";
+  Cfg.MemoryTraceAddr = Get("memtrace", "0") == "1" ? 0x80 : 0;
 
   // localflags: flags dead across calls and returns, as the ABI has them; off
   // by default, since code written by hand needn't be (UPX's decompressor, in
@@ -252,7 +253,8 @@ fexwasm_translator* fexwasm_create(const uint8_t* Image, size_t Size, uint64_t B
                                                                           .Multiblock = Get("multiblock", "1") != "0",
                                                                           .X87ReducedPrecision = Get("x87", "80") == "64",
                                                                           .ABILocalFlags = Get("localflags", "0") != "0",
-                                                                          .CrossUnitFlags = Get("xflags", "1") != "0"});
+                                                                          .CrossUnitFlags = Get("xflags", "1") != "0",
+                                                                          .DebugGuestInstructions = Cfg.MemoryTraceAddr != 0});
   auto* FH = T->Host.get();
   if (Image && !FH->MapGuest(Base, Image, Size)) {
     return nullptr;
@@ -375,14 +377,14 @@ const char* fexwasm_config_json(fexwasm_translator* T) {
            "\"slotTagCount\":%u,\"unitCounterBase\":%u,\"unitCounterBits\":%u,\"threadBase\":%d,\"shared\":%s,\"guestAbi\":\"%s\","
            "\"tso\":%u,\"callSiteBase\":%u,\"callSiteBits\":%u,\"linux\":%s,\"memMaxPages\":%u,\"cpuidAddr\":%u,\"cpuidCount\":%u,"
            "\"flagSpillAddr\":%u,\"stopAddr\":%u,\"depthAddr\":%u,\"faultAddr\":%u,\"missAddr\":%u,\"profAddr\":%u,\"xmmOff\":%zu,\"ripOff\":%zu,"
-           "\"fsOff\":%zu,\"gsOff\":%zu,\"mxcsrOff\":%zu,\"nzcvAddr\":%u}",
+           "\"fsOff\":%zu,\"gsOff\":%zu,\"mxcsrOff\":%zu,\"nzcvAddr\":%u,\"memoryTraceAddr\":%u}",
            Cfg.MemPages, CTX, sizeof(CPUState), T->ImageLow, STACK_TOP, HALT, uint32_t(T->Window >> 32), offsetof(CPUState, gregs),
            Cfg.DispatchBase, Cfg.DispatchBits, Cfg.HotAddr, Cfg.HotThreshold, Cfg.SlotTagBase, Cfg.SlotTagCount, Cfg.UnitCounterBase,
            Cfg.UnitCounterBits, Cfg.ThreadBaseGlobal ? int(T->ThreadBase) : -1, Cfg.SharedMemory ? "true" : "false", T->Abi.c_str(),
            Cfg.TSOMode, Cfg.CallSiteBase, Cfg.CallSiteBits, T->Linux ? "true" : "false", Cfg.MemMaxPages, Cfg.CPUIDAddr,
            Cfg.CPUIDCount, Cfg.FlagSpillAddr, Cfg.StopAddr, Cfg.DepthAddr, Cfg.FaultAddr, Cfg.MissAddr, Cfg.ProfAddr, offsetof(CPUState, xmm),
            offsetof(CPUState, rip), offsetof(CPUState, fs_cached), offsetof(CPUState, gs_cached), offsetof(CPUState, mxcsr),
-           Cfg.NZCVAddr);
+           Cfg.NZCVAddr, Cfg.MemoryTraceAddr);
   T->Json = B;
   return T->Json.c_str();
 }

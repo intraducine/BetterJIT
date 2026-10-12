@@ -185,6 +185,10 @@ struct BackendConfig {
   bool SyscallFullState = false;
   // Debugging: the dispatcher stores each RIP it dispatches in CPUState.rip.
   bool TrackRIP = false;
+  // Opt-in diagnostic area in each thread's Sys block: u64 full address,
+  // guest RIP, (IR opcode << 32 | width), FS base, GS base, linear address.
+  // Zero disables tracing; this does not change guest address semantics.
+  uint32_t MemoryTraceAddr = 0;
   // x86 memory ordering for FEX's LoadMemTSO / StoreMemTSO (FEX leaves
   // stack accesses plain): 0 none, 1 a fence after each load and before each
   // store, 3 loads + fence and stores as seq-cst atomic stores (JSC: swpal).

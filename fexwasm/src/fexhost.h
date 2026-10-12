@@ -30,6 +30,8 @@ public:
     // A jump to a unit that writes all flags before reading any leaves them
     // dead: FEX's dead flag pass learns each unit's entry flags as it goes.
     bool CrossUnitFlags = false;
+    // Opt-in postmortem metadata; retain a marker for every guest instruction.
+    bool DebugGuestInstructions = false;
   };
   explicit FexHost(const Options& Opts);
   ~FexHost();

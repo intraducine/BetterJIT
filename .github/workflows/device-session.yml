@@ -131,6 +131,7 @@ jobs:
           cp Examples/FEXHost/DEVICE-SESSION.md .build/device-session-artifact/PHONE-INSTRUCTIONS.md
           cp .build/native-fex-build.log .build/device-session-build.log .build/device-session-artifact/
           if test -f .build/live-linux-results.json; then cp .build/live-linux-results.json .build/device-session-artifact/LIVE-LINUX-RESULTS.json; fi
+          if test -d .build/wine-instruction-trace; then cp -R .build/wine-instruction-trace .build/device-session-artifact/WINE-INSTRUCTION-TRACE; fi
           python3 - <<'PY'
           import hashlib, json, pathlib, subprocess
           root=pathlib.Path('.build/device-session-artifact')
@@ -149,6 +150,7 @@ jobs:
             .build/device-session-artifact/BUILD-MANIFEST.json
             .build/device-session-artifact/WINE-ROOT-PROVENANCE.json
             .build/device-session-artifact/LIVE-LINUX-RESULTS.json
+            .build/device-session-artifact/WINE-INSTRUCTION-TRACE/
             .build/device-session-artifact/PHONE-INSTRUCTIONS.md
             .build/device-session-artifact/COPYING
             .build/device-session-artifact/THIRD_PARTY.md
@@ -166,6 +168,7 @@ jobs:
             .build/host-fex-build.log
             .build/live-linux-build.log
             .build/live-linux-results.json
+            .build/wine-instruction-trace/
             .build/device-session-build.log
           include-hidden-files: true
           if-no-files-found: ignore

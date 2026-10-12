@@ -9,6 +9,21 @@
 (function (G) {
 'use strict';
 
+function readMemoryTrace(mem, tb, cfg) {
+  if (!cfg.memoryTraceAddr) return null;
+  const at = tb + cfg.memoryTraceAddr, bytes = mem.buffer.byteLength;
+  if (at < 0 || at + 48 > bytes) return null;
+  const dv = new DataView(mem.buffer), hex = (value) => '0x' + value.toString(16);
+  const rip = dv.getBigUint64(at + 8, true), op = dv.getBigUint64(at + 16, true);
+  const pc = Number(rip), code = Number.isSafeInteger(pc) && pc >= 0 && pc < bytes
+    ? new Uint8Array(mem.buffer, pc, Math.min(16, bytes - pc)) : [];
+  return { guestAddress:hex(dv.getBigUint64(at, true)), rip:hex(rip),
+    operation:Number(op >> 32n), width:Number(op & 0xffffffffn),
+    fsBase:hex(dv.getBigUint64(at + 24, true)), gsBase:hex(dv.getBigUint64(at + 32, true)),
+    wasmAddress:hex(dv.getBigUint64(at + 40, true)), memoryBytes:bytes,
+    instructionHex:[...code].map(b=>b.toString(16).padStart(2,'0')).join('') };
+}
+
 function runThread(env) {
   const { pid, tid, tb, mem, space, slot, ksab, cfg, dispatcher, xlat, bootEpoch } = env.data;
     const post = env.post;
@@ -478,6 +493,12 @@ function runThread(env) {
             code = dv.getUint8(tb + cfg.faultAddr + 1);
           }
         } else {
+          const memoryTrace = readMemoryTrace(mem, tb, cfg);
+          if (memoryTrace) {
+            rip = Number(BigInt(memoryTrace.rip));
+            post({ op:'memoryFault', tid, pid, space, fault:{...memoryTrace, stack:String(e.stack || e)} });
+            post({ op:'log', m:'[memory-fault] ' + JSON.stringify(memoryTrace) });
+          }
           const frames = e && e.stack ? e.stack.split('\n') : [];
           post({ op: 'log', m: `[tid ${tid}] ${e && e.name}: ${e && e.message} (memory ${mem.buffer.byteLength.toString(16)}; ${frames.length} frames)\n  ${frames.slice(0, 6).join('\n  ')}` });
           // (the guest code of the unit it was in, as it is now)
@@ -547,7 +568,7 @@ function UnitCache(xlat, fetchImpl, epochBytes = 0) {
       Atomics.add(epoch, 0, 1);
     }
   }
-  async function get(space, rip) {
+  async function get(space, rip, retainCode = false) {
     stats.requests++;
     const t0 = performance.now();
     const r = await (fetchImpl || fetch)(`${xlat}/xlat/unit?space=${space}&rip=${rip}`);
@@ -563,7 +584,7 @@ function UnitCache(xlat, fetchImpl, epochBytes = 0) {
     }
     const module = await p;
     stats.compileMs += performance.now() - t1;
-    return { module, slot: u.slot, bytes: u.code.length, reloc: u.reloc };
+    return { module, slot: u.slot, bytes: u.code.length, reloc: u.reloc, code:retainCode ? u.code.slice() : undefined };
   }
   // the module for bytes the caller has (by their hash)
   function module(key, code) {
@@ -578,5 +599,5 @@ function UnitCache(xlat, fetchImpl, epochBytes = 0) {
   }
   return { get, module, stats, epoch };
 }
-G.FexLinuxThread = { UnitCache, runThread };
+G.FexLinuxThread = { UnitCache, runThread, readMemoryTrace };
 })(typeof globalThis !== 'undefined' ? globalThis : self);

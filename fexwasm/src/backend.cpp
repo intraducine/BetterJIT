@@ -800,6 +800,7 @@ private:
     return false;
   }
   const char* CurOpName = "";
+  uint32_t CurMemoryOp = 0, CurMemorySize = 0, CurGuestOffset = 0;
   uint32_t OpsInBlock = 0;
   // Within a block: the value each GPR was last stored from, and the loads
   // that read such a value back, so peepholes can see through registers.
@@ -1600,12 +1601,37 @@ private:
     uint64_t C;
     if (!Offset.IsInvalid() && IsConst(Offset, &C) && C > 0 && C < 0x10'0000 && !IsConst(Addr)) {
       GPR(Addr);
+      TraceMemoryAddress(uint32_t(C));
       Wrap();
       return uint32_t(C);
     }
     Address(Addr, Offset, Type, Scale);
+    TraceMemoryAddress(0);
     Wrap();
     return 0;
+  }
+  // Leave the i64 base on the stack. In particular, keep a folded memarg
+  // displacement folded: changing it to wrapped arithmetic would change the
+  // exact boundary behaviour we are trying to observe.
+  void TraceMemoryAddress(uint32_t Disp) {
+    if (!Cfg.MemoryTraceAddr) return;
+    const uint32_t Base = NewLocal(I64), At = Cfg.MemoryTraceAddr;
+    B.tee(Base);
+    SysBase(); B.get(Base);
+    if (Disp) { B.i64c(Disp); B.u8(op::i64_add); }
+    B.mem(op::i64_store, 3, At);
+    SysBase(); RipConst(Entry + CurGuestOffset, true);
+    B.mem(op::i64_store, 3, At + 8);
+    SysBase(); B.i64c(int64_t(uint64_t(CurMemoryOp) << 32 | CurMemorySize));
+    B.mem(op::i64_store, 3, At + 16);
+    for (auto [Off, CtxOff] : {std::pair<uint32_t, uint32_t>{24, uint32_t(offsetof(CPUState, fs_cached))},
+                              {32, uint32_t(offsetof(CPUState, gs_cached))}}) {
+      SysBase(); SysBase(); B.mem(op::i64_load, 3, Cfg.CtxAddr + CtxOff);
+      B.mem(op::i64_store, 3, At + Off);
+    }
+    SysBase(); B.get(Base); B.i64c(0xFFFF'FFFFull); B.u8(op::i64_and);
+    if (Disp) { B.i64c(Disp); B.u8(op::i64_add); }
+    B.mem(op::i64_store, 3, At + 40);
   }
   // Is the address (after register aliases) RSP-based? Stack stores can't hit code.
   bool StackAddress(OrderedNodeWrapper W, int Depth = 0) const {
@@ -2405,6 +2431,7 @@ void Emitter::EmitOp(Ref Node, const IROp_Header* IROp) {
     }
   } StatGuard {B, StatStart, IROp};
   CurOpName = GetName(IROp->Op).data();
+  CurMemoryOp = uint32_t(IROp->Op); CurMemorySize = uint32_t(IROp->Size);
   OpsInBlock++;
   EmitOpImpl(Node, IROp);
 }
@@ -2417,10 +2444,12 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
   case OP_CODEBLOCK:
   case OP_BEGINBLOCK:
   case OP_ENDBLOCK:
-  case OP_GUESTOPCODE:
   case OP_INVALIDATEFLAGS:
   case OP_INLINECONSTANT:
   case OP_INLINEENTRYPOINTOFFSET: break;
+  case OP_GUESTOPCODE:
+    CurGuestOffset = IROp->C<IROp_GuestOpcode>()->GuestEntryOffset;
+    break;
 
   case OP_CONSTANT:
     B.i64c(int64_t(IROp->C<IROp_Constant>()->Constant));
