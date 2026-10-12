@@ -33,6 +33,7 @@ struct DeviceSessionReport: Codable {
         .init(id:"linux-channels", title:"Linux workload with native channels requested", deadlineSeconds:50),
         .init(id:"linux-userspace", title:"Linux shell: files, pipes, signals and processes", deadlineSeconds:110),
         .init(id:"wine", title:"Wine: cmd /c ver", deadlineSeconds:110),
+        .init(id:"wine-direct", title:"Wine: cmd /c ver with direct loader", deadlineSeconds:110),
         .init(id:"copied-suite", title:"FEX ABI, SIMD, hot regions and timings / copied", deadlineSeconds:480),
         .init(id:"mapped-suite", title:"FEX ABI, SIMD, hot regions and timings / mapped", deadlineSeconds:480),
         .init(id:"diagnostics", title:"Transport, memory, threading and graphics matrix", deadlineSeconds:480)

@@ -137,6 +137,8 @@
     "tests/sdk/linux-sendfile.test.mjs": "tests/sdk/linux-sendfile.test.mjs",
     "tests/sdk/linux-supervisor.test.mjs": "tests/sdk/linux-supervisor.test.mjs",
     "tests/sdk/linux-host/supervise.cjs": "tests/sdk/linux-host/supervise.cjs",
-    "tests/sdk/linux-host/case.cjs": "tests/sdk/linux-host/case.cjs"
+    "tests/sdk/linux-host/case.cjs": "tests/sdk/linux-host/case.cjs",
+    "tests/sdk/linux-workers.test.mjs": "tests/sdk/linux-workers.test.mjs",
+    "tests/sdk/linux-host/workers.cjs": "tests/sdk/linux-host/workers.cjs"
   }
 }

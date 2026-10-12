@@ -10,6 +10,7 @@ on:
       - 'patches/**'
       - 'scripts/**'
       - 'tests/**'
+      - 'Tests/**'
       - 'distribution/**'
       - 'Package.swift'
       - '.github/workflows/device-session.yml'

@@ -24,7 +24,11 @@ and sends the full input through a cat/sha256sum pipe. Every milestone marker an
 the exact pipeline digest are required. This uses the same script as live host
 validation and runs in the existing userspace phase without another build.
 
-Wine is attempted as `/opt/wine/bin/wine cmd /c ver`. Missing Wine inputs produce
+Wine is attempted as `/opt/wine/bin/wine cmd /c ver` in two independent phases.
+The second uses Wine's existing `WINELOADERNOEXEC=1` loader setting with
+`WINEARCH=win64` to attempt startup without its native Linux preloader. Both
+require actual Windows version output and exit 0; one failed path stays FAIL
+even if the other succeeds. Missing Wine inputs produce
 UNSUPPORTED. A present but broken root, failed exit, missing Windows version,
 trap or timeout produces FAIL. **Choose staged Wine root folder** can replace the bundled candidate with your
 existing redistributable root without rebuilding the app. Alternatively copy it

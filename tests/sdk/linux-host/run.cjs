@@ -3,17 +3,18 @@
 const fs=require('fs'),path=require('path'),vm=require('vm'),net=require('net');
 const {Worker}=require('worker_threads'),{spawn}=require('child_process');
 const {rootIndex}=require('./root.cjs');
+const {GuestWorkers}=require('./workers.cjs');
 const REPO=path.resolve(__dirname,'../../..');
 const resources=path.join(REPO,'Sources/BetterJITLinux/Resources');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trace=false,onProgress}) {
+async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trace=false,onProgress,environment={}}) {
   if(typeof WebAssembly.Suspending!=='function'||typeof WebAssembly.promising!=='function')throw Error('Run Node with --experimental-wasm-jspi.');
   const port=await new Promise((resolve,reject)=>{const server=net.createServer();server.on('error',reject);server.listen(0,'127.0.0.1',()=>{const port=server.address().port;server.close(()=>resolve(port));});});
   const origin=`http://127.0.0.1:${port}`;
   const server=spawn(translator,['--linux',String(port),'depth=24'],{stdio:['ignore','pipe','pipe']});
   let translationLog='';server.stderr.on('data',bytes=>translationLog=(translationLog+bytes).slice(-65536));
   let bootError;server.on('error',error=>{bootError=error;});
-  const threads=new Map();let kernel,timer,stdout='',stderr='';const started=performance.now();
+  const threads=new GuestWorkers();let kernel,timer,stdout='',stderr='';const started=performance.now();
   let lastProgress=0;
   function progress() {
     const now=performance.now();
@@ -43,7 +44,7 @@ async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trac
       timer=setTimeout(()=>reject(Error(`Guest deadline ${timeout}s exceeded\n${stderr.slice(-8192)}`)),timeout*1000);
       kernel=new Worker(path.join(__dirname,'kernel.cjs'),{workerData:{resources,root,overlay,index:rootIndex(root,overlay),
         cfg,state,bridge,bootEpoch,argv,cwd,trace,uid,gid,env:Object.entries({HOME:'/home/user',USER:'user',PATH:'/opt/wine/bin:/usr/bin:/bin',
-          LANG:'C',WINEDEBUG:'-all',WINEDLLOVERRIDES:'winemenubuilder.exe=d',LD_LIBRARY_PATH:'/opt/wine/lib/wine/x86_64-unix'}).map(([k,v])=>`${k}=${v}`)}});
+          LANG:'C',WINEDEBUG:'-all',WINEDLLOVERRIDES:'winemenubuilder.exe=d',LD_LIBRARY_PATH:'/opt/wine/lib/wine/x86_64-unix',...environment}).map(([k,v])=>`${k}=${v}`)}});
       kernel.on('error',reject);
       kernel.on('message',async message=>{
         try {
@@ -51,8 +52,8 @@ async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trac
           case 'spawn': {
             const worker=new Worker(path.join(__dirname,'thread.cjs'),{workerData:{...message,resources,cfg,dispatcher,
               xlat:origin,bootEpoch,codeEpoch:units.epoch.buffer,regionAfterMs:30000},resourceLimits:{stackSizeMb:8}});
-            threads.set(message.tid,worker);worker.on('error',reject);
-            worker.on('exit',()=>{Atomics.store(new Int32Array(message.ksab),((256+message.slot*128)>>2)+26,0);threads.delete(message.tid);});
+            worker.on('error',reject);
+            threads.add(message.tid,worker,()=>Atomics.store(new Int32Array(message.ksab),((256+message.slot*128)>>2)+26,0));
             worker.on('message',async response=>{
               try {
                 if(response.op==='unit')worker.postMessage({op:'unit',id:response.id,...await units.get(response.space,response.rip)});
@@ -61,7 +62,7 @@ async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trac
               } catch(error){reject(error);}
             });break;
           }
-          case 'kill':threads.get(message.tid)?.terminate();threads.delete(message.tid);break;
+          case 'kill':threads.kill(message.tid);break;
           case 'code':case 'uncode':case 'drop': {
             let route,options;
             if(message.op==='code') {route=`/xlat/code?space=${message.space}&addr=${message.address.toString(16)}&abi=${message.abi}`;options={method:'POST',body:message.bytes};}
@@ -84,7 +85,7 @@ async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trac
     error.stdout=stdout;error.stderr=stderr.slice(-65536);error.translationLog=translationLog;
     throw error;
   } finally {
-    clearTimeout(timer);await kernel?.terminate();await Promise.all([...threads.values()].map(worker=>worker.terminate()));
+    clearTimeout(timer);await kernel?.terminate();await threads.close();
     if(server.exitCode===null)server.kill();
   }
 }

@@ -4,7 +4,7 @@ import Darwin
 import BetterJITLinux
 
 @MainActor final class LinuxHarness {
-    enum Mode { case smoke, services, userspace, wineCommand }
+    enum Mode: Equatable { case smoke, services, userspace, wineCommand, wineDirect }
     private(set) var session: LinuxRuntimeSession?
     private(set) var counters: [String:Int] = [:]
     private let changed: @MainActor (LinuxRuntimeSession?,String,String)->Void
@@ -46,12 +46,14 @@ import BetterJITLinux
         case .userspace:
             cfg=LinuxRuntimeConfiguration(arguments:LinuxUserspaceWorkload.arguments,timeoutSeconds:90,
                                           display:nil,regions:true,slowWaitMilliseconds:100,useNativeChannels:nativeChannels)
-        case .wineCommand:
+        case .wineCommand, .wineDirect:
             guard Self.winePresent else {
                 throw LinuxRuntimeError.guest("Wine rootfs is missing at Documents/linuxroot/opt/wine/bin/wine.")
             }
+            var environment=["WINEDEBUG":"-all","WINEDLLOVERRIDES":"winemenubuilder.exe=d"]
+            if mode == .wineDirect { environment["WINELOADERNOEXEC"]="1"; environment["WINEARCH"]="win64" }
             cfg=LinuxRuntimeConfiguration(arguments:["/opt/wine/bin/wine","cmd","/c","ver"],
-                                          environment:["WINEDEBUG":"-all","WINEDLLOVERRIDES":"winemenubuilder.exe=d"],timeoutSeconds:90,
+                                          environment:environment,timeoutSeconds:90,
                                           display:"1024x768",regions:true,slowWaitMilliseconds:100,
                                           useNativeChannels:nativeChannels)
         }

@@ -18,7 +18,9 @@ async function main() {
   {id:'linux-file-hash',argv:['/bin/busybox','sha256sum','/test/userspace.bin'],digest},
   {id:'linux-userspace',argv:['/bin/busybox','sh','-c',userspaceScript()],marker:'BetterJIT userspace OK',
    markers:['BetterJIT files OK','BetterJIT signals OK','BetterJIT process status OK'],digest},
-  {id:'wine-command',argv:['/opt/wine/bin/wine','cmd','/c','ver'],optional:true,timeout:120}
+  {id:'wine-command',argv:['/opt/wine/bin/wine','cmd','/c','ver'],optional:true,timeout:120},
+  {id:'wine-command-no-preloader',argv:['/opt/wine/bin/wine','cmd','/c','ver'],
+   environment:{WINELOADERNOEXEC:'1',WINEARCH:'win64'},optional:true,timeout:120}
  ];
  const report={schema:1,source:process.env.GITHUB_SHA??null,evidence:'Live FEX→Wasm on host; not Apple WebKit or device evidence.',records:[]};
  let requiredFailed=false;
@@ -28,7 +30,7 @@ async function main() {
    const result=await runIsolatedGuest({translator,root,overlay,...spec,trace:true});
    const correct=result.code===0 && result.translator.units>0 && result.units.compiled>0 &&
     (!spec.marker||result.stdout.includes(spec.marker)) && (!spec.markers||spec.markers.every(m=>result.stdout.includes(m))) && (!spec.digest||result.stdout.includes(spec.digest)) &&
-    (spec.id!=='wine-command'||/Windows[^\n]*\d+\.\d+/.test(result.stdout));
+    (!spec.id.startsWith('wine-command')||/Windows[^\n]*\d+\.\d+/.test(result.stdout));
    report.records.push({id:spec.id,status:correct?'passed':'failed',...result});
    console.log(`${correct?'PASS':'FAIL'} ${spec.id}: exit ${result.code}, ${result.translator.units} native FEX units, ${result.units.compiled} Wasm modules, ${result.milliseconds.toFixed(0)} ms`);
    if(!correct)console.error(JSON.stringify({id:spec.id,expectedDigest:spec.digest,stdout:result.stdout,stderr:result.stderr.slice(-8192),translationLog:result.translationLog.slice(-8192)}));

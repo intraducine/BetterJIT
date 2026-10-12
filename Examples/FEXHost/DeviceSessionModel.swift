@@ -120,13 +120,15 @@ import BetterJITLinux
     }
     private func execute(_ i:Int, stress:Bool) async throws {
         guard let id=report?.phases[i].id else { throw SuiteFailure("Missing phase.") }
-        if id.hasPrefix("linux-") || id == "wine" {
-            if id == "wine" && !LinuxHarness.winePresent {
+        let wine = id == "wine" || id == "wine-direct"
+        if id.hasPrefix("linux-") || wine {
+            if wine && !LinuxHarness.winePresent {
                 report?.phases[i].status = .unsupported
                 report?.phases[i].details["reason"]="Wine root is absent. Choose a staged linuxroot folder or copy it into Documents/linuxroot, then Run All again."
                 return
             }
-            if id == "wine" {
+            if wine {
+                report?.phases[i].details["loaderMode"]=id == "wine-direct" ? "WINELOADERNOEXEC=1; WINEARCH=win64" : "stock Wine preloader"
                 let root=LinuxHarness.rootURL
                 report?.phases[i].details["rootOrigin"]=root == LinuxHarness.documentsRootURL ? "imported Documents root" : "bundled input candidate"
                 if let handle=try? FileHandle(forReadingFrom:root.appendingPathComponent(".betterjit-linux-root.json")) {
@@ -145,7 +147,7 @@ import BetterJITLinux
                 return
             }
             let channels=id == "linux-channels"
-            let mode:LinuxHarness.Mode=id == "wine" ? .wineCommand : (id == "linux-smoke" ? .smoke : (id == "linux-userspace" ? .userspace : .services))
+            let mode:LinuxHarness.Mode=id == "wine-direct" ? .wineDirect : (id == "wine" ? .wineCommand : (id == "linux-smoke" ? .smoke : (id == "linux-userspace" ? .userspace : .services)))
             let value=try await linux.run(mode,nativeChannels:channels)
             try checkStop()
             report?.phases[i].log=String(value.log.suffix(128*1024))
@@ -160,7 +162,7 @@ import BetterJITLinux
                   (linux.counters["codeMappings"] ?? 0)>0 else {
                 throw SuiteFailure("Guest did not exit 0 with live FEX translation and code mapping evidence.")
             }
-            if id == "wine" {
+            if wine {
                 guard value.log.range(of:"(?im)^\\s*(Microsoft )?Windows[^\\n]*[0-9]+\\.[0-9]+",options:.regularExpression) != nil else {
                     throw SuiteFailure("Wine exited 0 but cmd /c ver did not print a Windows version.")
                 }
