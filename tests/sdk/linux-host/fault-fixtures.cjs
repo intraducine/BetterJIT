@@ -44,4 +44,10 @@ function fixture(segment) {
   wasmAddress:'0xfffff000',width:8,fsBase:fs?'0x20000000':'0x0',gsBase:!direct&&!fs?'0x30000000':'0x0',
   instructionHex:instruction.toString('hex'),wasmOpcode:'0x29',boundsConfirmed:true}};
 }
-module.exports={fixture};
+function codeBoundaryFixture() {
+ const bytes=elf(Buffer.alloc(4096-120));
+ // One NOP at the last mapped byte, followed by unmapped code. The native
+ // frontend must reject/stop at the boundary rather than read host memory.
+ bytes.writeBigUInt64LE(0x400fffn,24);bytes[4095]=0x90;return bytes;
+}
+module.exports={fixture,codeBoundaryFixture};

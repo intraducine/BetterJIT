@@ -66,8 +66,12 @@ public:
   uint64_t HandleSyscall(FEXCore::Core::CpuStateFrame*, FEXCore::HLE::SyscallArguments*) override {
     return 0;
   }
-  FEXCore::HLE::ExecutableRangeInfo QueryGuestExecutableRange(FEXCore::Core::InternalThreadState*, uint64_t) override {
-    return {0, UINT64_MAX, false};
+  FEXCore::HLE::ExecutableRangeInfo QueryGuestExecutableRange(FEXCore::Core::InternalThreadState*, uint64_t Address) override {
+    // The frontend reads host-owned buffers, not native memory at guest
+    // addresses. Unknown bytes must stop decoding through its NOEXEC path.
+    const auto* Mapping = Current ? Current->MappingAt(Address) : nullptr;
+    return Mapping ? FEXCore::HLE::ExecutableRangeInfo {Mapping->Base, Mapping->Size, false}
+                   : FEXCore::HLE::ExecutableRangeInfo {0, 0, false};
   }
   std::optional<FEXCore::ExecutableFileSectionInfo> LookupExecutableFileSection(FEXCore::Core::InternalThreadState*, uint64_t) override {
     return std::nullopt;
@@ -378,6 +382,8 @@ const FEXCore::IR::IRListView* FexHost::GenerateIR(uint64_t RIP, uint64_t* Guest
     // this IR's own dependencies (FEX may be inside a translation that records too)
     std::vector<CodeDep> Mine, *Outer = Recording;
     Recording = &Mine;
+    // Mapping changes can invalidate the frontend's last executable range.
+    P->Thread->FrontendDecoder->ResetExecutableRangeCache();
     auto R = CI->GenerateIR(P->Thread, RIP, P->DebugGuestInstructions, 0);
     Recording = Outer;
     std::unique_ptr<OwnedIR> O;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 const fs=require('fs'),path=require('path'),crypto=require('crypto');
 const {runIsolatedGuest}=require('./linux-host/supervise.cjs');
-const {fixture:faultFixture}=require('./linux-host/fault-fixtures.cjs');
+const {fixture:faultFixture,codeBoundaryFixture}=require('./linux-host/fault-fixtures.cjs');
 const REPO=path.resolve(__dirname,'../..');
 function fixture(name){const source=fs.readFileSync(path.join(REPO,'Examples/FEXHost',name+'.swift'),'utf8');return Buffer.from(source.match(/Data\(base64Encoded:\s*"([A-Za-z0-9+/=]+)"/)[1],'base64');}
 function userspaceScript(){return fs.readFileSync(path.join(REPO,'Examples/FEXHost/LinuxUserspaceWorkload.swift'),'utf8').match(/static let script = #"""\n([\s\S]*?)\n\s*"""#/)[1].replace(/^    /gm,'');}
@@ -18,6 +18,7 @@ async function main() {
   return {id:'linux-faulttrace-'+segment,argv:[name],expectedFault:f.expected,
    translatorOptions:'depth=24 memtrace=1',debugDirectory:path.join(REPO,'.build/wine-instruction-trace',segment)};
  });
+ overlay['/test/code-boundary']=codeBoundaryFixture();
  const cases=[
   {id:'linux-elf',argv:['/test/hello-static'],marker:'BetterJIT Linux OK'},
   {id:'linux-services',argv:['/test/session-static'],cwd:'/test',marker:'BetterJIT Linux services OK'},
@@ -28,6 +29,7 @@ async function main() {
   {id:'wine-command-no-preloader',argv:['/opt/wine/bin/wine','cmd','/c','ver'],
    environment:{WINELOADERNOEXEC:'1',WINEARCH:'win64'},optional:true,timeout:120},
   ...faults,
+  {id:'linux-code-boundary',argv:['/test/code-boundary'],expectedCodeRejection:true},
   {id:'wine-instruction-trace',argv:['/opt/wine/bin/wine','cmd','/c','ver'],
    environment:{WINELOADERNOEXEC:'1',WINEARCH:'win64'},optional:true,timeout:120,
    translatorOptions:'depth=24 memtrace=1',debugDirectory:path.join(REPO,'.build/wine-instruction-trace','wine')}
@@ -40,10 +42,12 @@ async function main() {
    const result=await runIsolatedGuest({translator,root,overlay,...spec,trace:true});
    const expectedFault=spec.expectedFault && result.code===139 && result.memoryFaults.some(f=>
     Object.entries(spec.expectedFault).every(([k,v])=>k==='instructionHex'?f[k].startsWith(v):f[k]===v));
-   const correct=(spec.expectedFault?expectedFault:result.code===0) && result.translator.units>0 && result.units.compiled>0 &&
+   const boundary=spec.expectedCodeRejection && result.code===139 && result.units.requests>0 &&
+    /(?:translation failed|fatal: signal 11)/.test(result.stderr);
+   const correct=(spec.expectedCodeRejection?boundary:((spec.expectedFault?expectedFault:result.code===0) && result.translator.units>0 && result.units.compiled>0)) &&
     (!spec.marker||result.stdout.includes(spec.marker)) && (!spec.markers||spec.markers.every(m=>result.stdout.includes(m))) && (!spec.digest||result.stdout.includes(spec.digest)) &&
     (!spec.id.startsWith('wine-')||/^\s*(Microsoft )?Windows[^\n]*\d+\.\d+/im.test(result.stdout));
-   report.records.push({id:spec.id,status:correct?'passed':'failed',purpose:spec.expectedFault?'Expected-fault diagnostic validation':'Real guest workload',expectedFault:spec.expectedFault??null,...result});
+   report.records.push({id:spec.id,status:correct?'passed':'failed',purpose:spec.expectedCodeRejection?'Expected unmapped-code rejection; no successful guest workload claim':spec.expectedFault?'Expected-fault diagnostic validation':'Real guest workload',expectedFault:spec.expectedFault??null,...result});
    console.log(`${correct?'PASS':'FAIL'} ${spec.id}: exit ${result.code}, ${result.translator.units} native FEX units, ${result.units.compiled} Wasm modules, ${result.milliseconds.toFixed(0)} ms`);
    if(result.memoryFaults.length)console.log(JSON.stringify({id:spec.id,expectedFault:spec.expectedFault??null,memoryFaults:result.memoryFaults}));
    if(spec.id.startsWith('wine-'))console.log(JSON.stringify({id:spec.id,
