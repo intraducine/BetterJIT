@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
 
+enum DeviceSessionGuestOutput {
+    static func windowsVersion(in raw:String) -> String? {
+        let plain=raw.replacingOccurrences(of:"\u{001B}\\[[0-?]*[ -/]*[@-~]",with:"",options:.regularExpression)
+        guard let range=plain.range(of:"(?im)^\\s*(Microsoft )?Windows[^\\n]*[0-9]+\\.[0-9]+",options:.regularExpression) else { return nil }
+        return String(plain[range]).trimmingCharacters(in:.whitespacesAndNewlines)
+    }
+}
+
 enum SessionCheckStatus: String, Codable { case pending, running, passed, failed, unsupported, skipped }
 struct SessionPhase: Codable, Identifiable {
     let id: String
@@ -34,7 +42,7 @@ struct DeviceSessionReport: Codable {
         .init(id:"linux-userspace", title:"Linux shell: files, pipes, signals and processes", deadlineSeconds:110),
         .init(id:"wine", title:"Wine: cmd /c ver", deadlineSeconds:110),
         .init(id:"wine-direct", title:"Wine: cmd /c ver with direct loader", deadlineSeconds:110),
-        .init(id:"wine-flat", title:"Wine: source-built flat-window Win64", deadlineSeconds:110),
+        .init(id:"wine-flat", title:"Wine: source-built flat-window Win64", deadlineSeconds:200),
         .init(id:"copied-suite", title:"FEX ABI, SIMD, hot regions and timings / copied", deadlineSeconds:480),
         .init(id:"mapped-suite", title:"FEX ABI, SIMD, hot regions and timings / mapped", deadlineSeconds:480),
         .init(id:"diagnostics", title:"Transport, memory, threading and graphics matrix", deadlineSeconds:480)

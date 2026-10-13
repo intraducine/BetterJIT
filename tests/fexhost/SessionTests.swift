@@ -2,6 +2,10 @@
 import Foundation
 @main struct SessionTests {
     static func main() async throws {
+        let terminal="BetterJIT Wine FS reset OK\n\r\n\u{001B}[?25lMicrosoft Windows 10.0.19043\r\n\u{001B}[?25h"
+        precondition(DeviceSessionGuestOutput.windowsVersion(in:terminal) == "Microsoft Windows 10.0.19043")
+        precondition(DeviceSessionGuestOutput.windowsVersion(in:"BetterJIT Wine FS reset OK\n") == nil)
+        precondition(DeviceSessionGuestOutput.windowsVersion(in:"wine: Windows 10.0.19043 failed\n") == nil)
         var original=DeviceSessionReport(environment:["sourceRevision":"fixture"],conditions:[:])
         original.phases[0].status = .passed
         original.phases[1].status = .running

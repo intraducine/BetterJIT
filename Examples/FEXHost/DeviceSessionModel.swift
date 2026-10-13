@@ -204,9 +204,10 @@ import BetterJITLinux
                 if id == "wine-flat", !value.log.contains("BetterJIT Wine FS reset OK") {
                     throw SuiteFailure("The source-built Wine FS-reset contract did not complete before startup.")
                 }
-                guard value.log.range(of:"(?im)^\\s*(Microsoft )?Windows[^\\n]*[0-9]+\\.[0-9]+",options:.regularExpression) != nil else {
+                guard let version=DeviceSessionGuestOutput.windowsVersion(in:value.log) else {
                     throw SuiteFailure("Wine exited 0 but cmd /c ver did not print a Windows version.")
                 }
+                report?.phases[i].details["windowsVersion"]=version
             } else {
                 let marker=id == "linux-smoke" ? "BetterJIT Linux OK" : (id == "linux-userspace" ? LinuxUserspaceWorkload.marker : LinuxSessionFixture.marker)
                 if id == "linux-userspace" {

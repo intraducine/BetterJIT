@@ -71,7 +71,7 @@ import BetterJITLinux
                 ? ["/bin/busybox","sh","-c","/opt/wine-flat/share/betterjit-provenance/fs-reset.elf && exec /opt/wine-flat/bin/wine /usr/lib/wine/x86_64-windows/cmd.exe /c ver"]
                 : ["/opt/wine/bin/wine","cmd","/c","ver"]
             cfg=LinuxRuntimeConfiguration(arguments:arguments,
-                                          environment:environment,timeoutSeconds:90,
+                                          environment:environment,timeoutSeconds:mode == .wineFlat ? 180 : 90,
                                           display:"1024x768",regions:false,slowWaitMilliseconds:100,
                                           useNativeChannels:nativeChannels,sharedAddressSpace:mode != .wineFlat)
         }

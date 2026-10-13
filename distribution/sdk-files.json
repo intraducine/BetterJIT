@@ -147,6 +147,8 @@
     "tests/sdk/linux-fork-failure.test.mjs": "tests/sdk/linux-fork-failure.test.mjs",
     "scripts/prepare-wine-flat-root.py": "scripts/prepare-wine-flat-root.py",
     "patches/wine-flat-guest.patch": "patches/wine-flat-guest.patch",
-    "tests/fexhost/wine-flat-native.py": "tests/fexhost/wine-flat-native.py"
+    "tests/fexhost/wine-flat-native.py": "tests/fexhost/wine-flat-native.py",
+    "tests/sdk/linux-host/console.cjs": "tests/sdk/linux-host/console.cjs",
+    "tests/sdk/linux-console.test.mjs": "tests/sdk/linux-console.test.mjs"
   }
 }
