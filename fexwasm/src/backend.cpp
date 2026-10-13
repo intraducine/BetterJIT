@@ -14,6 +14,7 @@
 // Op semantics follow FEX's arm64 backend (FEXCore/Source/Interface/Core/JIT),
 // which defines what each IR op means.
 #include "backend.h"
+#include <optional>
 #include "coalesce.h"
 #include "wasm_emit.h"
 
@@ -1613,7 +1614,8 @@ private:
   // Leave the i64 base on the stack. In particular, keep a folded memarg
   // displacement folded: changing it to wrapped arithmetic would change the
   // exact boundary behaviour we are trying to observe.
-  void TraceMemoryAddress(uint32_t Disp) {
+  void TraceMemoryAddress(uint32_t Disp, std::optional<uint32_t> Length = {},
+                          std::optional<uint32_t> Source = {}, uint32_t Kind = 0) {
     if (!Cfg.MemoryTraceAddr) return;
     const uint32_t Base = NewLocal(I64), At = Cfg.MemoryTraceAddr;
     B.tee(Base);
@@ -1632,6 +1634,20 @@ private:
     SysBase(); B.get(Base); B.i64c(0xFFFF'FFFFull); B.u8(op::i64_and);
     if (Disp) { B.i64c(Disp); B.u8(op::i64_add); }
     B.mem(op::i64_store, 3, At + 40);
+    // Version 2: bulk operations retain their full byte count and both copy
+    // operands. Scalar accesses clear these fields instead of leaving stale
+    // bulk metadata. This private record ends before CPUState at 0x100.
+    SysBase();
+    if (Length) B.get(*Length); else B.i64c(CurMemorySize);
+    B.mem(op::i64_store, 3, At + 48);
+    SysBase();
+    if (Source) B.get(*Source); else B.i64c(0);
+    B.mem(op::i64_store, 3, At + 56);
+    SysBase();
+    if (Source) { B.get(*Source); B.i64c(0xFFFF'FFFFull); B.u8(op::i64_and); }
+    else B.i64c(0);
+    B.mem(op::i64_store, 3, At + 64);
+    SysBase(); B.i64c(Kind); B.mem(op::i64_store, 3, At + 72);
   }
   // Is the address (after register aliases) RSP-based? Stack stores can't hit code.
   bool StackAddress(OrderedNodeWrapper W, int Depth = 0) const {
@@ -3552,6 +3568,11 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
     GPR(IROp->Args[0]);
     B.i64c(~63ll);
     B.u8(op::i64_and);
+    if (Cfg.MemoryTraceAddr) {
+      const uint32_t Length = NewLocal(I64);
+      B.i64c(64); B.set(Length);
+      TraceMemoryAddress(0, Length, {}, 3);
+    }
     Wrap();
     B.i32c(0);
     B.i32c(64);
@@ -4478,6 +4499,12 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
     if (HitsRegArgs(Op->Offset, Op->Size)) {
       return Fail(IROp, "register argument in context");
     }
+    if (Cfg.MemoryTraceAddr) {
+      const uint32_t Length = NewLocal(I64);
+      B.i64c(Op->Size); B.set(Length);
+      B.i64c(Cfg.CtxAddr + Op->Offset);
+      TraceMemoryAddress(0, Length, {}, 4); B.u8(op::drop);
+    }
     B.i32c(int32_t(Cfg.CtxAddr + Op->Offset));
     B.i32c(0);
     B.i32c(int32_t(Op->Size));
@@ -4761,6 +4788,7 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
     // rep stos: Length elements of Size bytes, stepping Size * Direction.
     auto Op = IROp->C<IROp_MemSet>();
     const uint32_t S = uint32_t(Op->Size);
+    CurMemorySize = S;
     const uint32_t Addr = T1, Count = T2;
     GPR(Op->Addr);
     B.set(Addr);
@@ -4781,6 +4809,7 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
         GPR(Op->Prefix);
         B.get(Addr);
         B.u8(op::i64_add);
+        TraceMemoryAddress(0, Count, {}, 1);
         Wrap();
         GPR32(Op->Value);
         B.get(Count);
@@ -4810,6 +4839,7 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
     GPR(Op->Prefix);
     B.get(Addr);
     B.u8(op::i64_add);
+    TraceMemoryAddress(0);
     Wrap();
     GPR(Op->Value);
     StoreGPRSized(S);
@@ -4835,6 +4865,7 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
     // rep movs: copies Length elements of Size bytes, stepping Size * Direction.
     auto Op = IROp->C<IROp_MemCpy>();
     const uint32_t S = uint32_t(Op->Size);
+    CurMemorySize = S;
     const uint32_t D = LocalFor(ID(Op->OutDstAddress)), Sr = LocalFor(ID(Op->OutSrcAddress)), Count = T2;
     GPR(Op->Dest);
     B.set(T0);
@@ -4861,6 +4892,11 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
     B.u8(op::i32_and);
     B.u8(op::if_);
     B.u8(0x40);
+    if (Cfg.MemoryTraceAddr) {
+      const uint32_t Bytes = NewLocal(I64);
+      B.get(Count); B.i64c(S); B.u8(op::i64_mul); B.set(Bytes);
+      B.get(T0); TraceMemoryAddress(0, Bytes, T1, 2); B.u8(op::drop);
+    }
     B.get(T0);
     Wrap();
     B.get(T1);
@@ -4899,8 +4935,10 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
     B.get(T0);
     Wrap();
     B.get(T1);
+    TraceMemoryAddress(0);
     Wrap();
     LoadGPRSized(S);
+    if (Cfg.MemoryTraceAddr) { B.get(T0); TraceMemoryAddress(0); B.u8(op::drop); }
     StoreGPRSized(S);
     GPR(Op->Direction);
     B.i64c(S);

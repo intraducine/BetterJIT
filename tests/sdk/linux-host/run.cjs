@@ -74,7 +74,9 @@ async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trac
                 }
                 else if(response.op==='memoryFault') {
                   const fault=response.fault,frame=/at ([ur][0-9a-f]+) \(wasm:[^\n]*?:0x([0-9a-f]+)\)/.exec(fault.stack),unit=frame&&capturedUnits.get(frame[1]);
-                  if(unit){const offset=parseInt(frame[2],16);Object.assign(fault,{wasmModule:unit.file,wasmByteOffset:'0x'+offset.toString(16),wasmOpcode:'0x'+unit.code[offset]?.toString(16)});}
+                  if(unit){const offset=parseInt(frame[2],16),opcode=unit.code[offset];Object.assign(fault,{wasmModule:unit.file,wasmByteOffset:'0x'+offset.toString(16),wasmOpcode:'0x'+opcode?.toString(16)});
+                    if(opcode===0xfc)fault.wasmBulkOpcode='0x'+unit.code[offset+1]?.toString(16);
+                  }
                   memoryFaults.push(fault);
                   if(debugDirectory)fs.writeFileSync(path.join(debugDirectory,`fault-${response.pid}-${response.tid}.json`),JSON.stringify(fault,null,2)+'\n');
                 }

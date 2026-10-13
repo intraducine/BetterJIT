@@ -14,6 +14,20 @@ function elf(code) {
  bytes.writeBigUInt64LE(4096n,112);code.copy(bytes,120);return bytes;
 }
 function fixture(segment) {
+ if (segment==='fill' || segment.startsWith('copy-')) {
+  const fill=segment==='fill',bad=0x1fffff000n,dest=segment==='copy-source'?0x90000n:bad,
+    source=segment==='copy-source'?bad:BigInt(ENTRY),code=[Buffer.from('fc','hex')]; // cld
+  function mov(hex,value){const b=Buffer.from(hex+'0000000000000000','hex');b.writeBigUInt64LE(value,2);code.push(b);}
+  mov('48bf',dest);
+  if(fill)code.push(Buffer.from('31c0','hex'));else mov('48be',source);
+  code.push(Buffer.from('b910000000','hex'));
+  const rip=ENTRY+code.reduce((n,b)=>n+b.length,0),instruction=Buffer.from(fill?'f3aa':'f3a4','hex');code.push(instruction);
+  const hex=value=>'0x'+value.toString(16);
+  return {bytes:elf(Buffer.concat(code)),expected:{rip:hex(rip),guestAddress:hex(dest),wasmAddress:hex(dest&0xffffffffn),
+   width:1,fsBase:'0x0',gsBase:'0x0',instructionHex:instruction.toString('hex'),wasmOpcode:'0xfc',
+   wasmBulkOpcode:fill?'0xb':'0xa',accessKind:fill?'fill':'copy',byteLength:'0x10',wasmByteLength:'0x10',boundsConfirmed:true,
+   ...(fill?{}:{sourceGuestAddress:hex(source),sourceWasmAddress:hex(source&0xffffffffn)})}};
+ }
  const direct=segment==='direct',fs=segment==='fs';
  const base=direct?0n:fs?0x20000000n:0x30000000n;
  const address=0x1fffff000n,offset=address-base;
@@ -28,6 +42,6 @@ function fixture(segment) {
  const rip=ENTRY+code.reduce((n,b)=>n+b.length,0);code.push(instruction);
  return {bytes:elf(Buffer.concat(code)),expected:{rip:'0x'+rip.toString(16),guestAddress:'0x'+address.toString(16),
   wasmAddress:'0xfffff000',width:8,fsBase:fs?'0x20000000':'0x0',gsBase:!direct&&!fs?'0x30000000':'0x0',
-  instructionHex:instruction.toString('hex'),wasmOpcode:'0x29'}};
+  instructionHex:instruction.toString('hex'),wasmOpcode:'0x29',boundsConfirmed:true}};
 }
 module.exports={fixture};

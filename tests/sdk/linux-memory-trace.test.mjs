@@ -28,3 +28,20 @@ test('diagnostic manifests preserve signed 64-bit relocation displacement withou
  assert.equal(data.rip,'0x400078');assert.equal(data.relocation.displacementDecimal,'-4294967300');
  assert.deepEqual(data.relocation.slots,[2,3]);assert.equal(data.slot,5);
 });
+test('bulk copy trace retains both operands and full length, and identifies the actual out-of-bounds operand',()=>{
+ const mem={buffer:new ArrayBuffer(4096)},dv=new DataView(mem.buffer),at=0x80;
+ for(const [off,value] of [[0,0x100000200n],[8,0x200n],[16,(51n<<32n)|1n],[40,0x200n],
+  [48,0x100000010n],[56,0x1fffff000n],[64,0xfffff000n],[72,2n]])dv.setBigUint64(at+off,value,true);
+ const fault=FexLinuxThread.readMemoryTrace(mem,0,{memoryTraceAddr:at,memoryTraceVersion:2});
+ assert.equal(fault.accessKind,'copy');assert.equal(fault.byteLength,'0x100000010');
+ assert.equal(fault.wasmByteLength,'0x10');assert.equal(fault.sourceGuestAddress,'0x1fffff000');
+ assert.deepEqual(fault.outOfBoundsOperands,['source']);assert.equal(fault.boundsConfirmed,true);
+ dv.setBigUint64(at+64,512n,true);
+ assert.equal(FexLinuxThread.readMemoryTrace(mem,0,{memoryTraceAddr:at,memoryTraceVersion:2}).boundsConfirmed,false);
+});
+test('a valid last scalar access is not reported as the proved trap operand',()=>{
+ const mem={buffer:new ArrayBuffer(4096)},dv=new DataView(mem.buffer),at=0x80;
+ dv.setBigUint64(at,512n,true);dv.setBigUint64(at+16,8n,true);dv.setBigUint64(at+40,512n,true);
+ const trace=FexLinuxThread.readMemoryTrace(mem,0,{memoryTraceAddr:at});
+ assert.equal(trace.boundsConfirmed,false);assert.deepEqual(trace.outOfBoundsOperands,[]);
+});

@@ -17,11 +17,26 @@ function readMemoryTrace(mem, tb, cfg) {
   const rip = dv.getBigUint64(at + 8, true), op = dv.getBigUint64(at + 16, true);
   const pc = Number(rip), code = Number.isSafeInteger(pc) && pc >= 0 && pc < bytes
     ? new Uint8Array(mem.buffer, pc, Math.min(16, bytes - pc)) : [];
-  return { guestAddress:hex(dv.getBigUint64(at, true)), rip:hex(rip),
+  const result = { guestAddress:hex(dv.getBigUint64(at, true)), rip:hex(rip),
     operation:Number(op >> 32n), width:Number(op & 0xffffffffn),
     fsBase:hex(dv.getBigUint64(at + 24, true)), gsBase:hex(dv.getBigUint64(at + 32, true)),
     wasmAddress:hex(dv.getBigUint64(at + 40, true)), memoryBytes:bytes,
     instructionHex:[...code].map(b=>b.toString(16).padStart(2,'0')).join('') };
+  let length = BigInt(result.width);
+  if (cfg.memoryTraceVersion >= 2 && at + 80 <= bytes) {
+    const count = dv.getBigUint64(at + 48, true), kind = Number(dv.getBigUint64(at + 72, true));
+    Object.assign(result, {accessKind:['scalar','fill','copy','cacheline-zero','context-clear'][kind] || 'unknown',
+      byteLength:hex(count), wasmByteLength:hex(kind ? count & 0xffffffffn : count)});
+    length = BigInt(result.wasmByteLength);
+    if (kind === 2) Object.assign(result, {sourceGuestAddress:hex(dv.getBigUint64(at + 56, true)),
+      sourceWasmAddress:hex(dv.getBigUint64(at + 64, true))});
+  }
+  const outside = address => BigInt(address) + length > BigInt(bytes);
+  result.outOfBoundsOperands = [];
+  if (outside(result.wasmAddress)) result.outOfBoundsOperands.push('address');
+  if (result.sourceWasmAddress && outside(result.sourceWasmAddress)) result.outOfBoundsOperands.push('source');
+  result.boundsConfirmed = result.outOfBoundsOperands.length > 0;
+  return result;
 }
 
 function runThread(env) {
@@ -493,9 +508,10 @@ function runThread(env) {
             code = dv.getUint8(tb + cfg.faultAddr + 1);
           }
         } else {
-          const memoryTrace = readMemoryTrace(mem, tb, cfg);
+          const memoryTrace = e && e.name === 'RuntimeError' && /(?:out of bounds|bounds access)/i.test(e.message || '')
+            ? readMemoryTrace(mem, tb, cfg) : null;
           if (memoryTrace) {
-            rip = Number(BigInt(memoryTrace.rip));
+            if (memoryTrace.boundsConfirmed) rip = Number(BigInt(memoryTrace.rip));
             post({ op:'memoryFault', tid, pid, space, fault:{...memoryTrace, stack:String(e.stack || e)} });
             post({ op:'log', m:'[memory-fault] ' + JSON.stringify(memoryTrace) });
           }

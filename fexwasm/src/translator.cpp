@@ -377,7 +377,7 @@ const char* fexwasm_config_json(fexwasm_translator* T) {
            "\"slotTagCount\":%u,\"unitCounterBase\":%u,\"unitCounterBits\":%u,\"threadBase\":%d,\"shared\":%s,\"guestAbi\":\"%s\","
            "\"tso\":%u,\"callSiteBase\":%u,\"callSiteBits\":%u,\"linux\":%s,\"memMaxPages\":%u,\"cpuidAddr\":%u,\"cpuidCount\":%u,"
            "\"flagSpillAddr\":%u,\"stopAddr\":%u,\"depthAddr\":%u,\"faultAddr\":%u,\"missAddr\":%u,\"profAddr\":%u,\"xmmOff\":%zu,\"ripOff\":%zu,"
-           "\"fsOff\":%zu,\"gsOff\":%zu,\"mxcsrOff\":%zu,\"nzcvAddr\":%u,\"memoryTraceAddr\":%u}",
+           "\"fsOff\":%zu,\"gsOff\":%zu,\"mxcsrOff\":%zu,\"nzcvAddr\":%u,\"memoryTraceAddr\":%u,\"memoryTraceVersion\":2}",
            Cfg.MemPages, CTX, sizeof(CPUState), T->ImageLow, STACK_TOP, HALT, uint32_t(T->Window >> 32), offsetof(CPUState, gregs),
            Cfg.DispatchBase, Cfg.DispatchBits, Cfg.HotAddr, Cfg.HotThreshold, Cfg.SlotTagBase, Cfg.SlotTagCount, Cfg.UnitCounterBase,
            Cfg.UnitCounterBits, Cfg.ThreadBaseGlobal ? int(T->ThreadBase) : -1, Cfg.SharedMemory ? "true" : "false", T->Abi.c_str(),

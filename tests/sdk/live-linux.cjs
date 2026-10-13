@@ -13,7 +13,7 @@ async function main() {
  const digest=crypto.createHash('sha256').update(payload).digest('hex');
  const overlay={'/test/hello-static':fixture('LinuxSmokeFixture'),'/test/session-static':fixture('LinuxSessionFixture'),
    '/test/session-input.txt':Buffer.from('BetterJIT data\n'),'/test/userspace.bin':payload};
- const faults=['direct','fs','gs'].map(segment=>{
+ const faults=['direct','fs','gs','fill','copy-destination','copy-source'].map(segment=>{
   const f=faultFixture(segment),name=`/test/fault-${segment}`;overlay[name]=f.bytes;
   return {id:'linux-faulttrace-'+segment,argv:[name],expectedFault:f.expected,
    translatorOptions:'depth=24 memtrace=1',debugDirectory:path.join(REPO,'.build/wine-instruction-trace',segment)};
@@ -43,7 +43,7 @@ async function main() {
    const correct=(spec.expectedFault?expectedFault:result.code===0) && result.translator.units>0 && result.units.compiled>0 &&
     (!spec.marker||result.stdout.includes(spec.marker)) && (!spec.markers||spec.markers.every(m=>result.stdout.includes(m))) && (!spec.digest||result.stdout.includes(spec.digest)) &&
     (!spec.id.startsWith('wine-')||/^\s*(Microsoft )?Windows[^\n]*\d+\.\d+/im.test(result.stdout));
-   report.records.push({id:spec.id,status:correct?'passed':'failed',...result});
+   report.records.push({id:spec.id,status:correct?'passed':'failed',purpose:spec.expectedFault?'Expected-fault diagnostic validation':'Real guest workload',expectedFault:spec.expectedFault??null,...result});
    console.log(`${correct?'PASS':'FAIL'} ${spec.id}: exit ${result.code}, ${result.translator.units} native FEX units, ${result.units.compiled} Wasm modules, ${result.milliseconds.toFixed(0)} ms`);
    if(result.memoryFaults.length)console.log(JSON.stringify({id:spec.id,expectedFault:spec.expectedFault??null,memoryFaults:result.memoryFaults}));
    if(!correct)console.error(JSON.stringify({id:spec.id,expectedDigest:spec.digest,stdout:result.stdout,stderr:result.stderr.slice(-8192),translationLog:result.translationLog.slice(-8192)}));
