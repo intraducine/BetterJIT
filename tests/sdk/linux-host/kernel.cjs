@@ -29,7 +29,7 @@ if(d.tracePaths) {
     const original=vfs[method];
     vfs[method]=function(guest,...args) {
       const record=outcome=>{
-        if(budget>0&&/wine-flat|kernel32\.dll|kernelbase\.dll|wineboot|cmd\.exe|ntdll\.so/i.test(guest)) {
+        if(budget>0&&/kernel32\.dll|kernelbase\.dll|wineboot|cmd\.exe|ntdll\.so/i.test(guest)) {
           budget--;parentPort.postMessage({op:'log',message:`[guest-file] ${method} ${String(guest).slice(0,400)} ${outcome}`});
         }
       };

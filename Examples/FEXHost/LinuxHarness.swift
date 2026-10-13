@@ -65,10 +65,10 @@ import BetterJITLinux
                 // root; the new loader/ntdll live in the separate candidate.
                 environment["WINEDLLPATH"]="/usr/lib/wine"
                 environment["LD_LIBRARY_PATH"]="/opt/wine-flat/lib/wine/x86_64-unix:/usr/lib"
-                environment["WINEDEBUG"]="+loaddll,+process"
+                environment["WINEDEBUG"]="+module,+loaddll,+process"
             }
             let arguments=mode == .wineFlat
-                ? ["/bin/busybox","sh","-c","/opt/wine-flat/share/betterjit-provenance/fs-reset.elf && exec /opt/wine-flat/bin/wine cmd /c ver"]
+                ? ["/bin/busybox","sh","-c","/opt/wine-flat/share/betterjit-provenance/fs-reset.elf && exec /opt/wine-flat/bin/wine /usr/lib/wine/x86_64-windows/cmd.exe /c ver"]
                 : ["/opt/wine/bin/wine","cmd","/c","ver"]
             cfg=LinuxRuntimeConfiguration(arguments:arguments,
                                           environment:environment,timeoutSeconds:90,

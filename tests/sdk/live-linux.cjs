@@ -29,10 +29,10 @@ async function main() {
   {id:'wine-command-no-preloader',argv:['/opt/wine/bin/wine','cmd','/c','ver'],
    environment:{WINELOADERNOEXEC:'1',WINEARCH:'win64'},optional:true,timeout:120},
   ...(fs.existsSync(path.join(root,'opt/wine-flat/.betterjit-wine-flat.json')) ? [
-   {id:'wine-command-flat-window',argv:['/bin/busybox','sh','-c','/opt/wine-flat/share/betterjit-provenance/fs-reset.elf && exec /opt/wine-flat/bin/wine cmd /c ver'],
+   {id:'wine-command-flat-window',argv:['/bin/busybox','sh','-c','/opt/wine-flat/share/betterjit-provenance/fs-reset.elf && exec /opt/wine-flat/bin/wine /usr/lib/wine/x86_64-windows/cmd.exe /c ver'],
     marker:'BetterJIT Wine FS reset OK',sharedAddressSpace:false,
     environment:{WINELOADERNOEXEC:'1',WINEARCH:'win64',WINEPREFIX:'/home/user/.wine-flat',
-     WINEDLLPATH:'/usr/lib/wine',LD_LIBRARY_PATH:'/opt/wine-flat/lib/wine/x86_64-unix:/usr/lib',WINEDEBUG:'+loaddll,+process'},timeout:120,
+     WINEDLLPATH:'/usr/lib/wine',LD_LIBRARY_PATH:'/opt/wine-flat/lib/wine/x86_64-unix:/usr/lib',WINEDEBUG:'+module,+loaddll,+process'},timeout:120,
     translatorOptions:'depth=24 memtrace=1',debugDirectory:path.join(REPO,'.build/wine-instruction-trace','wine-flat')}
   ] : []),
   ...faults,
@@ -60,8 +60,10 @@ async function main() {
    if(result.memoryFaults.length)console.log(JSON.stringify({id:spec.id,expectedFault:spec.expectedFault??null,memoryFaults:result.memoryFaults}));
    if(spec.id.startsWith('wine-'))console.log(JSON.stringify({id:spec.id,
     failedMappings:result.stderr.split('\n').filter(line=>/mmap\(/.test(line)&&/= E12$/.test(line)).slice(-20)}));
-   if(spec.id==='wine-command-flat-window')console.log(JSON.stringify({id:spec.id,
-    loaderAndFileTrace:result.stderr.split('\n').filter(line=>/\[guest-file\]|execve .*\(space |direct loader:|loaddll|:process:|could not load|failed to load/.test(line)).slice(0,220)}));
+   if(spec.id==='wine-command-flat-window') {
+    const trace=result.stderr.split('\n').filter(line=>/\[guest-file\]|execve .*\(space |direct loader:|:module:|loaddll|:process:|could not load|failed to load/.test(line));
+    console.log(JSON.stringify({id:spec.id,loaderAndFileTrace:trace.length>260?[...trace.slice(0,60),...trace.slice(-200)]:trace}));
+   }
    if(!correct)console.error(JSON.stringify({id:spec.id,expectedDigest:spec.digest,stdout:result.stdout,stderr:result.stderr.slice(-8192),translationLog:result.translationLog.slice(-8192)}));
    if(!correct&&!spec.optional)requiredFailed=true;
   } catch(error){report.records.push({id:spec.id,status:'failed',error:String(error.stack||error),cleanupError:error.cleanupError,translatorStatus:error.translatorStatus,causeDetail:error.causeDetail,stdout:error.stdout,stderr:error.stderr,translationLog:error.translationLog});console.error(`FAIL ${spec.id}: ${error}`);console.error(JSON.stringify({cleanupError:error.cleanupError,translatorStatus:error.translatorStatus,causeDetail:error.causeDetail,stdout:error.stdout,stderr:error.stderr?.slice(-8192),translationLog:error.translationLog}));if(!spec.optional)requiredFailed=true;}
