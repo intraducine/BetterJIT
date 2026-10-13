@@ -57,6 +57,9 @@ launches the signed root's `/usr/lib/wine/x86_64-windows/cmd.exe` explicitly.
 A successfully mapped image below its preferred Win64 base keeps Wine's existing
 PE relocation validation instead of being discarded for `start.exe` merely
 because it returned the informational `STATUS_IMAGE_NOT_AT_BASE` status.
+Mapped builtin image metadata also uses the actual mapped base plus the entry RVA,
+as Wine already does for non-builtin mappings; preferred high addresses are not
+aliased or truncated into the guest window.
 Windows version
 output, exit 0 and observed native translation are still required. This is an
 adapted Wine input, not support for arbitrary 64-bit guest address spaces, Win32,

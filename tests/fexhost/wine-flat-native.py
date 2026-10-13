@@ -2,6 +2,84 @@
 """Check the adapted Wine FS sequence on native x86 Linux, not FEX/device evidence."""
 import argparse, pathlib, re, subprocess, tempfile
 
+def check_mapped_entry(source, work):
+    # Compile the actual patched Wine function with mapping/status stubs.
+    # This isolates the observed metadata regression; it is not Wine execution.
+    wine = (source / 'dlls/ntdll/unix/virtual.c').read_text()
+    function = re.search(r'NTSTATUS virtual_map_builtin_module\([\s\S]*?\n\}', wine)
+    if not function: raise SystemExit('Wine builtin mapping function is missing')
+    stubs = r'''
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdarg.h>
+typedef uint32_t NTSTATUS;
+typedef uintptr_t HANDLE, SIZE_T, ULONG_PTR;
+typedef uint64_t mem_size_t;
+typedef uint16_t WCHAR, WORD;
+typedef int BOOL;
+typedef struct { void *TransferAddress; } SECTION_IMAGE_INFORMATION;
+struct pe_image_info { int wine_builtin; unsigned dll_charact; uintptr_t base, entry_point; };
+#define TRUE 1
+#define SECTION_MAP_READ 1
+#define STATUS_INVALID_PARAMETER 0xc000000dU
+#define STATUS_DLL_NOT_FOUND 0xc0000135U
+#define STATUS_IMAGE_ALREADY_LOADED 0x4000000eU
+#define STATUS_IMAGE_NOT_AT_BASE 0x40000003U
+#define IMAGE_DLLCHARACTERISTICS_PREFER_NATIVE 1
+static NTSTATUS mapping_status;
+static uintptr_t mapped_base;
+static void ignore_trace(const char *format, ...) {}
+#define WARN_(channel) ignore_trace
+#define TRACE_(channel) ignore_trace
+static const char *debugstr_w(const WCHAR *s) { return "mapping fixture"; }
+static void NtClose(HANDLE h) {}
+static NTSTATUS get_mapping_info(HANDLE h, unsigned access, unsigned *flags,
+                                mem_size_t *full_size, HANDLE *shared, struct pe_image_info **out)
+{
+    *out = calloc(1, sizeof(**out) + sizeof(WCHAR));
+    (*out)->wine_builtin = 1;
+    (*out)->base = 0x140000000ULL;
+    (*out)->entry_point = 0x1e220;
+    *shared = 0;
+    return 0;
+}
+static NTSTATUS virtual_map_image(HANDLE h, void **module, SIZE_T *size, HANDLE shared,
+                                 ULONG_PTR low, ULONG_PTR high, unsigned alloc, WORD machine,
+                                 struct pe_image_info *info, WCHAR *filename, BOOL builtin)
+{
+    *module = mapping_status & 0x80000000U ? NULL : (void *)mapped_base;
+    *size = 0x1c1000;
+    return mapping_status;
+}
+static void virtual_fill_image_information(struct pe_image_info *image, SECTION_IMAGE_INFORMATION *info)
+{ info->TransferAddress = (void *)(image->base + image->entry_point); }
+'''
+    main = r'''
+int main(void)
+{
+    void *module;
+    SIZE_T size;
+    SECTION_IMAGE_INFORMATION info;
+    const NTSTATUS statuses[] = {STATUS_IMAGE_NOT_AT_BASE, 0, 0xc0000018U};
+    const uintptr_t bases[] = {0x10000, 0x140000000ULL, 0};
+    const uintptr_t entries[] = {0x2e220, 0x14001e220ULL, 0x14001e220ULL};
+    for (int i = 0; i < 3; ++i)
+    {
+        mapping_status = statuses[i]; mapped_base = bases[i];
+        if (virtual_map_builtin_module(1, &module, &size, &info, 0, 0, 0x8664, 0) != statuses[i]) return 1;
+        if ((uintptr_t)info.TransferAddress != entries[i]) return 2;
+    }
+    return 0;
+}
+'''
+    src, out = work / 'mapped-entry.c', work / 'mapped-entry'
+    src.write_text(stubs + '\n' + function[0] + '\n' + main)
+    subprocess.run(['cc', '-std=c11', str(src), '-o', str(out)], check=True)
+    result = subprocess.run([str(out)], timeout=5)
+    if result.returncode:
+        raise SystemExit(f'Wine mapped entry metadata contract failed: {result.returncode}')
+    print('PASS Wine mapping function with stubs: actual relocated entry, preferred-base entry, error status retained.')
+
 ASM = r'''
 .global _start
 _start:
@@ -89,6 +167,7 @@ def main():
     if not match: raise SystemExit('Adapted Wine FS macro is missing')
     a.output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='wine-fs-native-') as temp:
+        check_mapped_entry(a.source, pathlib.Path(temp))
         src = pathlib.Path(temp) / 'fs.c'
         for selector in (0, 1):
             cstring = lambda s: '"' + s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n') + '"'
