@@ -12,7 +12,7 @@ WINE_COMMIT = '71c6c3dd6dcfffc040aa5a10a825eeb8e17f6299'  # Wine 10.7
 IMAGE = 'alpine:3.22.2@sha256:4b7ce07002c69e8f3d704a9c5d6fd3053be500b7f1c69fc0d80990c2ad8dd412'
 CONTAINER = r'''
 set -eu
-apk add --no-cache build-base bison flex-dev perl mingw-w64-gcc python3 freetype-dev
+apk add --no-cache build-base bison flex-dev perl mingw-w64-gcc python3 freetype-dev linux-headers
 ulimit -c 0
 mkdir /source /build
 trap 'if test -f /build/config.log; then cp /build/config.log /output/config.log; fi' EXIT
