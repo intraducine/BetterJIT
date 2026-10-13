@@ -95,7 +95,9 @@ def main():
             src.write_text(match[1] + '\n__asm__(' + cstring(ASM) + '\nBETTERJIT_LOAD_NULL_FS("0x0(%r8)")\n'
                            + cstring(AFTER.replace('SELECTOR', str(selector))) + ');\n')
             out = a.output if selector == 0 else pathlib.Path(temp) / 'non-null.elf'
-            subprocess.run(['cc', '-nostdlib', '-static', '-fno-pie', '-no-pie', '-Wl,--build-id=none',
+            # Shared guest spaces must place this checker away from the
+            # running shell. Its RIP-relative assembly needs no relocator.
+            subprocess.run(['cc', '-nostdlib', '-static-pie', '-fPIE', '-Wl,--build-id=none',
                             str(src), '-o', str(out)], check=True)
             result = subprocess.run([str(out.resolve())], capture_output=True, timeout=5)
             if selector == 0:
