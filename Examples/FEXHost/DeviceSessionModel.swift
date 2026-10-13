@@ -129,6 +129,7 @@ import BetterJITLinux
                 return
             }
             if wine {
+                report?.phases[i].details["memoryFaultTrace"]="Guest instruction and scalar/bulk operands requested; unit translation only. Diagnostic overhead is included in phase time."
                 report?.phases[i].details["loaderMode"]=id == "wine-direct" ? "WINELOADERNOEXEC=1; WINEARCH=win64" : "stock Wine preloader"
                 let root=LinuxHarness.rootURL
                 report?.phases[i].details["rootOrigin"]=root == LinuxHarness.documentsRootURL ? "imported Documents root" : "bundled input candidate"
@@ -169,6 +170,11 @@ import BetterJITLinux
             report?.phases[i].log=String(value.log.suffix(128*1024))
             report?.phases[i].counters=linux.counters
             report?.phases[i].details["exitCode"]=String(value.exitCode)
+            let faults=value.log.split(separator:"\n").filter { $0.hasPrefix("[memory-fault] ") }
+            if let first=faults.first {
+                report?.phases[i].details["firstMemoryFaultTrace"]=String(first.dropFirst(15).prefix(2048))
+                report?.phases[i].details["memoryFaultTraceCount"]=String(faults.count)
+            }
             report?.phases[i].details["execution"]="Real guest ELF → native FEX → Wasm → Linux syscalls"
             report?.phases[i].details["nativeChannelsRequested"]=String(channels)
             let usedNative=(linux.counters["xlatChannelCompletedRequests"] ?? 0)>0 && (linux.counters["kernChannelCompletedRequests"] ?? 0)>0

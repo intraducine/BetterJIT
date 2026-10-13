@@ -239,12 +239,34 @@ const KUSER = 0x7ffe_0000;
 class MemoryPool {
   constructor() { this.free = []; }
   take(maxPages, initialPages) {
+    // An engine can exhaust its reservation budget while a reusable memory
+    // is still quarantined. Keep the existing 1.5 s safety delay and limits;
+    // after allocation failure, wait only for an already retired candidate.
+    try { return this.takeReady(maxPages, initialPages); }
+    catch (error) {
+      if (!(error instanceof RangeError)) throw error;
+      const pending = this.free.filter(e => e.maxPages === maxPages && e.readyAt > performance.now())
+        .sort((a,b) => a.readyAt-b.readyAt)[0];
+      if (pending) {
+        const until = Math.min(pending.readyAt, performance.now() + 1500);
+        const word = new Int32Array(new SharedArrayBuffer(4));
+        while (performance.now() < until) Atomics.wait(word, 0, 0, until-performance.now());
+        try { return this.takeReady(maxPages, initialPages); }
+        catch (retry) { if (!(retry instanceof RangeError)) throw retry; }
+      }
+      fail(E.NOMEM);
+    }
+  }
+  takeReady(maxPages, initialPages) {
     const now = performance.now();
     const i = this.free.findIndex((e) => e.maxPages === maxPages && e.readyAt <= now);
     if (i >= 0) {
       const e = this.free.splice(i, 1)[0];
       const have = e.mem.buffer.byteLength / WASM_PAGE;
-      if (have < initialPages) e.mem.grow(initialPages - have);
+      if (have < initialPages) {
+        try { e.mem.grow(initialPages - have); }
+        catch (error) { this.free.push(e); throw error; }
+      }
       return e;
     }
     return { mem: new WebAssembly.Memory({ initial: initialPages, maximum: maxPages, shared: true }), dirty: [], maxPages };
@@ -295,7 +317,8 @@ class Mm {
     const have = this.mem.buffer.byteLength;
     if (end <= have) return;
     const pages = Math.ceil((end - have) / WASM_PAGE);
-    this.mem.grow(pages);
+    try { this.mem.grow(pages); }
+    catch (error) { if (error instanceof RangeError) fail(E.NOMEM); throw error; }
     this.peakSize = this.mem.buffer.byteLength;
   }
   find(a) {
@@ -1450,9 +1473,9 @@ class Kernel {
   allocTb(mm, owner) {
     const a = mm.findFree(TB_SIZE, 0x10000);
     if (a < 0) fail(E.NOMEM);
+    mm.ensure(a + TB_SIZE);
     mm.zero(a, a + TB_SIZE);
     mm.insert({ start: a, end: a + TB_SIZE, prot: PROT.READ | PROT.WRITE, flags: MAP.PRIVATE | MAP.ANONYMOUS, name: '[fexwasm thread]', kernel: true, owner });
-    mm.ensure(a + TB_SIZE);
     // all of it: the dispatcher writes its tables here too, and a reused
     // memory must not show the next thread another thread's tables
     mm.markDirty(a, a + TB_SIZE);
@@ -2039,7 +2062,7 @@ function normPath(p) {
   return '/' + out.join('/');
 }
 
-module.exports = { Kernel, Retry, Mm, GLOBAL, KUSER, File, HostFile, BufferFile, DevFile, ConsoleFile, PipeEnd, Pipe, UnixSocket, EventFd, EpollFile, WaitQueue,
+module.exports = { Kernel, Retry, Mm, MemoryPool, GLOBAL, KUSER, File, HostFile, BufferFile, DevFile, ConsoleFile, PipeEnd, Pipe, UnixSocket, EventFd, EpollFile, WaitQueue,
   Thread, Process, KError, fail, BLOCK, EXIT_THREAD, REDIRECTED, normPath, pageUp, pageDown, addr, i32, u32, big,
   addr64, POLLIN, POLLOUT, POLLERR, POLLHUP, POLLNVAL, POLLPRI, POLLRDHUP, PAGE, LOW_RESERVED, ADDR_LIMIT, MMAP_BASE, TB_SIZE,
   SLOT_BASE, SLOT_SIZE, INPUT_RING, S_IDLE, S_REQ, S_DONE, S_BUSY, F_REDIRECT, F_EXIT, NR_FAULT, NR_STARTED, NR_SIGCHECK, W_SIGPEND, W_FUTEX, W_OCCUPIED };
@@ -3240,8 +3263,6 @@ function doClone(k, t, flags, newsp, ptid, ctid, tls) {
   }
   // a new process
   const child = new Process(k, k.nextPid++, (flags & CLONE.PARENT) ? proc.ppid : proc.pid);
-  k.procs.set(child.pid, child);
-  proc.children.add(child.pid);
   child.pgid = proc.pgid;
   child.sid = proc.sid;
   child.cwd = proc.cwd;
@@ -3250,10 +3271,13 @@ function doClone(k, t, flags, newsp, ptid, ctid, tls) {
   child.argv = proc.argv;
   child.actions = proc.actions.map((a) => Object.assign({}, a));
   child.rlimits = new Map(proc.rlimits);
-  for (const [fd, e] of proc.fds) child.fds.set(fd, { file: e.file.ref(), cloexec: e.cloexec });
   child.brkStart = proc.brkStart;
   child.brk = proc.brk;
   let tb;
+  // Check worker capacity before allocating an image. No process or file
+  // reference is published until all of its guest state has been prepared.
+  k.allocSlot();
+  try {
   if (flags & CLONE.VM) {
     // vfork / posix_spawn: the child runs in our memory (and image) until it execs or exits
     child.mm = proc.mm;
@@ -3292,6 +3316,18 @@ function doClone(k, t, flags, newsp, ptid, ctid, tls) {
   c.setRip(nextRip);
   if (flags & CLONE.PARENT_SETTID) proc.mm.dv.setInt32(ptid, child.pid, true);
   if (flags & CLONE.CHILD_SETTID) child.mm.dv.setInt32(ctid, child.pid, true);
+  } catch (error) {
+    if (child.mm) {
+      if ((flags & CLONE.VM) && tb) child.mm.cut(tb, tb + TB_SIZE, child.image);
+      k.releaseImage(child);
+    }
+    if (error instanceof KError && error.code === E.NOMEM)
+      k.log?.(`[pid ${proc.pid}] fork: memory allocation failed; no child created`);
+    throw error;
+  }
+  for (const [fd, e] of proc.fds) child.fds.set(fd, { file: e.file.ref(), cloexec: e.cloexec });
+  k.procs.set(child.pid, child);
+  proc.children.add(child.pid);
   const nt = k.startThread(child, child.pid, tb);
   if (flags & CLONE.CHILD_CLEARTID) nt.clearTid = ctid;
   nt.sigmask = t.sigmask;

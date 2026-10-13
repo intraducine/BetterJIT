@@ -25,7 +25,10 @@ import BetterJITLinux
         counters=[:]
         let cache=FileManager.default.urls(for:.cachesDirectory,in:.userDomainMask)[0]
             .appendingPathComponent("BetterJITLinux/xlat-cache",isDirectory:true)
-        let backend=try LinkedLinuxFEXBackend(cacheDirectory:cache)
+        let wine = mode == .wineCommand || mode == .wineDirect
+        // Keep fault operands in the same phone report. The translator's
+        // option fingerprint separates these units from ordinary cached code.
+        let backend=try LinkedLinuxFEXBackend(cacheDirectory:cache,extraOptions:wine ? "memtrace=1" : "")
         defer { counters.merge(backend.statistics(),uniquingKeysWith:{ _,new in new }); backend.close() }
         let fs=try DirectoryLinuxFileSystem(root:Self.rootURL,overlay:[
             "/test/hello-static":LinuxSmokeFixture.elf,
@@ -54,7 +57,7 @@ import BetterJITLinux
             if mode == .wineDirect { environment["WINELOADERNOEXEC"]="1"; environment["WINEARCH"]="win64" }
             cfg=LinuxRuntimeConfiguration(arguments:["/opt/wine/bin/wine","cmd","/c","ver"],
                                           environment:environment,timeoutSeconds:90,
-                                          display:"1024x768",regions:true,slowWaitMilliseconds:100,
+                                          display:"1024x768",regions:false,slowWaitMilliseconds:100,
                                           useNativeChannels:nativeChannels)
         }
         let s=try LinuxRuntimeSession(backend:backend,fileSystem:fs,configuration:cfg)

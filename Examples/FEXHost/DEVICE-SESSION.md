@@ -30,8 +30,20 @@ The second uses Wine's existing `WINELOADERNOEXEC=1` loader setting with
 explicit session policy routes later Wine preloader execs to the requested real
 Wine ELF too, because Wine clears the startup variable during initialization. Both
 require actual Windows version output and exit 0; one failed path stays FAIL
-even if the other succeeds. Missing Wine inputs produce
-UNSUPPORTED. A present but broken root, failed exit, missing Windows version,
+even if the other succeeds.
+
+Both Wine attempts include guest-instruction fault tracing in the exported phase
+details and log. It records full addresses, actual Wasm addresses, segment bases
+and bulk fill/copy operands and counts. `boundsConfirmed` identifies whether that
+record explains the bounds trap; an unconfirmed last access is not its proved
+cause. Wine uses unit translation for this trace, and its phase time includes
+diagnostic overhead. The separate ABI suites still exercise hot regions.
+The stock Wine 10.7 path currently requires a kernel stack above 4 GiB, outside
+the Linux mapper's supported range. Its loader can continue after that allocation
+fails, then trap while copying its startup context through a zero stack base.
+The report keeps this as a failed execution attempt. A compatible address-space
+integration or a suitable redistributable Wine build is still required.
+Missing Wine inputs produce UNSUPPORTED. A present but broken root, failed exit, missing Windows version,
 trap or timeout produces FAIL. **Choose staged Wine root folder** can replace the bundled candidate with your
 existing redistributable root without rebuilding the app. Alternatively copy it
 into the app's `Documents/linuxroot` using Files/Finder. Stage inputs with
@@ -99,9 +111,9 @@ x86 fixture checks are separate evidence from real execution on an iPhone.
 
 ## Cloud validation
 
-The automatic workflow has produced an unsigned iPhone build with the bundled
-stock Wine root (run `38182644711`, source `4fafbd7d`). That is Apple compilation,
-not a device execution result. Subsequent live arm64 host runs use the promoted
+The automatic workflow produces an unsigned iPhone build with the bundled
+stock Wine root. Its `BUILD-MANIFEST.json` identifies the exact source and payload
+hashes. That is Apple compilation, not a device execution result. Live arm64 host runs use the promoted
 SDK kernel/thread/runtime and fresh FEX-to-Wasm translation in Node workers;
 their per-case stdout, errors, syscall/fetch/translation statistics and exact
 source are included as `LIVE-LINUX-RESULTS.json` beside the IPA.
@@ -113,7 +125,15 @@ bootstrapped by the client before prestarting wineserver. These fixes do not imp
 arbitrary Wine compatibility; inspect the actual Wine phase outcome. Host evidence
 is distinct from Apple WebKit and physical iPhone execution.
 
+Fork allocation failure returns ENOMEM and leaves no child or inherited file
+reference behind. Under reservation pressure, the kernel can wait at most 1.5 s
+for an already retired memory to finish its existing quarantine before reuse;
+guest memory limits remain unchanged. This failure path is verified with an
+injected allocation limit; phone workload success still requires every marker
+and the exact checksum.
+
 This cloud workspace can run portable Swift/JavaScript checks and direct native
 Linux fixtures. Its Alpine APK downloads return Permission denied/HTTPS CONNECT
 403, so the supported GitHub route prepares the stock root and builds on Apple.
-No device result, successful DXMT integration or native-FEX speed ratio is claimed.
+Device results must come from an exported phone session. Successful DXMT
+integration and a native-FEX speed ratio have not been established.

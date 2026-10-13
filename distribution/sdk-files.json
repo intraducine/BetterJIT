@@ -143,6 +143,7 @@
     "tests/sdk/linux-memory-trace.test.mjs": "tests/sdk/linux-memory-trace.test.mjs",
     "tests/sdk/linux-host/fault-fixtures.cjs": "tests/sdk/linux-host/fault-fixtures.cjs",
     "tests/sdk/linux-host/wasm-names.cjs": "tests/sdk/linux-host/wasm-names.cjs",
-    "tests/sdk/linux-segments.test.mjs": "tests/sdk/linux-segments.test.mjs"
+    "tests/sdk/linux-segments.test.mjs": "tests/sdk/linux-segments.test.mjs",
+    "tests/sdk/linux-fork-failure.test.mjs": "tests/sdk/linux-fork-failure.test.mjs"
   }
 }

@@ -36,6 +36,10 @@ function readMemoryTrace(mem, tb, cfg) {
   if (outside(result.wasmAddress)) result.outOfBoundsOperands.push('address');
   if (result.sourceWasmAddress && outside(result.sourceWasmAddress)) result.outOfBoundsOperands.push('source');
   result.boundsConfirmed = result.outOfBoundsOperands.length > 0;
+  const gs = dv.getBigUint64(at + 32, true);
+  if (gs && gs + 24n <= BigInt(bytes)) {
+    result.gsBaseWords = [0,8,16].map(off => hex(dv.getBigUint64(Number(gs) + off, true)));
+  }
   return result;
 }
 

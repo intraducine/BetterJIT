@@ -793,8 +793,6 @@ function doClone(k, t, flags, newsp, ptid, ctid, tls) {
   }
   // a new process
   const child = new Process(k, k.nextPid++, (flags & CLONE.PARENT) ? proc.ppid : proc.pid);
-  k.procs.set(child.pid, child);
-  proc.children.add(child.pid);
   child.pgid = proc.pgid;
   child.sid = proc.sid;
   child.cwd = proc.cwd;
@@ -803,10 +801,13 @@ function doClone(k, t, flags, newsp, ptid, ctid, tls) {
   child.argv = proc.argv;
   child.actions = proc.actions.map((a) => Object.assign({}, a));
   child.rlimits = new Map(proc.rlimits);
-  for (const [fd, e] of proc.fds) child.fds.set(fd, { file: e.file.ref(), cloexec: e.cloexec });
   child.brkStart = proc.brkStart;
   child.brk = proc.brk;
   let tb;
+  // Check worker capacity before allocating an image. No process or file
+  // reference is published until all of its guest state has been prepared.
+  k.allocSlot();
+  try {
   if (flags & CLONE.VM) {
     // vfork / posix_spawn: the child runs in our memory (and image) until it execs or exits
     child.mm = proc.mm;
@@ -845,6 +846,18 @@ function doClone(k, t, flags, newsp, ptid, ctid, tls) {
   c.setRip(nextRip);
   if (flags & CLONE.PARENT_SETTID) proc.mm.dv.setInt32(ptid, child.pid, true);
   if (flags & CLONE.CHILD_SETTID) child.mm.dv.setInt32(ctid, child.pid, true);
+  } catch (error) {
+    if (child.mm) {
+      if ((flags & CLONE.VM) && tb) child.mm.cut(tb, tb + TB_SIZE, child.image);
+      k.releaseImage(child);
+    }
+    if (error instanceof KError && error.code === E.NOMEM)
+      k.log?.(`[pid ${proc.pid}] fork: memory allocation failed; no child created`);
+    throw error;
+  }
+  for (const [fd, e] of proc.fds) child.fds.set(fd, { file: e.file.ref(), cloexec: e.cloexec });
+  k.procs.set(child.pid, child);
+  proc.children.add(child.pid);
   const nt = k.startThread(child, child.pid, tb);
   if (flags & CLONE.CHILD_CLEARTID) nt.clearTid = ctid;
   nt.sigmask = t.sigmask;

@@ -46,6 +46,8 @@ async function main() {
    report.records.push({id:spec.id,status:correct?'passed':'failed',purpose:spec.expectedFault?'Expected-fault diagnostic validation':'Real guest workload',expectedFault:spec.expectedFault??null,...result});
    console.log(`${correct?'PASS':'FAIL'} ${spec.id}: exit ${result.code}, ${result.translator.units} native FEX units, ${result.units.compiled} Wasm modules, ${result.milliseconds.toFixed(0)} ms`);
    if(result.memoryFaults.length)console.log(JSON.stringify({id:spec.id,expectedFault:spec.expectedFault??null,memoryFaults:result.memoryFaults}));
+   if(spec.id.startsWith('wine-'))console.log(JSON.stringify({id:spec.id,
+    failedMappings:result.stderr.split('\n').filter(line=>/mmap\(/.test(line)&&/= E12$/.test(line)).slice(-20)}));
    if(!correct)console.error(JSON.stringify({id:spec.id,expectedDigest:spec.digest,stdout:result.stdout,stderr:result.stderr.slice(-8192),translationLog:result.translationLog.slice(-8192)}));
    if(!correct&&!spec.optional)requiredFailed=true;
   } catch(error){report.records.push({id:spec.id,status:'failed',error:String(error.stack||error),cleanupError:error.cleanupError,translatorStatus:error.translatorStatus,causeDetail:error.causeDetail,stdout:error.stdout,stderr:error.stderr,translationLog:error.translationLog});console.error(`FAIL ${spec.id}: ${error}`);console.error(JSON.stringify({cleanupError:error.cleanupError,translatorStatus:error.translatorStatus,causeDetail:error.causeDetail,stdout:error.stdout,stderr:error.stderr?.slice(-8192),translationLog:error.translationLog}));if(!spec.optional)requiredFailed=true;}
