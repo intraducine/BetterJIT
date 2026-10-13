@@ -61,6 +61,11 @@ import BetterJITLinux
             if mode == .wineFlat {
                 guard Self.flatWinePresent else { throw LinuxRuntimeError.guest("Source-built flat-window Wine candidate is missing.") }
                 environment["WINEPREFIX"]="/home/user/.wine-flat"
+                // PE and remaining Unix modules come from the signed stock
+                // root; the new loader/ntdll live in the separate candidate.
+                environment["WINEDLLPATH"]="/usr/lib/wine"
+                environment["LD_LIBRARY_PATH"]="/opt/wine-flat/lib/wine/x86_64-unix:/usr/lib"
+                environment["WINEDEBUG"]="+loaddll,+process"
             }
             let arguments=mode == .wineFlat
                 ? ["/bin/busybox","sh","-c","/opt/wine-flat/share/betterjit-provenance/fs-reset.elf && exec /opt/wine-flat/bin/wine cmd /c ver"]

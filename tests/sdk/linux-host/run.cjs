@@ -48,7 +48,7 @@ async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trac
     const result=await new Promise((resolve,reject)=>{
       timer=setTimeout(()=>reject(Error(`Guest deadline ${timeout}s exceeded\n${stderr.slice(-8192)}`)),timeout*1000);
       kernel=new Worker(path.join(__dirname,'kernel.cjs'),{workerData:{resources,root,overlay,index:rootIndex(root,overlay),
-        cfg,state,bridge,bootEpoch,argv,cwd,trace,uid,gid,env:Object.entries({HOME:'/home/user',USER:'user',PATH:'/opt/wine/bin:/usr/bin:/bin',
+        cfg,state,bridge,bootEpoch,argv,cwd,trace,tracePaths:!!debugDirectory,uid,gid,env:Object.entries({HOME:'/home/user',USER:'user',PATH:'/opt/wine/bin:/usr/bin:/bin',
           LANG:'C',WINEDEBUG:'-all',WINEDLLOVERRIDES:'winemenubuilder.exe=d',LD_LIBRARY_PATH:'/opt/wine/lib/wine/x86_64-unix',...environment}).map(([k,v])=>`${k}=${v}`)}});
       kernel.on('error',reject);
       kernel.on('message',async message=>{
