@@ -16,6 +16,7 @@
 #include "Interface/Core/Frontend.h"
 #include "Interface/Core/LookupCache.h"
 #include "Interface/Core/OpcodeDispatcher.h"
+#include "Interface/Core/JIT/Relocations.h"
 #include "Interface/IR/IR.h"
 #include "Interface/IR/PassManager.h"
 
@@ -23,7 +24,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#if defined(__APPLE__)
 #include <TargetConditionals.h>
+#endif
 #include <map>
 #include <memory>
 #include <optional>
@@ -66,8 +69,12 @@ public:
   uint64_t HandleSyscall(FEXCore::Core::CpuStateFrame*, FEXCore::HLE::SyscallArguments*) override {
     return 0;
   }
-  FEXCore::HLE::ExecutableRangeInfo QueryGuestExecutableRange(FEXCore::Core::InternalThreadState*, uint64_t) override {
-    return {0, UINT64_MAX, false};
+  FEXCore::HLE::ExecutableRangeInfo QueryGuestExecutableRange(FEXCore::Core::InternalThreadState*, uint64_t Address) override {
+    // The frontend reads host-owned buffers, not native memory at guest
+    // addresses. Unknown bytes must stop decoding through its NOEXEC path.
+    const auto* Mapping = Current ? Current->MappingAt(Address) : nullptr;
+    return Mapping ? FEXCore::HLE::ExecutableRangeInfo {Mapping->Base, Mapping->Size, false}
+                   : FEXCore::HLE::ExecutableRangeInfo {0, 0, false};
   }
   std::optional<FEXCore::ExecutableFileSectionInfo> LookupExecutableFileSection(FEXCore::Core::InternalThreadState*, uint64_t) override {
     return std::nullopt;
@@ -83,7 +90,7 @@ extern "C" void __clear_cache(void* Start, void* End) {
 }
 #endif
 
-#if !TARGET_OS_IPHONE
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
 // macOS only grants writable+executable memory with MAP_JIT. (Nothing here
 // runs FEX's JIT; this keeps any executable allocation FEX makes working in
 // the Mac tools. On iOS nothing executable is allocated.)
@@ -157,6 +164,7 @@ extern "C" const char* fexwasm_coverage() {
 }
 
 struct FexHost::Impl {
+  bool DebugGuestInstructions = false;
   std::map<uint64_t, std::unique_ptr<OwnedIR>> Cache;
   NullSignalDelegator Signals;
   NullSyscallHandler Syscalls;
@@ -168,7 +176,8 @@ struct FexHost::Impl {
 
 FexHost::FexHost(const Options& Opts)
   : P(std::make_unique<Impl>()) {
-#if !TARGET_OS_IPHONE
+  P->DebugGuestInstructions = Opts.DebugGuestInstructions;
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
   FEXCore::Allocator::mmap = JitAwareMmap;
   pthread_jit_write_protect_np(0);
 #endif
@@ -376,7 +385,9 @@ const FEXCore::IR::IRListView* FexHost::GenerateIR(uint64_t RIP, uint64_t* Guest
     // this IR's own dependencies (FEX may be inside a translation that records too)
     std::vector<CodeDep> Mine, *Outer = Recording;
     Recording = &Mine;
-    auto R = CI->GenerateIR(P->Thread, RIP, false, 0);
+    // Mapping changes can invalidate the frontend's last executable range.
+    P->Thread->FrontendDecoder->ResetExecutableRangeCache();
+    auto R = CI->GenerateIR(P->Thread, RIP, P->DebugGuestInstructions, 0);
     Recording = Outer;
     std::unique_ptr<OwnedIR> O;
     if (R.IRView) {
@@ -435,7 +446,20 @@ std::vector<uint8_t> FexHost::CPUIDTable(uint32_t* Count) const {
   auto* CI = static_cast<FEXCore::Context::ContextImpl*>(P->CTX.get());
   std::vector<uint8_t> T;
   auto Add = [&](uint32_t Fn, uint32_t Leaf, bool AnyLeaf) {
-    const auto R = CI->CPUID.RunFunction(Fn, Leaf);
+    // This is one fixed virtual CPU table. Brand leaves must use its CPU 0,
+    // rather than indexing the 16 virtual entries by the host scheduler's ID.
+    FEXCore::CPUID::FunctionResults R {};
+    if (Fn >= 0x8000'0002u && Fn <= 0x8000'0004u) {
+#if defined(ARCHITECTURE_x86_64)
+      // The vendor x86 frontend debug configuration has no per-CPU names.
+      static constexpr char Brand[48] = "BetterJIT FEX frontend debug (x86 host)";
+      memcpy(&R, Brand + (Fn - 0x8000'0002u) * 16, sizeof(R));
+#else
+      R = CI->CPUID.RunFunctionName(Fn, Leaf, 0);
+#endif
+    } else {
+      R = CI->CPUID.RunFunction(Fn, Leaf);
+    }
     const uint32_t E[6] = {Fn, AnyLeaf ? 0xFFFF'FFFFu : Leaf, R.eax, R.ebx, R.ecx, R.edx};
     T.insert(T.end(), reinterpret_cast<const uint8_t*>(E), reinterpret_cast<const uint8_t*>(E) + sizeof(E));
   };

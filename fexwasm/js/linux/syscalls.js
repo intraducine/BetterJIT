@@ -594,7 +594,7 @@ def('arch_prctl', function (t, a0, a1) {
   if (code === 0x1002) { c.setFs(BigInt.asUintN(64, a1)); return 0; } // ARCH_SET_FS
   if (code === 0x1001) { c.setGs(BigInt.asUintN(64, a1)); return 0; } // ARCH_SET_GS
   if (code === 0x1003) { t.proc.mm.dv.setBigUint64(addr(a1), c.fs(), true); return 0; }
-  if (code === 0x1004) { t.proc.mm.dv.setBigUint64(addr(a1), 0n, true); return 0; }
+  if (code === 0x1004) { t.proc.mm.dv.setBigUint64(addr(a1), c.gs(), true); return 0; }
   fail(E.INVAL);
 });
 def('set_tid_address', (t, a0) => {
@@ -793,8 +793,6 @@ function doClone(k, t, flags, newsp, ptid, ctid, tls) {
   }
   // a new process
   const child = new Process(k, k.nextPid++, (flags & CLONE.PARENT) ? proc.ppid : proc.pid);
-  k.procs.set(child.pid, child);
-  proc.children.add(child.pid);
   child.pgid = proc.pgid;
   child.sid = proc.sid;
   child.cwd = proc.cwd;
@@ -803,10 +801,13 @@ function doClone(k, t, flags, newsp, ptid, ctid, tls) {
   child.argv = proc.argv;
   child.actions = proc.actions.map((a) => Object.assign({}, a));
   child.rlimits = new Map(proc.rlimits);
-  for (const [fd, e] of proc.fds) child.fds.set(fd, { file: e.file.ref(), cloexec: e.cloexec });
   child.brkStart = proc.brkStart;
   child.brk = proc.brk;
   let tb;
+  // Check worker capacity before allocating an image. No process or file
+  // reference is published until all of its guest state has been prepared.
+  k.allocSlot();
+  try {
   if (flags & CLONE.VM) {
     // vfork / posix_spawn: the child runs in our memory (and image) until it execs or exits
     child.mm = proc.mm;
@@ -845,6 +846,18 @@ function doClone(k, t, flags, newsp, ptid, ctid, tls) {
   c.setRip(nextRip);
   if (flags & CLONE.PARENT_SETTID) proc.mm.dv.setInt32(ptid, child.pid, true);
   if (flags & CLONE.CHILD_SETTID) child.mm.dv.setInt32(ctid, child.pid, true);
+  } catch (error) {
+    if (child.mm) {
+      if ((flags & CLONE.VM) && tb) child.mm.cut(tb, tb + TB_SIZE, child.image);
+      k.releaseImage(child);
+    }
+    if (error instanceof KError && error.code === E.NOMEM)
+      k.log?.(`[pid ${proc.pid}] fork: memory allocation failed; no child created`);
+    throw error;
+  }
+  for (const [fd, e] of proc.fds) child.fds.set(fd, { file: e.file.ref(), cloexec: e.cloexec });
+  k.procs.set(child.pid, child);
+  proc.children.add(child.pid);
   const nt = k.startThread(child, child.pid, tb);
   if (flags & CLONE.CHILD_CLEARTID) nt.clearTid = ctid;
   nt.sigmask = t.sigmask;
@@ -1219,15 +1232,27 @@ def('lseek', function (t, a0, a1, a2) {
 });
 def('sendfile', function (t, a0, a1, a2, a3) {
   const out = t.proc.file(i32(a0)), inf = t.proc.file(i32(a1)), n = Math.min(Number(a3), 1 << 20);
-  const buf = new Uint8Array(n);
-  let r;
-  if (addr(a2)) {
-    const dv = t.proc.mm.dv, off = Number(dv.getBigInt64(addr(a2), true));
-    r = inf.pread(this, t, buf, off);
-    dv.setBigInt64(addr(a2), BigInt(off + r), true);
-  } else r = inf.read(this, t, buf);
+  if (n < 0) fail(E.INVAL);
+  if ((inf.flags & O.ACCMODE) === O.WRONLY || (out.flags & O.ACCMODE) === 0) fail(E.BADF);
+  if (out.flags & O.APPEND) fail(E.INVAL);
+  if (inf.kind !== 'file' && inf.kind !== 'buffer') fail(E.INVAL);
+  const ptr = addr(a2), dv = t.proc.mm.dv;
+  const off = ptr ? Number(dv.getBigInt64(ptr, true)) : inf.pos;
+  if (!Number.isSafeInteger(off) || off < 0) fail(E.INVAL);
+  // A pipe cannot accept more than its capacity. Bound read-ahead so large
+  // guest sendfile counts do not repeatedly fetch/allocate megabyte buffers.
+  const chunk = out.kind === 'pipe' ? Math.min(n, out.pipe.capacity) : n;
+  const buf = new Uint8Array(chunk);
+  // Pipes may accept only part of a read, or block. Commit the input offset
+  // only after the output accepted bytes; otherwise retries lose file data.
+  const r = inf.pread(this, t, buf, off);
   if (r === BLOCK || r <= 0) return r;
-  return out.write(this, t, buf.subarray(0, r));
+  const written = out.write(this, t, buf.subarray(0, r));
+  if (written !== BLOCK && written > 0) {
+    if (ptr) dv.setBigInt64(ptr, BigInt(off + written), true);
+    else inf.pos = off + written;
+  }
+  return written;
 });
 
 // --- file system ---------------------------------------------------------------------------------

@@ -17,6 +17,8 @@
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <signal.h>
+#include <execinfo.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -26,6 +28,21 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
+// Host-only, opt-in evidence for native translator crashes. Reset the handler
+// before collecting frames so a diagnostic failure still terminates normally.
+static char LastRequest[512];
+static volatile sig_atomic_t LastRequestSize;
+static void NativeCrash(int Sig) {
+  static constexpr char Header[] = "[fexserve] native fatal signal; last request: ";
+  write(STDERR_FILENO, Header, sizeof(Header) - 1);
+  write(STDERR_FILENO, LastRequest, size_t(LastRequestSize));
+  write(STDERR_FILENO, "\n", 1);
+  void* Frames[64];
+  const int Count = backtrace(Frames, 64);
+  backtrace_symbols_fd(Frames, Count, STDERR_FILENO);
+  raise(Sig);
+}
 
 static std::string ReadFile(const char* Path) {
   std::ifstream F(Path, std::ios::binary);
@@ -73,6 +90,14 @@ static std::string Param(const std::string& Path, const char* K) {
 extern "C" const char* fexwasm_coverage();
 
 int main(int argc, char** argv) {
+  if (getenv("FEXWASM_NATIVE_TRACE")) {
+    static char CrashStack[64 * 1024];
+    stack_t Stack {}; Stack.ss_sp = CrashStack; Stack.ss_size = sizeof(CrashStack);
+    sigaltstack(&Stack, nullptr);
+    struct sigaction Action {}; Action.sa_handler = NativeCrash;
+    sigemptyset(&Action.sa_mask); Action.sa_flags = SA_RESETHAND | SA_ONSTACK;
+    sigaction(SIGSEGV, &Action, nullptr); sigaction(SIGBUS, &Action, nullptr);
+  }
   if (argc < 2 || (strcmp(argv[1], "--linux") && argc < 3)) {
     fprintf(stderr, "usage: %s <guest.bin> <base-hex> [port] [\"options\"]\n       %s --linux [port] [\"options\"]\n", argv[0], argv[0]);
     return 1;
@@ -161,6 +186,8 @@ int main(int argc, char** argv) {
       const size_t Sp1 = Head.find(' '), Sp2 = Head.find(' ', Sp1 + 1);
       const std::string Path = Head.substr(Sp1 + 1, Sp2 - Sp1 - 1);
       const std::string Route = Path.substr(0, Path.find('?'));
+      const size_t RequestSize = std::min(Path.size(), sizeof(LastRequest) - 1);
+      memcpy(LastRequest, Path.data(), RequestSize); LastRequestSize = sig_atomic_t(RequestSize);
       if (Route == "/xlat/totals") {
         // every space's stats added up, the dropped ones' included
         std::map<std::string, double> Sum = Dropped;

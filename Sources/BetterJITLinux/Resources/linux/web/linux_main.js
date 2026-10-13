@@ -311,7 +311,7 @@
         case 'log': log(m.m); break;
         case 'exit':
           log(`[page] units: ${units.stats.requests} requests, ${units.stats.compiled} modules compiled (${(units.stats.compiledBytes / 1e6).toFixed(1)} MB, ${units.stats.epochs} code epochs); translator ${Math.round(units.stats.fetchMs)} ms, compile waits ${Math.round(units.stats.compileMs)} ms`);
-          if (m.byNr) log(`[page] ${m.syscalls} kernel syscalls; handlers ${m.handlerMs} ms, shared-memory sync ${m.syncMs} ms, idle ${m.idleMs} ms; files fetched ${m.fetched.files} (${(m.fetched.bytes / 1e6).toFixed(1)} MB, ${m.fetched.ms.toFixed(0)} ms)`);
+          if (m.byNr) log(`[page] ${m.syscalls} kernel syscalls; handlers ${m.handlerMs} ms, shared-memory sync ${m.syncMs} ms, idle ${m.idleMs} ms; files fetched ${m.fetched.files}, range reads ${m.fetched.ranges || 0} (${(m.fetched.bytes / 1e6).toFixed(1)} MB, ${m.fetched.ms.toFixed(0)} ms)`);
           finish(m.code);
           break;
       }

@@ -239,12 +239,34 @@ const KUSER = 0x7ffe_0000;
 class MemoryPool {
   constructor() { this.free = []; }
   take(maxPages, initialPages) {
+    // An engine can exhaust its reservation budget while a reusable memory
+    // is still quarantined. Keep the existing 1.5 s safety delay and limits;
+    // after allocation failure, wait only for an already retired candidate.
+    try { return this.takeReady(maxPages, initialPages); }
+    catch (error) {
+      if (!(error instanceof RangeError)) throw error;
+      const pending = this.free.filter(e => e.maxPages === maxPages && e.readyAt > performance.now())
+        .sort((a,b) => a.readyAt-b.readyAt)[0];
+      if (pending) {
+        const until = Math.min(pending.readyAt, performance.now() + 1500);
+        const word = new Int32Array(new SharedArrayBuffer(4));
+        while (performance.now() < until) Atomics.wait(word, 0, 0, until-performance.now());
+        try { return this.takeReady(maxPages, initialPages); }
+        catch (retry) { if (!(retry instanceof RangeError)) throw retry; }
+      }
+      fail(E.NOMEM);
+    }
+  }
+  takeReady(maxPages, initialPages) {
     const now = performance.now();
     const i = this.free.findIndex((e) => e.maxPages === maxPages && e.readyAt <= now);
     if (i >= 0) {
       const e = this.free.splice(i, 1)[0];
       const have = e.mem.buffer.byteLength / WASM_PAGE;
-      if (have < initialPages) e.mem.grow(initialPages - have);
+      if (have < initialPages) {
+        try { e.mem.grow(initialPages - have); }
+        catch (error) { this.free.push(e); throw error; }
+      }
       return e;
     }
     return { mem: new WebAssembly.Memory({ initial: initialPages, maximum: maxPages, shared: true }), dirty: [], maxPages };
@@ -295,7 +317,8 @@ class Mm {
     const have = this.mem.buffer.byteLength;
     if (end <= have) return;
     const pages = Math.ceil((end - have) / WASM_PAGE);
-    this.mem.grow(pages);
+    try { this.mem.grow(pages); }
+    catch (error) { if (error instanceof RangeError) fail(E.NOMEM); throw error; }
     this.peakSize = this.mem.buffer.byteLength;
   }
   find(a) {
@@ -583,7 +606,7 @@ class DevFile extends File {
 
 // The host console.
 class ConsoleFile extends File {
-  constructor(fd) { super('console'); this.fd = fd; }
+  constructor(fd) { super('console'); this.fd = fd; this.flags = fd === 0 ? 0 : O.WRONLY; }
   read() { return 0; }
   write(k, t, buf) { k.host.write(this.fd, buf.slice()); return buf.length; }
   ioctl(k, t, req, arg) {
@@ -1428,6 +1451,7 @@ class Kernel {
       setFs: (v) => dv.setBigUint64(c + this.cfg.fsOff, BigInt(v), true),
       fs: () => dv.getBigUint64(c + this.cfg.fsOff, true),
       setGs: (v) => dv.setBigUint64(c + this.cfg.gsOff, BigInt(v), true),
+      gs: () => dv.getBigUint64(c + this.cfg.gsOff, true),
     };
   }
   // GPR indices (FEX order = x86 encoding order)
@@ -1449,9 +1473,9 @@ class Kernel {
   allocTb(mm, owner) {
     const a = mm.findFree(TB_SIZE, 0x10000);
     if (a < 0) fail(E.NOMEM);
+    mm.ensure(a + TB_SIZE);
     mm.zero(a, a + TB_SIZE);
     mm.insert({ start: a, end: a + TB_SIZE, prot: PROT.READ | PROT.WRITE, flags: MAP.PRIVATE | MAP.ANONYMOUS, name: '[fexwasm thread]', kernel: true, owner });
-    mm.ensure(a + TB_SIZE);
     // all of it: the dispatcher writes its tables here too, and a reused
     // memory must not show the next thread another thread's tables
     mm.markDirty(a, a + TB_SIZE);
@@ -1487,6 +1511,10 @@ class Kernel {
     return envp.concat(add);
   }
   boot(argv, envp) {
+    // Direct loading is an explicitly requested session policy. Wine clears
+    // WINELOADERNOEXEC during initialization, but its later Wine children still
+    // need the same policy when exec_wineloader names the native preloader.
+    this.directWineLoader = envp.includes('WINELOADERNOEXEC=1');
     // host.freezeTest: freeze the system that many seconds in, and thaw it a second later (snapshot.js)
     if (this.host.freezeTest) {
       this.addTimer(this.host.freezeTest * 1000, () => {
@@ -1509,7 +1537,14 @@ class Kernel {
       this.addTimer(this.host.memLog * 1000, tick);
     }
     envp = this.wineEnv(envp);
-    if (this.host.sharedSpace && /\/wine(64)?$/.test(argv[0]) && !envp.some((e) => e.startsWith('WINE_NOSERVERFIRST='))) {
+    const env = (name) => envp.find((e) => e.startsWith(name + '='))?.slice(name.length + 1);
+    const prefix = env('WINEPREFIX') || (env('HOME') || '/home/user') + '/.wine';
+    let prefixExists = false;
+    try { prefixExists = (this.vfs.stat(prefix).mode & S_IF.MT) === S_IF.DIR; } catch (e) { if (!(e instanceof KError) || e.code !== E.NOENT) throw e; }
+    // A fresh stock Wine prefix is created by the client, not wineserver.
+    // Prestarting the server before bootstrap makes it fail its chdir and
+    // terminates the session without ever executing the requested command.
+    if (this.host.sharedSpace && prefixExists && /\/wine(64)?$/.test(argv[0]) && !envp.some((e) => e.startsWith('WINE_NOSERVERFIRST='))) {
       const server = argv[0].replace(/[^/]+$/, 'wineserver');
       this.onListen = () => {
         this.onListen = null;
@@ -1537,6 +1572,12 @@ class Kernel {
   // Reads an executable (following #! scripts) and builds its new address space.
   // -> {mm, rip, rsp, space, exe, argv}
   loadImage(proc, path, argv, envp, depth) {
+    if (this.directWineLoader && /\/wine(64)?-preloader$/.test(path) &&
+        argv.length > 1 && /\/wine(64)?$/.test(argv[1])) {
+      const directEnv = envp.filter((e) => !e.startsWith('WINELOADERNOEXEC=')).concat('WINELOADERNOEXEC=1');
+      this.log(`[wine] direct loader: ${path} -> ${argv[1]}`);
+      return this.loadImage(proc, argv[1], argv.slice(1), directEnv, depth);
+    }
     const st = this.vfs.stat(path); // throws ENOENT etc.
     if ((st.mode & S_IF.MT) !== S_IF.REG) fail(E.ACCES);
     const bytes = this.vfs.readFile(path);
@@ -2021,7 +2062,7 @@ function normPath(p) {
   return '/' + out.join('/');
 }
 
-module.exports = { Kernel, Retry, Mm, GLOBAL, KUSER, File, HostFile, BufferFile, DevFile, ConsoleFile, PipeEnd, Pipe, UnixSocket, EventFd, EpollFile, WaitQueue,
+module.exports = { Kernel, Retry, Mm, MemoryPool, GLOBAL, KUSER, File, HostFile, BufferFile, DevFile, ConsoleFile, PipeEnd, Pipe, UnixSocket, EventFd, EpollFile, WaitQueue,
   Thread, Process, KError, fail, BLOCK, EXIT_THREAD, REDIRECTED, normPath, pageUp, pageDown, addr, i32, u32, big,
   addr64, POLLIN, POLLOUT, POLLERR, POLLHUP, POLLNVAL, POLLPRI, POLLRDHUP, PAGE, LOW_RESERVED, ADDR_LIMIT, MMAP_BASE, TB_SIZE,
   SLOT_BASE, SLOT_SIZE, INPUT_RING, S_IDLE, S_REQ, S_DONE, S_BUSY, F_REDIRECT, F_EXIT, NR_FAULT, NR_STARTED, NR_SIGCHECK, W_SIGPEND, W_FUTEX, W_OCCUPIED };
@@ -3023,7 +3064,7 @@ def('arch_prctl', function (t, a0, a1) {
   if (code === 0x1002) { c.setFs(BigInt.asUintN(64, a1)); return 0; } // ARCH_SET_FS
   if (code === 0x1001) { c.setGs(BigInt.asUintN(64, a1)); return 0; } // ARCH_SET_GS
   if (code === 0x1003) { t.proc.mm.dv.setBigUint64(addr(a1), c.fs(), true); return 0; }
-  if (code === 0x1004) { t.proc.mm.dv.setBigUint64(addr(a1), 0n, true); return 0; }
+  if (code === 0x1004) { t.proc.mm.dv.setBigUint64(addr(a1), c.gs(), true); return 0; }
   fail(E.INVAL);
 });
 def('set_tid_address', (t, a0) => {
@@ -3222,8 +3263,6 @@ function doClone(k, t, flags, newsp, ptid, ctid, tls) {
   }
   // a new process
   const child = new Process(k, k.nextPid++, (flags & CLONE.PARENT) ? proc.ppid : proc.pid);
-  k.procs.set(child.pid, child);
-  proc.children.add(child.pid);
   child.pgid = proc.pgid;
   child.sid = proc.sid;
   child.cwd = proc.cwd;
@@ -3232,10 +3271,13 @@ function doClone(k, t, flags, newsp, ptid, ctid, tls) {
   child.argv = proc.argv;
   child.actions = proc.actions.map((a) => Object.assign({}, a));
   child.rlimits = new Map(proc.rlimits);
-  for (const [fd, e] of proc.fds) child.fds.set(fd, { file: e.file.ref(), cloexec: e.cloexec });
   child.brkStart = proc.brkStart;
   child.brk = proc.brk;
   let tb;
+  // Check worker capacity before allocating an image. No process or file
+  // reference is published until all of its guest state has been prepared.
+  k.allocSlot();
+  try {
   if (flags & CLONE.VM) {
     // vfork / posix_spawn: the child runs in our memory (and image) until it execs or exits
     child.mm = proc.mm;
@@ -3274,6 +3316,18 @@ function doClone(k, t, flags, newsp, ptid, ctid, tls) {
   c.setRip(nextRip);
   if (flags & CLONE.PARENT_SETTID) proc.mm.dv.setInt32(ptid, child.pid, true);
   if (flags & CLONE.CHILD_SETTID) child.mm.dv.setInt32(ctid, child.pid, true);
+  } catch (error) {
+    if (child.mm) {
+      if ((flags & CLONE.VM) && tb) child.mm.cut(tb, tb + TB_SIZE, child.image);
+      k.releaseImage(child);
+    }
+    if (error instanceof KError && error.code === E.NOMEM)
+      k.log?.(`[pid ${proc.pid}] fork: memory allocation failed; no child created`);
+    throw error;
+  }
+  for (const [fd, e] of proc.fds) child.fds.set(fd, { file: e.file.ref(), cloexec: e.cloexec });
+  k.procs.set(child.pid, child);
+  proc.children.add(child.pid);
   const nt = k.startThread(child, child.pid, tb);
   if (flags & CLONE.CHILD_CLEARTID) nt.clearTid = ctid;
   nt.sigmask = t.sigmask;
@@ -3648,15 +3702,27 @@ def('lseek', function (t, a0, a1, a2) {
 });
 def('sendfile', function (t, a0, a1, a2, a3) {
   const out = t.proc.file(i32(a0)), inf = t.proc.file(i32(a1)), n = Math.min(Number(a3), 1 << 20);
-  const buf = new Uint8Array(n);
-  let r;
-  if (addr(a2)) {
-    const dv = t.proc.mm.dv, off = Number(dv.getBigInt64(addr(a2), true));
-    r = inf.pread(this, t, buf, off);
-    dv.setBigInt64(addr(a2), BigInt(off + r), true);
-  } else r = inf.read(this, t, buf);
+  if (n < 0) fail(E.INVAL);
+  if ((inf.flags & O.ACCMODE) === O.WRONLY || (out.flags & O.ACCMODE) === 0) fail(E.BADF);
+  if (out.flags & O.APPEND) fail(E.INVAL);
+  if (inf.kind !== 'file' && inf.kind !== 'buffer') fail(E.INVAL);
+  const ptr = addr(a2), dv = t.proc.mm.dv;
+  const off = ptr ? Number(dv.getBigInt64(ptr, true)) : inf.pos;
+  if (!Number.isSafeInteger(off) || off < 0) fail(E.INVAL);
+  // A pipe cannot accept more than its capacity. Bound read-ahead so large
+  // guest sendfile counts do not repeatedly fetch/allocate megabyte buffers.
+  const chunk = out.kind === 'pipe' ? Math.min(n, out.pipe.capacity) : n;
+  const buf = new Uint8Array(chunk);
+  // Pipes may accept only part of a read, or block. Commit the input offset
+  // only after the output accepted bytes; otherwise retries lose file data.
+  const r = inf.pread(this, t, buf, off);
   if (r === BLOCK || r <= 0) return r;
-  return out.write(this, t, buf.subarray(0, r));
+  const written = out.write(this, t, buf.subarray(0, r));
+  if (written !== BLOCK && written > 0) {
+    if (ptr) dv.setBigInt64(ptr, BigInt(off + written), true);
+    else inf.pos = off + written;
+  }
+  return written;
 });
 
 // --- file system ---------------------------------------------------------------------------------

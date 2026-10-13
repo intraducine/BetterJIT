@@ -11,10 +11,10 @@ import BetterJITWebKit
     private var stopped: DiagnosticRunState?
     private var abortCurrent: (() -> Void)?
 
-    init(preset: DiagnosticPreset, includeStress: Bool, environment: [String:String],
+    init(preset: DiagnosticPreset, includeStress: Bool, includeWineReadiness: Bool = true, environment: [String:String],
          conditions: [String:String], mount: @escaping @MainActor (WebKitTransport?) -> Void,
          changed: @escaping @MainActor (DiagnosticReport) -> Void) {
-        specs = DiagnosticPlan.specs(preset, includeStress:includeStress)
+        specs = DiagnosticPlan.specs(preset, includeStress:includeStress).filter { includeWineReadiness || $0.kind != .wineReadiness }
         report = DiagnosticReport(preset:preset, includeStress:includeStress, environment:environment,
                                   conditions:conditions, specs:specs)
         self.mount = mount; self.changed = changed
@@ -47,6 +47,10 @@ import BetterJITWebKit
                     report.records[i].notes.append("Thermal state is serious/critical; timing metrics are not comparable.")
                 }
                 report.records[i].durationMilliseconds = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+                report.records[i].finishedAt = Date()
+            } catch let fault as RuntimeFault where fault.code == "unsupported" || fault.code == "mappedTransportUnavailable" {
+                report.records[i].status = .unsupported
+                report.records[i].details["reason"] = fault.localizedDescription
                 report.records[i].finishedAt = Date()
             } catch {
                 let stopping = error is CancellationError || stopped != nil || Task.isCancelled
@@ -251,14 +255,9 @@ import BetterJITWebKit
             report.records.first(where: { $0.id == id })?.status.rawValue ?? "not-run"
         }
         if kind == "wine" {
-            let details = [
-                "fexSysV":state("fex-sysv"),"fexWin64":state("fex-win64"),
-                "sharedWorkers":state("shared-workers"),"wasmMemory":state("wasm-memory"),
-                "syscallSubset":state("syscall-subset"),
-                "wineLoader":"not-integrated","guestVFS":"not-integrated",
-                "guestMmapSignals":"not-integrated","wineRootfs":"not-integrated"
-            ]
-            return .unsupported("Core translation primitives are testable, but Wine loader/rootfs, a broad Linux syscall/VFS layer, mmap/protection semantics and signals are not integrated yet.", details:details)
+            return .unsupported("Run All attempts real Wine cmd /c ver in the Linux process runtime. This primitive inventory alone is not Wine execution evidence.", details:[
+                "linuxProcessRuntime":"integrated; independently executed by Run All",
+                "rootfs":"application-supplied", "syscallSubset":state("syscall-subset")])
         }
         let details = [
             "nativeMetal":state("native-metal"),"mappedTransport":state("transport-mapped-required"),

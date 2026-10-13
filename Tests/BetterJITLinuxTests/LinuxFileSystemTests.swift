@@ -23,4 +23,18 @@ final class LinuxFileSystemTests: XCTestCase {
         XCTAssertThrowsError(try fs.readFile(path:"/../escape",offset:nil,length:nil))
         XCTAssertThrowsError(try fs.fileSize(path:"/../escape"))
     }
+    func testOverlayReplacesStagedFileMetadata() throws {
+        let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
+        defer { try? FileManager.default.removeItem(at:root) }
+        try Data([1]).write(to:root.appendingPathComponent("input"))
+        let bytes=Data([9,8,7,6])
+        let fs=try DirectoryLinuxFileSystem(root:root,overlay:["/input":bytes])
+        let object=try JSONSerialization.jsonObject(with:fs.indexJSON()) as! [String:Any]
+        let rows=(object["entries"] as! [[Any]]).filter { $0.first as? String == "/input" }
+        XCTAssertEqual(rows.count,1)
+        XCTAssertEqual(rows.first?[3] as? Int,bytes.count)
+        XCTAssertEqual(try fs.readFile(path:"/input",offset:nil,length:nil),bytes)
+    }
+
 }

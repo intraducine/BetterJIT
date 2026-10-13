@@ -47,6 +47,7 @@ public struct LinuxRuntimeConfiguration: Sendable, Equatable {
     public var kernelSpinMilliseconds: Double
     public var threadSpinMilliseconds: Double
     public var useNativeChannels: Bool
+    public var sharedAddressSpace: Bool
 
     public init(arguments: [String],
                 environment: [String:String] = [:],
@@ -61,7 +62,8 @@ public struct LinuxRuntimeConfiguration: Sendable, Equatable {
                 slowWaitMilliseconds: Double = 0,
                 kernelSpinMilliseconds: Double = 0.05,
                 threadSpinMilliseconds: Double = 0.02,
-                useNativeChannels: Bool = true) {
+                useNativeChannels: Bool = true,
+                sharedAddressSpace: Bool = true) {
         self.arguments = arguments
         self.environment = environment
         self.currentDirectory = currentDirectory
@@ -76,6 +78,7 @@ public struct LinuxRuntimeConfiguration: Sendable, Equatable {
         self.kernelSpinMilliseconds = kernelSpinMilliseconds
         self.threadSpinMilliseconds = threadSpinMilliseconds
         self.useNativeChannels = useNativeChannels
+        self.sharedAddressSpace = sharedAddressSpace
     }
 }
 
@@ -177,6 +180,12 @@ public final class DirectoryLinuxFileSystem: LinuxFileSystemSource {
         }
         for (path,data) in overlay.sorted(by: { $0.key < $1.key }) {
             ensureParents(path)
+            // The byte provider already prefers overlays; advertise the same
+            // size/type when a staged root has a file at the injected path.
+            if known.contains(path) {
+                entries.removeAll { ($0.first as? String) == path }
+                known.remove(path)
+            }
             add([path,"f",0o755,data.count,Date().timeIntervalSince1970 * 1000])
         }
         for path in ["/proc","/dev","/sys","/tmp","/usr","/usr/bin","/bin","/home","/home/user","/test"] {

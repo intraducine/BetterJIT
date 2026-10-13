@@ -5,7 +5,7 @@
 // Needs the kernel bundle (tools/webserve.js serves it as linux-kernel.js).
 'use strict';
 
-importScripts('linux-kernel.js');
+importScripts('linux-kernel.js', 'file_transport.js');
 const { Kernel } = LinuxBundle.require('./kernel.js');
 LinuxBundle.require('./syscalls.js');
 const { writeSnapshot, readSnapshot } = LinuxBundle.require('./snapshot.js');
@@ -127,8 +127,8 @@ onmessage = async (e) => {
   const fetchFile = (p) => timed('file', (b) => b.length, () => (kern && kern.ready() ? kernFile(p)
     : syncRequest('GET', `${d.fsBase}/fs/file?p=${encodeURIComponent(p)}`)));
   // [off, off + len) of a file into `into` (op 3 with b: at most that many)
-  fetchFile.range = kern ? (p, off, len, into) => timed('file', () => len, () => {
-    if (!kern.ready()) { into.set(syncRequest('GET', `${d.fsBase}/fs/file?p=${encodeURIComponent(p)}&off=${off}&len=${len}`)); return; }
+  fetchFile.range = (p, off, len, into) => timed('file', () => len, () => {
+    if (!kern || !kern.ready()) { BetterJITFileTransport.httpRange(syncRequest, d.fsBase, p, off, len, into); return; }
     const path = enc.encode(p);
     for (let got = 0; got < len;) {
       const r = kern.call(3, 0, off + got, len - got, 0, path);
@@ -138,7 +138,7 @@ onmessage = async (e) => {
       into.set(kern.u8.subarray(4104, 4104 + n), got);
       got += n;
     }
-  }) : null;
+  });
   // d.snapshot (a name) with d.snapshotAt (seconds): save the system then
   // (d.snapshotExit: and stop); d.restore: start from a saved one instead of
   // argv (d.run: then start that program in it); d.auto (a name): restore

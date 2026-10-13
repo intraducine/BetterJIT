@@ -8,6 +8,7 @@ final class LinkedLinuxFEXBackend: LinuxTranslationBackend, @unchecked Sendable 
     private var spaces:[UInt32:OpaquePointer]=[:]
     private let options:String
     private let maximumBytes=32*1024*1024
+    private var counts:[String:Int]=[:]
 
     init(cacheDirectory: URL, extraOptions: String = "") throws {
         try FileManager.default.createDirectory(at:cacheDirectory,withIntermediateDirectories:true)
@@ -44,7 +45,17 @@ final class LinkedLinuxFEXBackend: LinuxTranslationBackend, @unchecked Sendable 
     }
     func dispatcher(space:UInt32) throws -> Data { try withTranslator(space:space) { try copy(fexwasm_dispatcher($0)) } }
     func initialState(space:UInt32) throws -> Data { try withTranslator(space:space) { try copy(fexwasm_state($0)) } }
-    func unit(space:UInt32,rip:UInt32) throws -> Data { try withTranslator(space:space) { try copy(fexwasm_unit($0,rip)) } }
+    func unit(space:UInt32,rip:UInt32) throws -> Data {
+        try withTranslator(space:space) { t in
+            counts["unitRequests",default:0] += 1
+            let data=try copy(fexwasm_unit(t,rip))
+            counts["translationBytes",default:0] += data.count
+            return data
+        }
+    }
+    func statistics() -> [String:Int] {
+        lock.lock(); defer { lock.unlock() }; return counts
+    }
     func region(space:UInt32,profile:Data) throws -> Data {
         guard profile.count <= 1024*1024 else { throw LinuxRuntimeError.guest("Linux FEX region profile is oversized.") }
         return try withTranslator(space:space) { t in
@@ -54,6 +65,7 @@ final class LinkedLinuxFEXBackend: LinuxTranslationBackend, @unchecked Sendable 
     func mapCode(space:UInt32,address:UInt64,bytes:Data,abi:UInt32) throws {
         guard bytes.count <= 16*1024*1024 else { throw LinuxRuntimeError.guest("Linux code mapping chunk is oversized.") }
         try withTranslator(space:space) { t in
+            counts["codeMappings",default:0] += 1
             bytes.withUnsafeBytes { raw in
                 if abi == 0 { fexwasm_map_code(t,address,raw.bindMemory(to:UInt8.self).baseAddress,bytes.count) }
                 else { fexwasm_map_code_abi(t,address,raw.bindMemory(to:UInt8.self).baseAddress,bytes.count,abi) }

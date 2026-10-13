@@ -10,6 +10,8 @@ import WebKit
     public private(set) var state: State = .idle
     public private(set) var result: LinuxRuntimeResult?
     public private(set) var failure: LinuxRuntimeError?
+    /// Counts successful native-channel replies; attachment alone is not usage.
+    public var nativeChannelStatistics: [String:Int] { server?.channelStatistics() ?? [:] }
     public var onLog: (@MainActor (String)->Void)?
     public var onWindow: (@MainActor ([String:String])->Void)?
     public var onScreenshot: (@MainActor (String,Data)->Void)?
@@ -52,30 +54,35 @@ import WebKit
     public func start() async throws {
         guard state == .idle else { throw LinuxRuntimeError.invalidConfiguration("Linux runtime sessions start once.") }
         state = .starting
+        // Cover server startup and WebKit navigation too: an uncommitted page
+        // must not leave run() suspended forever before the guest timer starts.
+        timeoutTask=Task { [weak self] in
+            guard let self else { return }
+            do { try await Task.sleep(nanoseconds:UInt64((configuration.timeoutSeconds+15)*1_000_000_000)) }
+            catch { return }
+            if self.state == .running || self.state == .starting {
+                self.fail(.guest("Linux guest exceeded its host deadline."))
+            }
+        }
         do {
             let assets=try Self.assets()
             let server=LinuxLoopbackServer(token:token,assets:assets,backend:backend,fileSystem:fileSystem,
                 onLog:{ [weak self] text in Task { @MainActor in self?.receiveLog(text) } },
-                onExit:{ [weak self] code in Task { @MainActor in self?.receiveExit(code) } },
+                onExit:{ _ in }, // receiveLog handles the exit marker in the same actor turn as its stdout.
                 onWindow:{ [weak self] event in Task { @MainActor in self?.onWindow?(event) } },
                 onShot:{ [weak self] name,data in Task { @MainActor in self?.onScreenshot?(name,data) } },
                 gpuHandler:gpuHandler)
             self.server=server
-            let port=try await server.start(timeout:10); self.port=port
+            let port=try await server.start(timeout:10)
+            guard state == .starting else { throw failure ?? LinuxRuntimeError.closed }
+            self.port=port
             let url=try launchURL(port:port)
             startedAt=DispatchTime.now().uptimeNanoseconds
             try await withCheckedThrowingContinuation { (c:CheckedContinuation<Void,Error>) in
                 navigation=c; webView.load(URLRequest(url:url))
             }
             if result == nil && failure == nil { state = .running }
-            timeoutTask=Task { [weak self] in
-                guard let self else { return }
-                do { try await Task.sleep(nanoseconds:UInt64((configuration.timeoutSeconds+5)*1_000_000_000)) }
-                catch { return }
-                if self.state == .running || self.state == .starting {
-                    self.fail(.guest("Linux guest exceeded its host deadline."))
-                }
-            }
+
         } catch {
             fail(error as? LinuxRuntimeError ?? .server("Linux runtime startup failed."))
             throw error
@@ -109,6 +116,9 @@ import WebKit
             logText += String(text.prefix(remaining))
         }
         onLog?(text)
+        for line in text.split(separator:"\n") where line.hasPrefix("[page] exit ") {
+            if let code=Int(line.dropFirst(12).split(separator:" ").first ?? "") { receiveExit(code) }
+        }
     }
     private func receiveExit(_ code:Int) {
         guard result == nil, failure == nil, state != .closed else { return }
@@ -116,6 +126,7 @@ import WebKit
         let ms=Double(DispatchTime.now().uptimeNanoseconds-startedAt)/1_000_000
         let value=LinuxRuntimeResult(exitCode:code,milliseconds:ms,log:logText)
         result=value; state = .exited
+        navigation?.resume(); navigation=nil
         exitWaiter?.resume(returning:value); exitWaiter=nil
     }
     private func fail(_ error:LinuxRuntimeError) {
@@ -162,6 +173,7 @@ import WebKit
             URLQueryItem(name:"cwd",value:configuration.currentDirectory),
             URLQueryItem(name:"timeout",value:String(Int(configuration.timeoutSeconds))),
             URLQueryItem(name:"chan",value:configuration.useNativeChannels ? "1":"0"),
+            URLQueryItem(name:"shared",value:configuration.sharedAddressSpace ? "1":"0"),
             URLQueryItem(name:"regions",value:configuration.regions ? "1":"0"),
             URLQueryItem(name:"trace",value:configuration.trace ? "1":"0"),
             URLQueryItem(name:"traceCode",value:configuration.traceCode ? "1":"0"),
@@ -183,7 +195,8 @@ import WebKit
             "linux/thread_core.js","linux/compositor.js",
             "linux/web/linux.html","linux/web/linux_main.js","linux/web/kworker_web.js",
             "linux/web/thread_web.js","linux/web/chan_web.js","linux/web/chan_file.js",
-            "linux/web/sampler.js","linux/web/probe_worker.js","linux/web/linux-kernel.js"
+            "linux/web/sampler.js","linux/web/probe_worker.js","linux/web/linux-kernel.js",
+            "linux/web/file_transport.js"
         ]
         var out:[String:(Data,String)]=[:]
         for path in paths {

@@ -1,0 +1,204 @@
+name: One iPhone device session
+on:
+  push:
+    branches: [feature/one-device-session]
+    paths:
+      - 'Sources/**'
+      - 'Examples/**'
+      - 'Backends/**'
+      - 'fexwasm/**'
+      - 'patches/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'Tests/**'
+      - 'distribution/**'
+      - 'Package.swift'
+      - '.github/workflows/device-session.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: betterjit-device-session-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  linux-fixture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Execute the bundled Linux workload directly (not FEX/device evidence)
+        run: python3 tests/fexhost/linux-session-native.py
+      - name: Prepare signed stock Alpine Wine inputs for the app
+        id: wine-root
+        continue-on-error: true
+        run: |
+          python3 scripts/prepare-wine-root.py
+      - name: Build separate Wine Win64 input for the flat guest window
+        id: wine-flat
+        if: steps.wine-root.outcome == 'success'
+        continue-on-error: true
+        run: |
+          git clone --depth 1 --branch wine-10.7 --no-checkout https://github.com/wine-mirror/wine.git .build/wine-flat-source
+          git -C .build/wine-flat-source checkout --detach 71c6c3dd6dcfffc040aa5a10a825eeb8e17f6299
+          python3 scripts/prepare-wine-flat-root.py --source .build/wine-flat-source
+      - name: Pack stock root and any completed source-built Wine input
+        if: steps.wine-root.outcome == 'success'
+        run: |
+          tar -czf .build/bundled-wine-root.tar.gz -C .build device-linuxroot
+      - name: Retain Wine source and preparation evidence
+        if: always() && hashFiles('.build/wine-flat-build/build.log') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wine-flat-source-and-build-${{ github.sha }}
+          path: .build/wine-flat-build/
+          retention-days: 14
+      - name: Transfer prepared Wine root to the Apple build
+        if: steps.wine-root.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: bundled-wine-root-${{ github.sha }}
+          path: .build/bundled-wine-root.tar.gz
+          retention-days: 7
+  iphone-app:
+    needs: linux-fixture
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Install tools
+        run: brew install cmake ninja xcodegen
+      - name: Record Apple toolchain cache identity
+        id: toolchain
+        run: echo "id=$(xcodebuild -version | shasum -a 256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - name: Validate SDK and complete device-session orchestration
+        run: |
+          bash scripts/check-sdk.sh
+          bash scripts/check-fexhost.sh
+          swift test -j 2 --filter AppleHostTests
+          python3 scripts/export-sdk.py --check
+      - name: Fetch the prepared Wine input candidate
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: bundled-wine-root-${{ github.sha }}
+          path: .build
+      - name: Unpack the bundled root
+        if: hashFiles('.build/bundled-wine-root.tar.gz') != ''
+        run: tar -xzf .build/bundled-wine-root.tar.gz -C .build
+      - name: Restore native FEX build
+        id: fex-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .build/FEXNativePackage
+          key: fex-ios-${{ runner.arch }}-${{ steps.toolchain.outputs.id }}-${{ hashFiles('fexwasm/src/**', 'fexwasm/build_ios.sh', 'fexwasm/build_id.sh', 'patches/fex-wasm.patch', 'scripts/prepare-fex.sh', 'Backends/FEX/build-ios.sh') }}
+      - name: Build native FEX for the app
+        if: steps.fex-cache.outputs.cache-hit != 'true'
+        run: |
+          set -o pipefail
+          bash Backends/FEX/build-ios.sh 2>&1 | tee .build/native-fex-build.log
+      - name: Preserve reusable native FEX build
+        if: steps.fex-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .build/FEXNativePackage
+          key: ${{ steps.fex-cache.outputs.cache-primary-key }}
+      - name: Record reused native build
+        if: steps.fex-cache.outputs.cache-hit == 'true'
+        run: printf '%s\n' 'Reused native FEX build with matching source and Xcode cache identity.' > .build/native-fex-build.log
+      - name: Restore host translator
+        id: host-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .build/host-fex
+          key: fex-host-${{ runner.arch }}-${{ steps.toolchain.outputs.id }}-${{ hashFiles('fexwasm/src/**', 'fexwasm/tools/fexserve.cpp', 'fexwasm/build_id.sh', 'patches/fex-wasm.patch', 'scripts/prepare-fex.sh', 'Backends/FEX/build-host.sh') }}
+      - name: Build the live host translator
+        if: steps.host-cache.outputs.cache-hit != 'true'
+        run: |
+          set -o pipefail
+          bash Backends/FEX/build-host.sh 2>&1 | tee .build/host-fex-build.log
+      - name: Preserve reusable host translator
+        if: steps.host-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .build/host-fex
+          key: ${{ steps.host-cache.outputs.cache-primary-key }}
+      - name: Execute real Linux userspace through live FEX and the promoted runtime
+        id: live-linux
+        continue-on-error: true
+        if: hashFiles('.build/device-linuxroot/.betterjit-linux-root.json') != ''
+        run: |
+          set -o pipefail
+          node --experimental-wasm-jspi tests/sdk/live-linux.cjs .build/device-linuxroot .build/host-fex/fexserve .build/live-linux-results.json 2>&1 | tee .build/live-linux-build.log
+      - name: Build the complete iPhone app
+        run: |
+          set -o pipefail
+          python3 Examples/FEXHost/prepare.py
+          xcodebuild -project Examples/FEXHost/BetterJITFEXHost.xcodeproj -scheme BetterJITFEXHost -configuration Release -destination 'generic/platform=iOS' -derivedDataPath .build/device-session CODE_SIGNING_ALLOWED=NO build 2>&1 | tee .build/device-session-build.log
+      - name: Package unsigned app for the user's existing signing/install route
+        env:
+          LIVE_HOST_OUTCOME: ${{ steps.live-linux.outcome }}
+        run: |
+          mkdir -p .build/device-session-artifact/Payload
+          cp -R .build/device-session/Build/Products/Release-iphoneos/BetterJITFEXHost.app .build/device-session-artifact/Payload/
+          cp COPYING THIRD_PARTY.md .build/device-session-artifact/
+          cp -R LICENSES .build/device-session-artifact/
+          if test -f .build/device-linuxroot/.betterjit-linux-root.json; then
+            cp .build/device-linuxroot/.betterjit-linux-root.json .build/device-session-artifact/WINE-ROOT-PROVENANCE.json
+          else
+            printf '%s\n' '{"bundled":false,"reason":"Wine input preparation was unavailable; use a staged root or report unsupported."}' > .build/device-session-artifact/WINE-ROOT-PROVENANCE.json
+          fi
+          cp Examples/FEXHost/DEVICE-SESSION.md .build/device-session-artifact/PHONE-INSTRUCTIONS.md
+          cp .build/native-fex-build.log .build/device-session-build.log .build/device-session-artifact/
+          if test -f .build/live-linux-results.json; then cp .build/live-linux-results.json .build/device-session-artifact/LIVE-LINUX-RESULTS.json; fi
+          if test -d .build/wine-instruction-trace; then cp -R .build/wine-instruction-trace .build/device-session-artifact/WINE-INSTRUCTION-TRACE; fi
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          root=pathlib.Path('.build/device-session-artifact')
+          manifest={'repository':'intraducine/BetterJIT','commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'signed':False,'deviceExecuted':False}
+          manifest['liveHostValidation']=os.environ['LIVE_HOST_OUTCOME']
+          manifest['files']={str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in (root/'Payload').rglob('*') if p.is_file()}
+          (root/'BUILD-MANIFEST.json').write_text(json.dumps(manifest,indent=2)+'\n')
+          PY
+          cd .build/device-session-artifact
+          zip -qry BetterJIT-Device-Session-unsigned.ipa Payload
+      - name: Upload app and exact build evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: BetterJIT-Device-Session-${{ github.sha }}
+          path: |
+            .build/device-session-artifact/BetterJIT-Device-Session-unsigned.ipa
+            .build/device-session-artifact/BUILD-MANIFEST.json
+            .build/device-session-artifact/WINE-ROOT-PROVENANCE.json
+            .build/device-session-artifact/LIVE-LINUX-RESULTS.json
+            .build/device-session-artifact/WINE-INSTRUCTION-TRACE/
+            .build/device-session-artifact/PHONE-INSTRUCTIONS.md
+            .build/device-session-artifact/COPYING
+            .build/device-session-artifact/THIRD_PARTY.md
+            .build/device-session-artifact/LICENSES/
+            .build/device-session-artifact/*-build.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain a failing validation outcome after preserving the compiled app
+        if: steps.live-linux.outcome == 'failure'
+        run: |
+          echo 'Live host validation failed. The unsigned app is preserved with failed results; this run remains failed.'
+          exit 1
+      - name: Preserve failure logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Device-session-build-failure-${{ github.sha }}
+          path: |
+            .build/native-fex-build.log
+            .build/host-fex-build.log
+            .build/live-linux-build.log
+            .build/live-linux-results.json
+            .build/wine-instruction-trace/
+            .build/device-session-build.log
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+# Builds are unsigned. No secrets, automatic signing, merge, release or device claim.

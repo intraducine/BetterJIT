@@ -1,295 +1,158 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
-import UIKit
-import Darwin
 import WebKit
+import UniformTypeIdentifiers
 import BetterJITWebKit
 import BetterJITLinux
 
 @main struct FEXHostApp: App {
-    var body: some Scene { WindowGroup { FEXHostView() } }
+    var body: some Scene { WindowGroup { DeviceSessionView() } }
 }
-
-@MainActor private final class FEXHostModel: ObservableObject {
-    @Published var report: SuiteReport?
-    @Published var running = false
-    @Published var transport: WebKitTransport?
-    @Published var reportURL: URL?
-    @Published var storageError: String?
-    @Published var diagnosticReport: DiagnosticReport?
-    @Published var diagnosticReportURL: URL?
-    @Published var linuxSession: LinuxRuntimeSession?
-    @Published var linuxStatus = "Not started"
-    @Published var linuxLog = ""
-    private var task: Task<Void, Never>?
-    private var runner: SuiteRunner?
-    private var diagnosticRunner: DiagnosticRunner?
-    private lazy var linuxHarness = LinuxHarness { [weak self] session, status, log in
-        self?.linuxSession = session
-        self?.linuxStatus = status
-        self?.linuxLog = log
-    }
-    init() {
-        do {
-            let url = try directory().appendingPathComponent("latest.json")
-            if FileManager.default.fileExists(atPath: url.path) {
-                let data = try Data(contentsOf: url)
-                guard data.count <= 4 * 1024 * 1024 else { throw SuiteFailure("Previous report is too large.") }
-                let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-                var restored = try decoder.decode(SuiteReport.self, from: data)
-                guard (1...2).contains(restored.schema) else { throw SuiteFailure("Unsupported previous report schema.") }
-                restored.markInterrupted(); report = restored; save(restored)
-            }
-        } catch { storageError = "Previous report could not be restored: \(error.localizedDescription)" }
-        do {
-            let url = try directory().appendingPathComponent("latest-diagnostic.json")
-            if FileManager.default.fileExists(atPath: url.path) {
-                let data = try Data(contentsOf: url)
-                guard data.count <= 8 * 1024 * 1024 else { throw SuiteFailure("Previous diagnostic report is too large.") }
-                let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-                var restored = try decoder.decode(DiagnosticReport.self, from: data)
-                restored.markInterrupted(); diagnosticReport = restored; saveDiagnostic(restored)
-            }
-        } catch { storageError = "Previous diagnostic report could not be restored: \(error.localizedDescription)" }
-    }
-    func run(_ mode: SuiteMode, standalone: Bool, offline: Bool, mappedTransport: Bool = false) {
-        guard !running else { return }
-        running = true; storageError = nil; reportURL = nil
-        let runner = SuiteRunner(mode: mode, environment: environment(),
-                                 conditions: ["userReportsHomeScreenNoDebugger": String(standalone), "userReportsWiFiAndCellularOff": String(offline),
-                                              "conditionsIndependentlyVerified": "false", "mappedTransportRequested": String(mappedTransport)],
-                                 factory: { [weak self] stage in
-            DeviceExecutor(stage: stage, mappedTransport: mappedTransport ? .required : .disabled,
-                           mount: { [weak self] view in self?.transport = view })
-        }, timingAllowed: { ProcessInfo.processInfo.thermalState != .serious && ProcessInfo.processInfo.thermalState != .critical },
-                                 changed: { [weak self] value in self?.report = value; self?.save(value) })
-        self.runner = runner
-        task = Task { [weak self] in
-            var result = await runner.run()
-            guard let self else { return }
-            result.environment["thermalAtEnd"] = String(ProcessInfo.processInfo.thermalState.rawValue)
-            result.environment["lowPowerAtEnd"] = String(ProcessInfo.processInfo.isLowPowerModeEnabled)
-            self.report = result; self.save(result)
-            self.transport = nil; self.running = false; self.runner = nil; self.task = nil
-        }
-    }
-    func runDiagnostics(_ preset: DiagnosticPreset, includeStress: Bool, standalone: Bool, offline: Bool) {
-        guard !running else { return }
-        running = true; storageError = nil; diagnosticReportURL = nil
-        let runner = DiagnosticRunner(preset:preset, includeStress:includeStress, environment:environment(),
-                                      conditions:["userReportsHomeScreenNoDebugger":String(standalone),
-                                                  "userReportsWiFiAndCellularOff":String(offline),
-                                                  "conditionsIndependentlyVerified":"false"],
-                                      mount:{ [weak self] view in self?.transport = view },
-                                      changed:{ [weak self] value in self?.diagnosticReport=value; self?.saveDiagnostic(value) })
-        diagnosticRunner = runner
-        task = Task { [weak self] in
-            var result = await runner.run()
-            guard let self else { return }
-            result.environment["thermalAtEnd"] = String(ProcessInfo.processInfo.thermalState.rawValue)
-            result.environment["lowPowerAtEnd"] = String(ProcessInfo.processInfo.isLowPowerModeEnabled)
-            self.diagnosticReport = result; self.saveDiagnostic(result)
-            self.transport=nil; self.running=false; self.diagnosticRunner=nil; self.task=nil
-        }
-    }
-    func runLinux(wine: Bool) {
-        guard !running else { return }
-        running = true; storageError = nil; linuxLog = ""
-        task = Task { [weak self] in
-            guard let self else { return }
-            do {
-                _ = try await self.linuxHarness.run(wine ? .wineCommand : .smoke)
-            } catch {
-                self.storageError = error.localizedDescription
-            }
-            self.running = false; self.task = nil
-        }
-    }
-    func stop(interrupted: Bool = false) {
-        guard running || linuxSession != nil else { return }
-        runner?.stop(interrupted: interrupted)
-        diagnosticRunner?.stop(interrupted: interrupted)
-        linuxHarness.stop()
-        task?.cancel()
-        running = false
-    }
-    private func directory() throws -> URL {
-        let documents = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-        let url = documents.appendingPathComponent("BetterJITBenchmarks", isDirectory: true)
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
-    private func saveDiagnostic(_ value: DiagnosticReport) {
-        do {
-            let root=try directory(), data=try value.data()
-            let url=root.appendingPathComponent("BetterJIT-Diagnostic-\(value.runID.uuidString).json")
-            try data.write(to:url,options:.atomic)
-            try data.write(to:root.appendingPathComponent("latest-diagnostic.json"),options:.atomic)
-            diagnosticReportURL=url
-        } catch { storageError="Diagnostic report could not be saved: \(error.localizedDescription)" }
-    }
-    private func save(_ value: SuiteReport) {
-        do {
-            let root = try directory(), data = try value.data()
-            let url = root.appendingPathComponent("BetterJIT-\(value.runID.uuidString).json")
-            try data.write(to: url, options: .atomic)
-            try data.write(to: root.appendingPathComponent("latest.json"), options: .atomic)
-            reportURL = url
-        } catch { storageError = "Report could not be saved: \(error.localizedDescription)" }
-    }
-    private func deviceModelIdentifier() -> String {
-        var info = utsname()
-        guard uname(&info) == 0 else { return "unknown" }
-        let data = withUnsafeBytes(of: info.machine) { Data($0.prefix { $0 != 0 }) }
-        return String(data: data, encoding: .ascii) ?? "unknown"
-    }
-    private func environment() -> [String: String] {
-        let info = Bundle.main.infoDictionary ?? [:]
-        return ["os": ProcessInfo.processInfo.operatingSystemVersionString,
-                "deviceClass": UIDevice.current.model, // Not the user's device name or UDID.
-                "hardwareModel": deviceModelIdentifier(),
-                "appVersion": info["CFBundleShortVersionString"] as? String ?? "unknown",
-                "appBuild": info["CFBundleVersion"] as? String ?? "unknown",
-                "sourceRevision": info["BetterJITSourceCommit"] as? String ?? "unrecorded",
-                "sourceStateAtProjectGeneration": info["BetterJITSourceState"] as? String ?? "unrecorded",
-                "sourceIdentityNote": "Captured at project generation; regenerate after source edits.",
-                "thermalAtStart": String(ProcessInfo.processInfo.thermalState.rawValue),
-                "thermalStateValues": "0 nominal, 1 fair, 2 serious, 3 critical",
-                "lowPowerAtStart": String(ProcessInfo.processInfo.isLowPowerModeEnabled),
-                "guestCompiler": CompiledGuest.compiler, "guestCompilerFlags": CompiledGuest.flags,
-                "simdCompiler": ExtendedGuest.compiler, "simdCompilerFlags": ExtendedGuest.flags]
-    }
-}
-
-@MainActor private struct FEXHostView: View {
-    @StateObject private var model = FEXHostModel()
+@MainActor private struct DeviceSessionView: View {
+    @StateObject private var model=DeviceSessionModel()
     @Environment(\.scenePhase) private var scenePhase
-    @State private var standalone = false
-    @State private var offline = false
-    @State private var diagnosticPreset: DiagnosticPreset = .full
-    @State private var includeStress = false
+    @State private var standalone=false
+    @State private var offline=false
+    @State private var stress=false
+    @State private var chooseRoot=false
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Linux / Wine runtime").font(.headline)
-                    Text("The SDK now runs the promoted x86-64 Linux process/kernel stack directly in WebKit with native on-device FEX translation. The smoke test is bundled; Wine uses Documents/linuxroot.")
-                        .font(.caption).foregroundStyle(.secondary)
+                VStack(alignment:.leading,spacing:16) {
+                    Text("One build. One device session.").font(.title2.bold())
+                    Text("Run Linux and Wine first, then the complete FEX, mapped transport, memory, threading and graphics checks. Results stay here until you share them.")
+                        .font(.subheadline).foregroundStyle(.secondary)
                     HStack {
-                        Button("Run Linux ELF") { model.runLinux(wine: false) }.disabled(model.running)
-                        Button("Run Wine cmd") { model.runLinux(wine: true) }.disabled(model.running || !LinuxHarness.winePresent)
-                        if model.running && model.linuxSession != nil { Button("Stop") { model.stop() } }
-                    }.buttonStyle(.borderedProminent)
-                    Text("Wine root: \(LinuxHarness.rootURL.path)\n\(LinuxHarness.winePresent ? "wine executable found" : "wine rootfs not staged yet")")
-                        .font(.caption.monospaced()).textSelection(.enabled)
-                    Text(model.linuxStatus).font(.subheadline.bold()).textSelection(.enabled)
-                    if let session = model.linuxSession {
-                        LinuxExecutorView(session: session).id(ObjectIdentifier(session)).frame(height: 260)
-                    }
-                    if !model.linuxLog.isEmpty {
-                        Text(model.linuxLog.suffix(12000)).font(.caption.monospaced()).textSelection(.enabled)
-                    }
-
-                    Divider()
-                    Text("Runtime diagnostics").font(.headline)
-                    Toggle("Launched from Home Screen, without debugger", isOn:$standalone).disabled(model.running)
-                    Toggle("Wi-Fi and cellular are off", isOn:$offline).disabled(model.running)
-                    Text("These switches only record your stated test conditions; they do not change or independently verify device state.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Picker("Preset", selection:$diagnosticPreset) {
-                        ForEach(DiagnosticPreset.allCases) { preset in Text(preset.title).tag(preset) }
-                    }.disabled(model.running)
-                    Toggle("Include stress probes (may terminate WebContent)", isOn:$includeStress).disabled(model.running)
-                    Button("Run \(diagnosticPreset.title)") {
-                        model.runDiagnostics(diagnosticPreset,includeStress:includeStress,standalone:standalone,offline:offline)
-                    }.buttonStyle(.borderedProminent).disabled(model.running)
-                    if model.running { Button("Stop current run") { model.stop() }.buttonStyle(.bordered) }
-                    Text("Full diagnostics run architecture-level probes in fresh sessions and report unsupported Wine/DXMT pieces explicitly instead of treating them as passes.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    if let diagnostic = model.diagnosticReport {
-                        Text("DIAGNOSTICS: \(diagnostic.overall)").font(.headline).textSelection(.enabled)
-                        let passed=diagnostic.records.filter{$0.status == .passed}.count
-                        let unsupported=diagnostic.records.filter{$0.status == .unsupported}.count
-                        Text("\(passed) passed; \(unsupported) unsupported; \(diagnostic.records.count) total").font(.subheadline)
-                        ForEach(diagnostic.records) { record in
-                            VStack(alignment:.leading,spacing:4) {
-                                Text("\(record.status.rawValue.uppercased()) — \(record.title)").font(.caption.bold())
-                                if let error=record.error { Text(error).font(.caption).textSelection(.enabled) }
-                                if let reason=record.details["reason"] { Text(reason).font(.caption).foregroundStyle(.secondary) }
-                                if let ms=record.durationMilliseconds { Text(String(format:"%.1f ms",ms)).font(.caption.monospacedDigit()) }
-                            }
-                        }
-                        if let url=model.diagnosticReportURL { ShareLink("Share diagnostic JSON",item:url).disabled(model.running) }
-                    }
-
-                    Divider()
-                    Text("Regression suites").font(.headline)
-                    Text("On-device correctness and timing").font(.subheadline)
-                    Text("New x86 code is translated by FEX on this device. No recorded Wasm or game files. Timings include the SDK bridge and are not a percentage of normal JIT speed.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                    HStack {
-                        Button("Quick baseline") { model.run(.baseline, standalone: standalone, offline: offline) }.disabled(model.running)
-                        Button("Run full suite") { model.run(.full, standalone: standalone, offline: offline) }.disabled(model.running)
-                        if model.running { Button("Stop") { model.stop() } }
-                    }.buttonStyle(.bordered)
-                    Button("Run extended suite (SIMD / regions / long timings)") {
-                        model.run(.extended, standalone: standalone, offline: offline)
-                    }.buttonStyle(.borderedProminent).disabled(model.running)
-                    Button("Run mapped extended suite") {
-                        model.run(.extended, standalone: standalone, offline: offline, mappedTransport: true)
-                    }.buttonStyle(.borderedProminent).disabled(model.running)
-                    Text("Mapped mode requires the OPFS/native-mmap data lane; ordinary Extended remains the copied-control/data baseline.").font(.caption).foregroundStyle(.secondary)
-                    Text("Extended timings target 100–500 ms per call with bounded calibration. Leave the app foregrounded; Stop preserves a partial report.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    if let transport = model.transport { ExecutorView(transport: transport).id(ObjectIdentifier(transport)).frame(height: 96) }
-                    if let report = model.report {
-                        Text("\(report.mode.rawValue.uppercased()): \(report.overall)").font(.headline).textSelection(.enabled)
-                        let passed = report.stages.flatMap(\.cases).filter { $0.status == .passed }.count
-                        let total = report.stages.reduce(0) { $0 + $1.cases.count }
-                        Text("\(passed) / \(total) checks passed").font(.subheadline)
-                        ForEach(report.stages) { stage in
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("\(stage.status.rawValue.uppercased()) — \(stage.title)").font(.subheadline.bold())
-                                if let error = stage.error { Text(error).font(.caption).textSelection(.enabled) }
-                                ForEach(stage.cases) { record in
-                                    Text("\(record.status.rawValue.uppercased()): \(record.title)").font(.caption)
-                                    if let median = record.medianWarmMilliseconds {
-                                        Text(String(format: "Warm median: %.3f ms (%d samples)", median, record.warmMilliseconds.count)).font(.caption.monospacedDigit())
-                                    }
-                                    if let benchmark = record.benchmark, let n = benchmark.selectedIterations {
-                                        Text("\(n) iterations; \(benchmark.probes.count) calibration probes; timing window \(benchmark.windowSatisfied ? "complete" : "incomplete")")
-                                            .font(.caption.monospacedDigit())
-                                    }
-                                    if let region = record.region {
-                                        Text("Region priming: \(region.checkedPrimingCalls); post-installation checks: \(region.postInstallationCheckedCalls)")
-                                            .font(.caption.monospacedDigit())
-                                    }
-                                    if let note = record.timingNote { Text(note).font(.caption).foregroundStyle(.secondary) }
-                                }
-                            }.padding(.vertical, 6)
+                        Button("Run All") { run(resume:false) }
+                            .buttonStyle(.borderedProminent).disabled(model.running || model.importing)
+                        if model.running {
+                            Button("Stop") { model.stop() }.buttonStyle(.bordered)
+                        } else if model.report?.canResume == true {
+                            Button("Resume unfinished") { run(resume:true) }.buttonStyle(.bordered).disabled(model.importing)
                         }
                     }
-                    if let error = model.storageError { Text(error).font(.footnote).textSelection(.enabled) }
-                    if let url = model.reportURL { ShareLink("Share JSON report", item: url).disabled(model.running) }
-                    Text("Reports stay in this app until you share them. Backgrounding or stopping marks unfinished checks incomplete, not passed.").font(.caption).foregroundStyle(.secondary)
+                    if model.report?.canResume == true && !model.running {
+                        Text("Resume creates a new report, keeps completed phases, and retries unfinished phases from their start. The earlier report is preserved.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let report=model.report {
+                        ProgressView(value:Double(report.completedCount),total:Double(report.phases.count))
+                        Text("\(report.completedCount)/\(report.phases.count) phases · \(report.overall)").font(.headline)
+                    }
+                    Text(model.liveStatus).font(.subheadline.bold()).accessibilityIdentifier("session-progress")
+                    if let session=model.linuxSession {
+                        LinuxExecutorView(session:session).id(ObjectIdentifier(session)).frame(height:200)
+                    }
+                    if let transport=model.transport {
+                        ExecutorView(transport:transport).id(ObjectIdentifier(transport)).frame(height:64)
+                    }
+                    if let report=model.report {
+                        ForEach(report.phases) { phase in
+                            PhaseRow(phase:phase,suite:report.suites[phase.id],
+                                     diagnostics:phase.id == "diagnostics" ? report.diagnostics : nil)
+                        }
+                    }
+                    if let error=model.storageError { Text(error).foregroundStyle(.red).font(.footnote).textSelection(.enabled) }
+                    if let url=model.reportURL {
+                        ShareLink("Share session report",item:url).buttonStyle(.borderedProminent)
+                            .disabled(model.running || model.importing)
+                    }
+                    DisclosureGroup("Wine root and session options") {
+                        VStack(alignment:.leading,spacing:12) {
+                            Text(model.wineAvailable ? "Wine root found" : "Wine root missing: Wine will be UNSUPPORTED")
+                                .font(.subheadline.bold())
+                            Button("Choose staged Wine root folder") { chooseRoot=true }
+                                .disabled(model.running || model.importing)
+                            if model.importing { Button("Cancel import") { model.cancelImport() } }
+                            Text("Select linuxroot with opt/wine/bin/wine, .symlinks.json and .modes.json, or copy it to this app’s Documents/linuxroot in Files/Finder. No rebuild is needed. Use your redistributable Wine build and dependencies.")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Toggle("Home Screen launch, no debugger",isOn:$standalone)
+                            Toggle("Wi-Fi and cellular are off",isOn:$offline)
+                            Toggle("Include memory stress probes",isOn:$stress)
+                            Text("Conditions are self-reported. Stress probes may terminate WebContent. Keep this app foregrounded; backgrounding saves an interrupted session.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }.disabled(model.running).padding(.top,8)
+                    }
+                    Text("Linux and Wine use real guest execution. Metal checks an offscreen rendered image. DXMT/game rendering remains unsupported. Timings include bridge work and do not measure game speed.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }.padding()
-            }.navigationTitle("BetterJIT FEX Host")
+            }.navigationTitle("BetterJIT Device Session")
         }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .background { model.stop(interrupted: true) }
+        .fileImporter(isPresented:$chooseRoot,allowedContentTypes:[.folder]) { result in
+            switch result {
+            case .success(let url): model.importRoot(url)
+            case .failure(let error): model.storageError=error.localizedDescription
+            }
         }
-        .onDisappear { model.stop(interrupted: true) }
+        .onChange(of:scenePhase) { _,phase in if phase == .background { model.stop(interrupted:true) } }
+    }
+    private func run(resume:Bool) { model.runAll(standalone:standalone,offline:offline,stress:stress,resume:resume) }
+}
+private struct PhaseRow: View {
+    let phase:SessionPhase
+    let suite:SuiteReport?
+    let diagnostics:DiagnosticReport?
+    @State private var expanded=false
+    var body: some View {
+        DisclosureGroup(isExpanded:$expanded) {
+            VStack(alignment:.leading,spacing:8) {
+                if let error=phase.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+                if let reason=phase.details["reason"] { Text(reason).textSelection(.enabled) }
+                ForEach(phase.details.keys.sorted().filter{$0 != "reason"},id:\.self) { key in
+                    Text("\(key): \(phase.details[key] ?? "")").font(.caption.monospaced())
+                }
+                if let suite {
+                    ForEach(suite.stages) { stage in
+                        Text("\(stage.status.rawValue.uppercased()) · \(stage.title)").font(.subheadline.bold())
+                        if let error=stage.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+                        ForEach(stage.cases) { check in
+                            Text("\(check.status.rawValue.uppercased()) · \(check.title)")
+                            if let error=check.error { Text(error).foregroundStyle(.red) }
+                            if let median=check.medianWarmMilliseconds {
+                                Text(String(format:"Checked warm median %.2f ms",median)).font(.caption.monospacedDigit())
+                            }
+                            if let note=check.timingNote { Text(note).foregroundStyle(.secondary) }
+                        }
+                    }
+                }
+                if let diagnostics {
+                    ForEach(diagnostics.records) { check in
+                        Text("\(check.status.rawValue.uppercased()) · \(check.title)").font(.subheadline.bold())
+                        if let error=check.error { Text(error).foregroundStyle(.red) }
+                        if let reason=check.details["reason"] { Text(reason).foregroundStyle(.secondary) }
+                    }
+                }
+                if !phase.log.isEmpty {
+                    Text(phase.log.suffix(16000)).font(.caption.monospaced()).textSelection(.enabled)
+                }
+                if let ms=phase.milliseconds { Text(String(format:"Phase %.1f s",ms/1000)).font(.caption.monospacedDigit()) }
+            }.font(.caption).padding(.top,8)
+        } label: {
+            VStack(alignment:.leading,spacing:3) {
+                Text(phase.title).font(.subheadline.bold())
+                Text(phase.status.rawValue.uppercased()).font(.caption.monospacedDigit()).foregroundStyle(color)
+                if phase.status == .running, !phase.log.isEmpty {
+                    Text(phase.log.suffix(500)).font(.caption.monospaced()).lineLimit(5)
+                }
+            }
+        }.padding(12).background(Color.secondary.opacity(0.08),in:RoundedRectangle(cornerRadius:12))
+    }
+    private var color:Color {
+        switch phase.status {
+        case .passed: return .green
+        case .failed: return .red
+        case .unsupported,.skipped: return .orange
+        case .pending,.running: return .secondary
+        }
     }
 }
-
-private struct ExecutorView: UIViewRepresentable {
-    let transport: WebKitTransport
-    func makeUIView(context: Context) -> WKWebView { transport.webView }
-    func updateUIView(_ view: WKWebView, context: Context) {}
+private struct ExecutorView:UIViewRepresentable {
+    let transport:WebKitTransport
+    func makeUIView(context:Context)->WKWebView { transport.webView }
+    func updateUIView(_ view:WKWebView,context:Context) {}
 }
-
-private struct LinuxExecutorView: UIViewRepresentable {
-    let session: LinuxRuntimeSession
-    func makeUIView(context: Context) -> WKWebView { session.webView }
-    func updateUIView(_ view: WKWebView, context: Context) {}
+private struct LinuxExecutorView:UIViewRepresentable {
+    let session:LinuxRuntimeSession
+    func makeUIView(context:Context)->WKWebView { session.webView }
+    func updateUIView(_ view:WKWebView,context:Context) {}
 }
