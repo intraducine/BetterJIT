@@ -13,7 +13,8 @@ async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trac
   if(typeof WebAssembly.Suspending!=='function'||typeof WebAssembly.promising!=='function')throw Error('Run Node with --experimental-wasm-jspi.');
   const port=await new Promise((resolve,reject)=>{const server=net.createServer();server.on('error',reject);server.listen(0,'127.0.0.1',()=>{const port=server.address().port;server.close(()=>resolve(port));});});
   const origin=`http://127.0.0.1:${port}`;
-  const server=spawn(translator,['--linux',String(port),translatorOptions],{stdio:['ignore','pipe','pipe']});
+  const server=spawn(translator,['--linux',String(port),translatorOptions],{stdio:['ignore','pipe','pipe'],
+    env:{...process.env,FEXWASM_NATIVE_TRACE:'1'}});
   let translationLog='';server.stderr.on('data',bytes=>translationLog=(translationLog+bytes).slice(-65536));
   let bootError;server.on('error',error=>{bootError=error;});
   const threads=new GuestWorkers(),memoryFaults=[],capturedUnits=new Map();let kernel,timer,stdout='',stderr='',dumpBytes=0;const started=performance.now();

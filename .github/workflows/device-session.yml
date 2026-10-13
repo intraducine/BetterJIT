@@ -108,6 +108,8 @@ jobs:
           path: .build/host-fex
           key: ${{ steps.host-cache.outputs.cache-primary-key }}
       - name: Execute real Linux userspace through live FEX and the promoted runtime
+        id: live-linux
+        continue-on-error: true
         if: hashFiles('.build/device-linuxroot/.betterjit-linux-root.json') != ''
         run: |
           set -o pipefail
@@ -118,6 +120,8 @@ jobs:
           python3 Examples/FEXHost/prepare.py
           xcodebuild -project Examples/FEXHost/BetterJITFEXHost.xcodeproj -scheme BetterJITFEXHost -configuration Release -destination 'generic/platform=iOS' -derivedDataPath .build/device-session CODE_SIGNING_ALLOWED=NO build 2>&1 | tee .build/device-session-build.log
       - name: Package unsigned app for the user's existing signing/install route
+        env:
+          LIVE_HOST_OUTCOME: ${{ steps.live-linux.outcome }}
         run: |
           mkdir -p .build/device-session-artifact/Payload
           cp -R .build/device-session/Build/Products/Release-iphoneos/BetterJITFEXHost.app .build/device-session-artifact/Payload/
@@ -133,9 +137,10 @@ jobs:
           if test -f .build/live-linux-results.json; then cp .build/live-linux-results.json .build/device-session-artifact/LIVE-LINUX-RESULTS.json; fi
           if test -d .build/wine-instruction-trace; then cp -R .build/wine-instruction-trace .build/device-session-artifact/WINE-INSTRUCTION-TRACE; fi
           python3 - <<'PY'
-          import hashlib, json, pathlib, subprocess
+          import hashlib, json, os, pathlib, subprocess
           root=pathlib.Path('.build/device-session-artifact')
           manifest={'repository':'intraducine/BetterJIT','commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'signed':False,'deviceExecuted':False}
+          manifest['liveHostValidation']=os.environ['LIVE_HOST_OUTCOME']
           manifest['files']={str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in (root/'Payload').rglob('*') if p.is_file()}
           (root/'BUILD-MANIFEST.json').write_text(json.dumps(manifest,indent=2)+'\n')
           PY
@@ -158,6 +163,11 @@ jobs:
             .build/device-session-artifact/*-build.log
           if-no-files-found: error
           retention-days: 14
+      - name: Retain a failing validation outcome after preserving the compiled app
+        if: steps.live-linux.outcome == 'failure'
+        run: |
+          echo 'Live host validation failed. The unsigned app is preserved with failed results; this run remains failed.'
+          exit 1
       - name: Preserve failure logs
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

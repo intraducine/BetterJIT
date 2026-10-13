@@ -14,7 +14,7 @@ cmake -S "$FEX" -B "$B" -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_LTO=OFF -DT
 ninja -C "$B" FEXCore FEXCore_Base JemallocLibs fmt xxhash cephes_128bit softfloat_3e
 mkdir -p .build/host-fex
 BUILD_ID=$(bash fexwasm/build_id.sh "$FEX")
-clang++ -std=gnu++20 -O2 -fno-exceptions -fno-strict-aliasing -fwrapv -Wno-unused-function \
+clang++ -std=gnu++20 -O2 -gline-tables-only -fno-exceptions -fno-strict-aliasing -fwrapv -Wno-unused-function \
   "-DFEXWASM_BUILD_ID=\"$BUILD_ID\"" -DARCHITECTURE_arm64=1 -DJIT_ARM64 -D_LARGEFILE64_SOURCE \
   -DFEXCORE_HAS_PRESERVE_ALL_ATTR=1 '-DFEXCORE_PRESERVE_ALL_ATTR=__attribute__((preserve_all))' \
   -DFEX_HAS_PRESERVE_ALL_ATTR=1 '-DFEX_PRESERVE_ALL_ATTR=__attribute__((preserve_all))' \

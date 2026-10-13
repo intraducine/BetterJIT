@@ -40,7 +40,8 @@ cause. Wine uses unit translation for this trace, and its phase time includes
 diagnostic overhead. The separate ABI suites still exercise hot regions.
 The stock Wine 10.7 path currently requires a kernel stack above 4 GiB, outside
 the Linux mapper's supported range. Its loader can continue after that allocation
-fails, then trap while copying its startup context through a zero stack base.
+fails, then trap while copying its startup context through an unset stack base
+(the captured TEB value is the sentinel `-1`).
 The report keeps this as a failed execution attempt. A compatible address-space
 integration or a suitable redistributable Wine build is still required.
 Missing Wine inputs produce UNSUPPORTED. A present but broken root, failed exit, missing Windows version,
@@ -117,6 +118,9 @@ hashes. That is Apple compilation, not a device execution result. Live arm64 hos
 SDK kernel/thread/runtime and fresh FEX-to-Wasm translation in Node workers;
 their per-case stdout, errors, syscall/fetch/translation statistics and exact
 source are included as `LIVE-LINUX-RESULTS.json` beside the IPA.
+If live host validation fails, the compiled app can still be preserved for the
+phone session. `BUILD-MANIFEST.json` records that failed outcome and the workflow
+remains failed; artifact availability does not mean all runtime checks passed.
 
 The first real BusyBox pipeline exposed partial-write data loss in `sendfile`:
 only 64 KiB reached the pipe while the input advanced 256 KiB. The kernel now
