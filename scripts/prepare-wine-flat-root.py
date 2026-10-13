@@ -12,9 +12,10 @@ WINE_COMMIT = '71c6c3dd6dcfffc040aa5a10a825eeb8e17f6299'  # Wine 10.7
 IMAGE = 'alpine:3.22.2@sha256:4b7ce07002c69e8f3d704a9c5d6fd3053be500b7f1c69fc0d80990c2ad8dd412'
 CONTAINER = r'''
 set -eu
-apk add --no-cache build-base bison flex-dev perl mingw-w64-gcc python3
+apk add --no-cache build-base bison flex-dev perl mingw-w64-gcc python3 freetype-dev
 ulimit -c 0
 mkdir /source /build
+trap 'if test -f /build/config.log; then cp /build/config.log /output/config.log; fi' EXIT
 tar -xf /input/wine-source.tar -C /source
 cd /source
 patch -p1 < /input/wine-flat-guest.patch
@@ -73,7 +74,8 @@ def install(root, output, source_archive, patch):
             'nonNullFSSelectors': 'unsupported; SIGILL, never a selector NOP',
             'filesSHA256': {name: sha(unix / name) for name in ('ntdll.so', 'wine')},
             'fsResetFixtureSHA256': sha(notes / 'fs-reset.elf'),
-            'stockWineFilesChanged': False, 'guestExecutedDuringPreparation': False,
+            'stockWineFilesChanged': False, 'wineExecutedDuringPreparation': False,
+            'guestExecutedThroughFEXDuringPreparation': False, 'nativeFSContractChecked': True,
             'buildImage': IMAGE, 'license': 'LGPL-2.1-or-later',
         }
         (target / '.betterjit-wine-flat.json').write_text(json.dumps(provenance, indent=2) + '\n')
@@ -125,6 +127,8 @@ def main():
             shutil.copyfile(patch, evidence / patch.name)
             shutil.copyfile(inputs / 'wine-flat-native.py', evidence / 'wine-flat-native.py')
             shutil.copyfile(output / 'build.log', evidence / 'build.log')
+            for name in ('config.log', 'fs-reset.elf'):
+                if (output / name).exists(): shutil.copyfile(output / name, evidence / name)
             print((output / 'build.log').read_text()[-12000:])
         install(root, output, archive, patch)
         shutil.copyfile(archive, evidence / archive.name)

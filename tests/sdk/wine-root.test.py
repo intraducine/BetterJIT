@@ -56,6 +56,7 @@ class RootArchiveTests(unittest.TestCase):
             self.assertEqual(stock.read_bytes(),b'stock')
             meta=json.loads((root/'opt/wine-flat/.betterjit-wine-flat.json').read_text())
             self.assertFalse(meta['stockWineFilesChanged'])
-            self.assertFalse(meta['guestExecutedDuringPreparation'])
+            self.assertFalse(meta['wineExecutedDuringPreparation'])
+            self.assertFalse(meta['guestExecutedThroughFEXDuringPreparation'])
             self.assertEqual(meta['guestAddressLimitExclusive'],'0xffff0000')
 if __name__=='__main__': unittest.main()
