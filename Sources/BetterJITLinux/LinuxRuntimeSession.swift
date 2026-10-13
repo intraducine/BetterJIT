@@ -173,6 +173,7 @@ import WebKit
             URLQueryItem(name:"cwd",value:configuration.currentDirectory),
             URLQueryItem(name:"timeout",value:String(Int(configuration.timeoutSeconds))),
             URLQueryItem(name:"chan",value:configuration.useNativeChannels ? "1":"0"),
+            URLQueryItem(name:"shared",value:configuration.sharedAddressSpace ? "1":"0"),
             URLQueryItem(name:"regions",value:configuration.regions ? "1":"0"),
             URLQueryItem(name:"trace",value:configuration.trace ? "1":"0"),
             URLQueryItem(name:"traceCode",value:configuration.traceCode ? "1":"0"),

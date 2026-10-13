@@ -88,20 +88,33 @@ index 3c9b3e9..9175b92 100644
  #elif defined __APPLE__
                     "movq %rax,%rdx\n\t"
 diff --git a/dlls/ntdll/unix/thread.c b/dlls/ntdll/unix/thread.c
-index c4086fd..b7cf9e9 100644
+index c4086fd..53563fc 100644
 --- a/dlls/ntdll/unix/thread.c
 +++ b/dlls/ntdll/unix/thread.c
+@@ -108,10 +108,10 @@ void fpux_to_fpu( I386_FLOATING_SAVE_AREA *fpu, const XMM_SAVE_AREA32 *fpux )
+     fpu->ErrorSelector = fpux->ErrorSelector | (fpux->ErrorOpcode << 16);
+     fpu->DataOffset    = fpux->DataOffset;
+     fpu->DataSelector  = fpux->DataSelector;
+-    fpu->Cr0NpxState   = fpux->StatusWord | 0xffff0000;
++    fpu->Cr0NpxState   = fpux->StatusWord | 0x7fff0000;
+ 
+     stack_top = (fpux->StatusWord >> 11) & 7;
+-    fpu->TagWord = 0xffff0000;
++    fpu->TagWord = 0x7fff0000;
+     for (i = 0; i < 8; i++)
+     {
+         memcpy( &fpu->RegisterArea[10 * i], &fpux->FloatRegisters[i], 10 );
 @@ -1195,7 +1195,7 @@ NTSTATUS init_thread_stack( TEB *teb, ULONG_PTR limit, SIZE_T reserve_size, SIZE
      NTSTATUS status;
  
      /* kernel stack */
 -    if ((status = virtual_alloc_thread_stack( &stack, limit_4g, 0, kernel_stack_size, kernel_stack_size, FALSE )))
-+    if ((status = virtual_alloc_thread_stack( &stack, 0, (ULONG_PTR)0xffff0000, kernel_stack_size, kernel_stack_size, FALSE )))
++    if ((status = virtual_alloc_thread_stack( &stack, 0, (ULONG_PTR)0x7fff0000, kernel_stack_size, kernel_stack_size, FALSE )))
          return status;
      thread_data->kernel_stack = stack.DeallocationStack;
  
 diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
-index 2028947..235fc06 100644
+index 2028947..f67b484 100644
 --- a/dlls/ntdll/unix/virtual.c
 +++ b/dlls/ntdll/unix/virtual.c
 @@ -188,9 +188,9 @@ static void *address_space_start = (void *)0x110000; /* keep DOS area clear */
@@ -111,9 +124,9 @@ index 2028947..235fc06 100644
 -static void *address_space_limit = (void *)0x7fffffff0000;  /* top of the total available address space */
 -static void *user_space_limit    = (void *)0x7fffffff0000;  /* top of the user address space */
 -static void *working_set_limit   = (void *)0x7fffffff0000;  /* top of the current working set */
-+static void *address_space_limit = (void *)0xffff0000;  /* top of the total available address space */
-+static void *user_space_limit    = (void *)0xffff0000;  /* top of the user address space */
-+static void *working_set_limit   = (void *)0xffff0000;  /* top of the current working set */
++static void *address_space_limit = (void *)0x7fff0000;  /* top of the total available address space */
++static void *user_space_limit    = (void *)0x7fff0000;  /* top of the user address space */
++static void *working_set_limit   = (void *)0x7fff0000;  /* top of the current working set */
  #else
  static void *address_space_limit = (void *)0xc0000000;
  static void *user_space_limit    = (void *)0x7fff0000;

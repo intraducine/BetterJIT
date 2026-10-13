@@ -73,7 +73,7 @@ import BetterJITLinux
             cfg=LinuxRuntimeConfiguration(arguments:arguments,
                                           environment:environment,timeoutSeconds:90,
                                           display:"1024x768",regions:false,slowWaitMilliseconds:100,
-                                          useNativeChannels:nativeChannels)
+                                          useNativeChannels:nativeChannels,sharedAddressSpace:mode != .wineFlat)
         }
         let s=try LinuxRuntimeSession(backend:backend,fileSystem:fs,configuration:cfg)
         session=s

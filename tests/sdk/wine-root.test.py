@@ -58,5 +58,5 @@ class RootArchiveTests(unittest.TestCase):
             self.assertFalse(meta['stockWineFilesChanged'])
             self.assertFalse(meta['wineExecutedDuringPreparation'])
             self.assertFalse(meta['guestExecutedThroughFEXDuringPreparation'])
-            self.assertEqual(meta['guestAddressLimitExclusive'],'0xffff0000')
+            self.assertEqual(meta['guestAddressLimitExclusive'],'0x7fff0000')
 if __name__=='__main__': unittest.main()

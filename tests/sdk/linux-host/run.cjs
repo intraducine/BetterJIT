@@ -9,7 +9,7 @@ const REPO=path.resolve(__dirname,'../../..');
 const resources=path.join(REPO,'Sources/BetterJITLinux/Resources');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trace=false,onProgress,environment={},
-  translatorOptions='depth=24',debugDirectory}) {
+  translatorOptions='depth=24',debugDirectory,sharedAddressSpace=true}) {
   if(typeof WebAssembly.Suspending!=='function'||typeof WebAssembly.promising!=='function')throw Error('Run Node with --experimental-wasm-jspi.');
   const port=await new Promise((resolve,reject)=>{const server=net.createServer();server.on('error',reject);server.listen(0,'127.0.0.1',()=>{const port=server.address().port;server.close(()=>resolve(port));});});
   const origin=`http://127.0.0.1:${port}`;
@@ -48,7 +48,7 @@ async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trac
     const result=await new Promise((resolve,reject)=>{
       timer=setTimeout(()=>reject(Error(`Guest deadline ${timeout}s exceeded\n${stderr.slice(-8192)}`)),timeout*1000);
       kernel=new Worker(path.join(__dirname,'kernel.cjs'),{workerData:{resources,root,overlay,index:rootIndex(root,overlay),
-        cfg,state,bridge,bootEpoch,argv,cwd,trace,tracePaths:!!debugDirectory,uid,gid,env:Object.entries({HOME:'/home/user',USER:'user',PATH:'/opt/wine/bin:/usr/bin:/bin',
+        cfg,state,bridge,bootEpoch,argv,cwd,trace,tracePaths:!!debugDirectory,sharedAddressSpace,uid,gid,env:Object.entries({HOME:'/home/user',USER:'user',PATH:'/opt/wine/bin:/usr/bin:/bin',
           LANG:'C',WINEDEBUG:'-all',WINEDLLOVERRIDES:'winemenubuilder.exe=d',LD_LIBRARY_PATH:'/opt/wine/lib/wine/x86_64-unix',...environment}).map(([k,v])=>`${k}=${v}`)}});
       kernel.on('error',reject);
       kernel.on('message',async message=>{

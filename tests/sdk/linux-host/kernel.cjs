@@ -39,7 +39,7 @@ if(d.tracePaths) {
   }
 }
 const host={vfs,state:new Uint8Array(d.state),uid:d.uid,gid:d.gid,
-  cpus:4,cwd:d.cwd,trace:d.trace,traceExec:d.tracePaths,sharedSpace:true,spinMs:0,win64:'',
+  cpus:4,cwd:d.cwd,trace:d.trace,traceExec:d.tracePaths,sharedSpace:d.sharedAddressSpace!==false,spinMs:0,win64:'',
   spawnThread:info=>parentPort.postMessage({op:'spawn',...info}),
   killThread:tid=>parentPort.postMessage({op:'kill',tid}),
   code:(space,address,bytes,abi=0)=>call({op:'code',space,address,bytes,abi}),

@@ -136,6 +136,7 @@ import BetterJITLinux
             if wine {
                 report?.phases[i].details["memoryFaultTrace"]="Guest instruction and scalar/bulk operands requested; unit translation only. Diagnostic overhead is included in phase time."
                 report?.phases[i].details["loaderMode"]=id == "wine" ? "stock Wine preloader" : "WINELOADERNOEXEC=1; WINEARCH=win64"
+                report?.phases[i].details["addressSpaces"]=id == "wine-flat" ? "Separate guest process memories; existing Wine 2 GiB maximum" : "Existing shared guest address space"
                 let root=LinuxHarness.rootURL
                 report?.phases[i].details["rootOrigin"]=root == LinuxHarness.documentsRootURL ? "imported Documents root" : "bundled input candidate"
                 if let handle=try? FileHandle(forReadingFrom:root.appendingPathComponent(".betterjit-linux-root.json")) {

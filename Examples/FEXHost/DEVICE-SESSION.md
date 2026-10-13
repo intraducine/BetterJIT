@@ -32,7 +32,7 @@ Wine ELF too, because Wine clears the startup variable during initialization. Bo
 require actual Windows version output and exit 0; one failed path stays FAIL
 even if the other succeeds.
 
-Both Wine attempts include guest-instruction fault tracing in the exported phase
+Wine attempts include guest-instruction fault tracing in the exported phase
 details and log. It records full addresses, actual Wasm addresses, segment bases
 and bulk fill/copy operands and counts. `boundsConfirmed` identifies whether that
 record explains the bounds trap; an unconfirmed last access is not its proved
@@ -46,7 +46,10 @@ The report keeps this as a failed execution attempt. A compatible address-space
 integration or a suitable redistributable Wine build is still required.
 The separate **source-built flat-window Win64** phase attempts a Wine 10.7
 candidate installed beside stock Wine. Its virtual allocator and startup kernel
-stack use addresses below `0xffff0000`. Null FS selector writes clear the base
+stack use addresses below `0x7fff0000`, within the existing 2 GiB Wine memory
+maximum. This candidate uses separate guest process memories, as stock Wine
+expects; the other phases retain the existing shared address-space mode.
+Null FS selector writes clear the base
 through real `ARCH_SET_FS(0)` calls while preserving registers and flags;
 non-null selectors trap and remain unsupported. A checked guest FS-reset workload
 runs before the actual `cmd /c ver` attempt in the same phase. Windows version

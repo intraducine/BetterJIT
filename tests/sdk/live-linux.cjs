@@ -30,7 +30,7 @@ async function main() {
    environment:{WINELOADERNOEXEC:'1',WINEARCH:'win64'},optional:true,timeout:120},
   ...(fs.existsSync(path.join(root,'opt/wine-flat/.betterjit-wine-flat.json')) ? [
    {id:'wine-command-flat-window',argv:['/bin/busybox','sh','-c','/opt/wine-flat/share/betterjit-provenance/fs-reset.elf && exec /opt/wine-flat/bin/wine cmd /c ver'],
-    marker:'BetterJIT Wine FS reset OK',
+    marker:'BetterJIT Wine FS reset OK',sharedAddressSpace:false,
     environment:{WINELOADERNOEXEC:'1',WINEARCH:'win64',WINEPREFIX:'/home/user/.wine-flat',
      WINEDLLPATH:'/usr/lib/wine',LD_LIBRARY_PATH:'/opt/wine-flat/lib/wine/x86_64-unix:/usr/lib',WINEDEBUG:'+loaddll,+process'},timeout:120,
     translatorOptions:'depth=24 memtrace=1',debugDirectory:path.join(REPO,'.build/wine-instruction-trace','wine-flat')}

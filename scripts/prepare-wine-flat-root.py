@@ -70,7 +70,7 @@ def install(root, output, source_archive, patch):
             'schema': 1, 'candidate': 'Source-built Wine Win64 for a flat guest window; compatibility unverified',
             'wineSourceCommit': WINE_COMMIT, 'wineSource': source,
             'wineSourceArchiveSHA256': sha(source_archive), 'patchSHA256': sha(patch),
-            'guestAddressLimitExclusive': '0xffff0000', 'guestISA': 'x86_64',
+            'guestAddressLimitExclusive': '0x7fff0000', 'guestISA': 'x86_64',
             'nonNullFSSelectors': 'unsupported; SIGILL, never a selector NOP',
             'filesSHA256': {name: sha(unix / name) for name in ('ntdll.so', 'wine')},
             'fsResetFixtureSHA256': sha(notes / 'fs-reset.elf'),
