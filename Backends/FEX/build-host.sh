@@ -33,7 +33,7 @@ cmake -S "$FEX" -B "$B" -G Ninja -DCMAKE_C_COMPILER="$(command -v clang)" -DCMAK
   -DCMAKE_BUILD_TYPE=Release -DENABLE_LTO=OFF -DTUNE_CPU=none \
   -DBUILD_TESTING=OFF -DBUILD_THUNKS=OFF -DBUILD_FEXCONFIG=OFF -DBUILD_FEX_LINUX_TESTS=OFF \
   -DENABLE_FEX_ALLOCATOR=OFF -DENABLE_JEMALLOC_GLIBC_ALLOC=OFF -DENABLE_ASSERTIONS=OFF \
-  -DENABLE_OFFLINE_TELEMETRY=OFF -DENABLE_CLANG_THUNKS=OFF "${FEX_OPTIONS[@]}"
+  -DENABLE_OFFLINE_TELEMETRY=OFF -DENABLE_CLANG_THUNKS=OFF ${FEX_OPTIONS[@]+"${FEX_OPTIONS[@]}"}
 cmake --build "$B" --parallel "${BETTERJIT_BUILD_JOBS:-4}" --target FEXCore FEXCore_Base JemallocLibs fmt xxhash cephes_128bit softfloat_3e
 mkdir -p .build/host-fex
 BUILD_ID=$(bash fexwasm/build_id.sh "$FEX")
@@ -47,4 +47,4 @@ clang++ -std=gnu++20 -O2 -gline-tables-only -fno-exceptions -fno-strict-aliasing
   "$B/FEXCore/Source/libFEXCore.a" "$B/FEXCore/Source/libFEXCore_Base.a" "$B/FEXCore/Source/libJemallocLibs.a" \
   "$B/External/fmt/libfmt.a" "$B/External/xxhash/cmake_unofficial/libxxhash.a" \
   "$B/External/cephes/libcephes_128bit.a" "$B/External/SoftFloat-3e/libsoftfloat_3e.a" \
-  "${LINK_FLAGS[@]}" -o .build/host-fex/fexserve
+  ${LINK_FLAGS[@]+"${LINK_FLAGS[@]}"} -o .build/host-fex/fexserve
