@@ -27,34 +27,22 @@ make -j4 dlls/ntdll/ntdll.so loader/wine
 cp dlls/ntdll/ntdll.so /output/ntdll.so
 cp loader/wine /output/wine
 cp config.log /output/config.log
-# Prepare first-run registry/files with the actual adapted Wine, inside this
+# Prepare first-run registry/files with the signed stock Wine of the same version, inside this
 # disposable Linux container. This is native input preparation, never FEX or
 # device success. The original signed stock root remains unchanged.
 set +e
 (
 set -e
 apk add --no-cache --no-scripts wine=10.7-r0
-mkdir -p /opt/wine-flat/bin /opt/wine-flat/lib/wine/x86_64-unix /opt/wine-flat/share
-cp /output/wine /output/ntdll.so /opt/wine-flat/lib/wine/x86_64-unix/
-ln -s /usr/lib/wine/x86_64-windows /opt/wine-flat/lib/wine/x86_64-windows
-ln -s ../lib/wine/x86_64-unix/wine /opt/wine-flat/bin/wine
-ln -s /usr/bin/wineserver /opt/wine-flat/bin/wineserver
-ln -s /usr/share/wine /opt/wine-flat/share/wine
-for module in /usr/lib/wine/x86_64-unix/*; do
-  name=${module##*/}
-  if test "$name" != wine && test "$name" != ntdll.so; then
-    ln -s "$module" "/opt/wine-flat/lib/wine/x86_64-unix/$name"
-  fi
-done
 adduser -D -u 1000 user
 mkdir -p /home/user
 chown user:user /home/user
 set +e
 timeout -k 5 90 su -s /bin/sh user -c '
-  export WINEARCH=win64 WINEPREFIX=/home/user/.wine-flat WINELOADERNOEXEC=1
-  export WINEDLLPATH=/usr/lib/wine LD_LIBRARY_PATH=/opt/wine-flat/lib/wine/x86_64-unix:/usr/lib
+  export WINEARCH=win64 WINEPREFIX=/home/user/.wine-flat LANG=C
+  export WINEDLLPATH=/usr/lib/wine LD_LIBRARY_PATH=/usr/lib/wine/x86_64-unix:/usr/lib
   export WINEDEBUG=-all WINEDLLOVERRIDES="winemenubuilder.exe=d"
-  /opt/wine-flat/bin/wine /usr/lib/wine/x86_64-windows/cmd.exe /c ver
+  /usr/bin/wine /usr/lib/wine/x86_64-windows/cmd.exe /c ver
 ' > /output/native-prefix.log 2>&1
 status=$?
 set -e
@@ -159,7 +147,7 @@ def install(root, output, source_archive, patch):
             'fsResetFixtureSHA256': sha(notes / 'fs-reset.elf'),
             'stockWineFilesChanged': False, 'wineExecutedDuringPreparation': (output / 'native-prefix-exit.txt').exists(),
             'guestExecutedThroughFEXDuringPreparation': False, 'nativeFSContractChecked': True,
-            'nativePrefix': 'Prepared with native source-built Wine cmd /c ver; not FEX/device evidence' if prefix_installed else 'Unavailable; the guest performs fresh first-run setup',
+            'nativePrefix': 'Prepared with signed stock Wine 10.7 cmd /c ver; not FEX/adapted-binary/device evidence' if prefix_installed else 'Unavailable; the guest performs fresh first-run setup',
             'nativePrefixArchiveSHA256': sha(prefix) if prefix_installed else None,
             'nativePrefixUpdates': 'Wine-supported disable marker for this immutable pinned prefix' if prefix_installed else 'Fresh prefix setup',
             'buildImage': IMAGE, 'license': 'LGPL-2.1-or-later',

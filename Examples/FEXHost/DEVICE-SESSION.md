@@ -64,8 +64,10 @@ Windows version
 output, exit 0 and observed native translation are still required. This is an
 adapted Wine input, not support for arbitrary 64-bit guest address spaces, Win32,
 WoW64 or DXMT. Source, patch, hashes and preparation logs are retained separately.
-The build also attempts `cmd /c ver` with the adapted Wine in a disposable native
-Linux container to prepare a matching prefix. A successful prepared prefix is
+The build also attempts `cmd /c ver` with signed stock Wine 10.7 in a disposable
+native Linux container to prepare a matching prefix from the same Windows DLL
+inputs. The adapted flat binary is still executed separately through FEX.
+A successful prepared prefix is
 bundled with its hash and Wine's supported immutable-prefix update marker, so
 archive timestamp changes do not repeat first-run setup. This native preparation
 is recorded separately and is not FEX or phone success. If preparation fails,
