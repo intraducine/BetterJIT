@@ -153,7 +153,7 @@ import BetterJITLinux
                     defer { try? handle.close() }
                     if let data=try? handle.read(upToCount:1024*1024),
                        let object=try? JSONSerialization.jsonObject(with:data) as? [String:Any] {
-                        for key in ["candidate","wineSourceCommit","patchSHA256","guestAddressLimitExclusive","nonNullFSSelectors"] {
+                        for key in ["candidate","wineSourceCommit","patchSHA256","guestAddressLimitExclusive","nonNullFSSelectors","nativePrefix","nativePrefixArchiveSHA256","nativePrefixUpdates"] {
                             if let value=object[key] as? String { report?.phases[i].details[key]=String(value.prefix(512)) }
                         }
                     }

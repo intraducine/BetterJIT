@@ -64,6 +64,12 @@ Windows version
 output, exit 0 and observed native translation are still required. This is an
 adapted Wine input, not support for arbitrary 64-bit guest address spaces, Win32,
 WoW64 or DXMT. Source, patch, hashes and preparation logs are retained separately.
+The build also attempts `cmd /c ver` with the adapted Wine in a disposable native
+Linux container to prepare a matching prefix. A successful prepared prefix is
+bundled with its hash and Wine's supported immutable-prefix update marker, so
+archive timestamp changes do not repeat first-run setup. This native preparation
+is recorded separately and is not FEX or phone success. If preparation fails,
+the compiled candidate remains available and the guest attempts fresh setup.
 If source compilation is unavailable this phase says UNSUPPORTED; a present
 candidate that fails execution says FAIL. Stock attempts retain their outcomes.
 Missing Wine inputs produce UNSUPPORTED. A present but broken root, failed exit, missing Windows version,

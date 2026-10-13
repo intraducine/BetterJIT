@@ -59,4 +59,21 @@ class RootArchiveTests(unittest.TestCase):
             self.assertFalse(meta['wineExecutedDuringPreparation'])
             self.assertFalse(meta['guestExecutedThroughFEXDuringPreparation'])
             self.assertEqual(meta['guestAddressLimitExclusive'],'0x7fff0000')
+    def test_native_prefix_archive_remaps_hardlinks_and_rejects_escape(self):
+        # Archive fixture only: no native Wine or guest success claim.
+        with tempfile.TemporaryDirectory() as tmp:
+            root=pathlib.Path(tmp);archive=root/'prefix.tar.gz';links={};modes={}
+            with tarfile.open(archive,'w:gz') as tar:
+                f=tarfile.TarInfo('system.reg');f.size=4;tar.addfile(f,io.BytesIO(b'reg!'))
+                hard=tarfile.TarInfo('.registry-copy');hard.type=tarfile.LNKTYPE;hard.linkname='system.reg';tar.addfile(hard)
+                link=tarfile.TarInfo('dosdevices/z:');link.type=tarfile.SYMTYPE;link.linkname='/';tar.addfile(link)
+            flat.install_prefix(root,archive,links,modes)
+            self.assertEqual((root/'home/user/.wine-flat/system.reg').read_bytes(),b'reg!')
+            self.assertEqual(links['/home/user/.wine-flat/.registry-copy'],'/home/user/.wine-flat/system.reg')
+            self.assertEqual(links['/home/user/.wine-flat/dosdevices/z:'],'/')
+            import shutil
+            shutil.rmtree(root/'home/user/.wine-flat')
+            with tarfile.open(archive,'w:gz') as tar: tar.addfile(tarfile.TarInfo('../escape'))
+            with self.assertRaises(ValueError): flat.install_prefix(root,archive,{}, {})
+            self.assertFalse((root/'home/user/.wine-flat').exists())
 if __name__=='__main__': unittest.main()
