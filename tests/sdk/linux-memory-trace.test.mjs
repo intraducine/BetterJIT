@@ -5,7 +5,7 @@ import test from 'node:test';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import {createRequire} from 'node:module';
-const {functionNames,unitMetadata}=createRequire(import.meta.url)('./linux-host/wasm-names.cjs');
+const {functionNames,unitMetadata,diagnosticCapture}=createRequire(import.meta.url)('./linux-host/wasm-names.cjs');
 globalThis.self=globalThis;
 vm.runInThisContext(fs.readFileSync(new URL('../../Sources/BetterJITLinux/Resources/linux/thread_core.js',import.meta.url),'utf8'));
 test('memory fault metadata retains full address separately from Wasm memarg address and segment bases',()=>{
@@ -27,6 +27,21 @@ test('diagnostic manifests preserve signed 64-bit relocation displacement withou
  const data=JSON.parse(JSON.stringify(unitMetadata(0x400078,{slot:5,reloc:{d:-0x100000004n,s:[2,3]}})));
  assert.equal(data.rip,'0x400078');assert.equal(data.relocation.displacementDecimal,'-4294967300');
  assert.deepEqual(data.relocation.slots,[2,3]);assert.equal(data.slot,5);
+});
+test('diagnostic capture deduplicates repeated requests and stops retaining bytes without aborting execution',()=>{
+ const capture=diagnosticCapture({maxBytes:6,maxUnits:4});
+ const unit={slot:5,code:Uint8Array.of(0,1,2),reloc:{d:0n,s:[]}};
+ const first=capture.keep(1,0x4000,unit);assert.ok(first);
+ for(let i=0;i<100;i++)assert.equal(capture.keep(1,0x4000,unit),null);
+ assert.equal(capture.statistics().bytes,3);
+ const changed=capture.keep(1,0x4000,{...unit,code:Uint8Array.of(0,1,3)});
+ assert.ok(changed);assert.notEqual(changed.stem,first.stem);
+ assert.equal(capture.keep(2,0x4000,unit),null);
+ assert.deepEqual(capture.statistics(),{bytes:6,units:2,duplicateRequests:100,omittedRequests:1,truncated:true,maxBytes:6,maxUnits:4});
+ assert.deepEqual([...unit.code],[0,1,2]);
+ const count=diagnosticCapture({maxBytes:100,maxUnits:1});
+ assert.ok(count.keep(1,0x4000,unit));assert.equal(count.keep(1,0x5000,unit),null);
+ assert.equal(count.statistics().units,1);assert.equal(count.statistics().truncated,true);
 });
 test('bulk copy trace retains both operands and full length, and identifies the actual out-of-bounds operand',()=>{
  const mem={buffer:new ArrayBuffer(4096)},dv=new DataView(mem.buffer),at=0x80;

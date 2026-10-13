@@ -15,4 +15,23 @@ function unitMetadata(rip,unit) {
  return {rip:'0x'+BigInt(rip).toString(16),slot:unit.slot,
   relocation:{displacementDecimal:String(unit.reloc?.d??0n),slots:unit.reloc?.s??[]}};
 }
-module.exports={functionNames,unitMetadata};
+function diagnosticCapture({maxBytes=64*1024*1024,maxUnits=16384}={}) {
+ const crypto=require('crypto'),saved=new Set();
+ const stats={bytes:0,units:0,duplicateRequests:0,omittedRequests:0,truncated:false,maxBytes,maxUnits};
+ return {
+  keep(space,rip,unit) {
+   const metadata=unitMetadata(rip,unit);
+   const hash=crypto.createHash('sha256').update(unit.code).update(JSON.stringify(metadata)).digest('hex');
+   const stem=`space-${space}-rip-${rip.toString(16)}-unit-${hash}`;
+   if(saved.has(stem)){stats.duplicateRequests++;return null;}
+   // This is a bound on retained diagnostics, not a guest memory/execution limit.
+   if(saved.size>=maxUnits||unit.code.length>maxBytes-stats.bytes) {
+    stats.omittedRequests++;stats.truncated=true;return null;
+   }
+   saved.add(stem);stats.bytes+=unit.code.length;stats.units++;
+   return {stem,metadata};
+  },
+  statistics(){return {...stats};}
+ };
+}
+module.exports={functionNames,unitMetadata,diagnosticCapture};

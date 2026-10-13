@@ -4,7 +4,7 @@ const fs=require('fs'),path=require('path'),vm=require('vm'),net=require('net');
 const {Worker}=require('worker_threads'),{spawn}=require('child_process');
 const {rootIndex}=require('./root.cjs');
 const {GuestWorkers}=require('./workers.cjs');
-const {functionNames,unitMetadata}=require('./wasm-names.cjs');
+const {functionNames,diagnosticCapture}=require('./wasm-names.cjs');
 const REPO=path.resolve(__dirname,'../../..');
 const resources=path.join(REPO,'Sources/BetterJITLinux/Resources');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -17,7 +17,7 @@ async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trac
     env:{...process.env,FEXWASM_NATIVE_TRACE:'1'}});
   let translationLog='';server.stderr.on('data',bytes=>translationLog=(translationLog+bytes).slice(-65536));
   let bootError;server.on('error',error=>{bootError=error;});
-  const threads=new GuestWorkers(),memoryFaults=[],capturedUnits=new Map();let kernel,timer,stdout='',stderr='',dumpBytes=0;const started=performance.now();
+  const threads=new GuestWorkers(),memoryFaults=[],capturedUnits=new Map(),capture=diagnosticCapture();let kernel,timer,stdout='',stderr='';const started=performance.now();
   if(debugDirectory)fs.mkdirSync(debugDirectory,{recursive:true});
   let lastProgress=0;
   function progress() {
@@ -64,17 +64,17 @@ async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trac
                 if(response.op==='unit'){
                   const unit=await units.get(response.space,response.rip,!!debugDirectory);
                   if(unit?.code&&debugDirectory) {
-                    dumpBytes+=unit.code.length;
-                    if(dumpBytes>64*1024*1024)throw Error('Diagnostic unit capture exceeded 64 MiB.');
-                    const stem=`space-${response.space}-rip-${response.rip.toString(16)}`;
-                    fs.writeFileSync(path.join(debugDirectory,stem+'.wasm'),unit.code);
-                    fs.writeFileSync(path.join(debugDirectory,stem+'.json'),JSON.stringify(unitMetadata(response.rip,unit))+'\n');
-                    for(const name of functionNames(unit.module))if(/^[ur][0-9a-f]+$/.test(name))capturedUnits.set(name,{code:unit.code,file:stem+'.wasm'});
+                    const saved=capture.keep(response.space,response.rip,unit);
+                    if(saved) {
+                      fs.writeFileSync(path.join(debugDirectory,saved.stem+'.wasm'),unit.code);
+                      fs.writeFileSync(path.join(debugDirectory,saved.stem+'.json'),JSON.stringify(saved.metadata)+'\n');
+                      for(const name of functionNames(unit.module))if(/^[ur][0-9a-f]+$/.test(name))capturedUnits.set(response.space+':'+name,{code:unit.code,file:saved.stem+'.wasm'});
+                    }
                   }
                   worker.postMessage({op:'unit',id:response.id,...unit});
                 }
                 else if(response.op==='memoryFault') {
-                  const fault=response.fault,frame=/at ([ur][0-9a-f]+) \(wasm:[^\n]*?:0x([0-9a-f]+)\)/.exec(fault.stack),unit=frame&&capturedUnits.get(frame[1]);
+                  const fault=response.fault,frame=/at ([ur][0-9a-f]+) \(wasm:[^\n]*?:0x([0-9a-f]+)\)/.exec(fault.stack),unit=frame&&capturedUnits.get(response.space+':'+frame[1]);
                   if(unit){const offset=parseInt(frame[2],16),opcode=unit.code[offset];Object.assign(fault,{wasmModule:unit.file,wasmByteOffset:'0x'+offset.toString(16),wasmOpcode:'0x'+opcode?.toString(16)});
                     if(opcode===0xfc)fault.wasmBulkOpcode='0x'+unit.code[offset+1]?.toString(16);
                   }
@@ -104,15 +104,17 @@ async function runGuest({translator,root,argv,overlay={},cwd='/',timeout=90,trac
     });
     const totals=await get('/xlat/totals',true);
     return {...result,stdout,stderr,translationLog,milliseconds:performance.now()-started,
-      translator:totals,units:{...units.stats},memoryFaults,evidence:'Host Node workers use promoted SDK kernel/thread/runtime and live native FEX → Wasm; no native FEX JIT or recorded modules.'};
+      translator:totals,units:{...units.stats},memoryFaults,diagnosticCapture:capture.statistics(),evidence:'Host Node workers use promoted SDK kernel/thread/runtime and live native FEX → Wasm; no native FEX JIT or recorded modules.'};
   } catch(error) {
     error.stdout=stdout;error.stderr=stderr.slice(-65536);error.translationLog=translationLog;
     error.translatorStatus={exitCode:server.exitCode,signal:server.signalCode};
+    error.diagnosticCapture=capture.statistics();
     error.causeDetail=error.cause?String(error.cause.stack||error.cause):undefined;
     throw error;
   } finally {
     clearTimeout(timer);await kernel?.terminate();await threads.close();
     if(server.exitCode===null)server.kill();
+    if(debugDirectory)fs.writeFileSync(path.join(debugDirectory,'capture-summary.json'),JSON.stringify(capture.statistics(),null,2)+'\n');
   }
 }
 module.exports={runGuest};

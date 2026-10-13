@@ -140,6 +140,10 @@ hashes. That is Apple compilation, not a device execution result. Live arm64 hos
 SDK kernel/thread/runtime and fresh FEX-to-Wasm translation in Node workers;
 their per-case stdout, errors, syscall/fetch/translation statistics and exact
 source are included as `LIVE-LINUX-RESULTS.json` beside the IPA.
+Host Wasm diagnostic capture deduplicates unit revisions and retains at most
+64 MiB / 16,384 units. `capture-summary.json` records duplicates, omissions and
+truncation. Exhausting that diagnostic budget stops saving units while the
+guest continues under its original execution deadline and correctness checks.
 If live host validation fails, the compiled app can still be preserved for the
 phone session. `BUILD-MANIFEST.json` records that failed outcome and the workflow
 remains failed; artifact availability does not mean all runtime checks passed.

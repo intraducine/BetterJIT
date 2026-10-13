@@ -61,12 +61,13 @@ async function main() {
    if(spec.id.startsWith('wine-'))console.log(JSON.stringify({id:spec.id,
     failedMappings:result.stderr.split('\n').filter(line=>/mmap\(/.test(line)&&/= E12$/.test(line)).slice(-20)}));
    if(spec.id==='wine-command-flat-window') {
+    console.log(JSON.stringify({id:spec.id,diagnosticCapture:result.diagnosticCapture}));
     const trace=result.stderr.split('\n').filter(line=>/\[guest-file\]|execve .*\(space |direct loader:|:module:|loaddll|:process:|could not load|failed to load/.test(line));
     console.log(JSON.stringify({id:spec.id,loaderAndFileTrace:trace.length>260?[...trace.slice(0,60),...trace.slice(-200)]:trace}));
    }
    if(!correct)console.error(JSON.stringify({id:spec.id,expectedDigest:spec.digest,stdout:result.stdout,stderr:result.stderr.slice(-8192),translationLog:result.translationLog.slice(-8192)}));
    if(!correct&&!spec.optional)requiredFailed=true;
-  } catch(error){report.records.push({id:spec.id,status:'failed',error:String(error.stack||error),cleanupError:error.cleanupError,translatorStatus:error.translatorStatus,causeDetail:error.causeDetail,stdout:error.stdout,stderr:error.stderr,translationLog:error.translationLog});console.error(`FAIL ${spec.id}: ${error}`);console.error(JSON.stringify({cleanupError:error.cleanupError,translatorStatus:error.translatorStatus,causeDetail:error.causeDetail,stdout:error.stdout,stderr:error.stderr?.slice(-8192),translationLog:error.translationLog}));if(!spec.optional)requiredFailed=true;}
+  } catch(error){report.records.push({id:spec.id,status:'failed',error:String(error.stack||error),cleanupError:error.cleanupError,translatorStatus:error.translatorStatus,causeDetail:error.causeDetail,diagnosticCapture:error.diagnosticCapture,stdout:error.stdout,stderr:error.stderr,translationLog:error.translationLog});console.error(`FAIL ${spec.id}: ${error}`);console.error(JSON.stringify({cleanupError:error.cleanupError,translatorStatus:error.translatorStatus,causeDetail:error.causeDetail,diagnosticCapture:error.diagnosticCapture,stdout:error.stdout,stderr:error.stderr?.slice(-8192),translationLog:error.translationLog}));if(!spec.optional)requiredFailed=true;}
   fs.writeFileSync(output,JSON.stringify(report,null,2)+'\n');
   // Fresh sessions let Wine/other cases expose independent blockers too.
  }
