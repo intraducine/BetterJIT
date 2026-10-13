@@ -28,6 +28,12 @@ async function main() {
   {id:'wine-command',argv:['/opt/wine/bin/wine','cmd','/c','ver'],optional:true,timeout:120},
   {id:'wine-command-no-preloader',argv:['/opt/wine/bin/wine','cmd','/c','ver'],
    environment:{WINELOADERNOEXEC:'1',WINEARCH:'win64'},optional:true,timeout:120},
+  ...(fs.existsSync(path.join(root,'opt/wine-flat/.betterjit-wine-flat.json')) ? [
+   {id:'wine-command-flat-window',argv:['/bin/busybox','sh','-c','/opt/wine-flat/share/betterjit-provenance/fs-reset.elf && exec /opt/wine-flat/bin/wine cmd /c ver'],
+    marker:'BetterJIT Wine FS reset OK',
+    environment:{WINELOADERNOEXEC:'1',WINEARCH:'win64',WINEPREFIX:'/home/user/.wine-flat'},timeout:120,
+    translatorOptions:'depth=24 memtrace=1',debugDirectory:path.join(REPO,'.build/wine-instruction-trace','wine-flat')}
+  ] : []),
   ...faults,
   {id:'linux-code-boundary',argv:['/test/code-boundary'],expectedCodeRejection:true},
   {id:'wine-instruction-trace',argv:['/opt/wine/bin/wine','cmd','/c','ver'],
@@ -35,6 +41,7 @@ async function main() {
    translatorOptions:'depth=24 memtrace=1',debugDirectory:path.join(REPO,'.build/wine-instruction-trace','wine')}
  ];
  const report={schema:1,source:process.env.GITHUB_SHA??null,evidence:'Live FEX→Wasm on host; not Apple WebKit or device evidence.',records:[]};
+ if(!cases.some(spec=>spec.id==='wine-command-flat-window'))report.records.push({id:'wine-command-flat-window',status:'unsupported',reason:'Separate source-built flat-window Wine input is absent.'});
  let requiredFailed=false;
  for(const spec of cases) {
   console.log(`RUN ${spec.id}: ${spec.argv.slice(0,3).join(' ')}; deadline ${(spec.timeout??90)+5}s`);

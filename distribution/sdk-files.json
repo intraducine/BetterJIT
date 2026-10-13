@@ -144,6 +144,9 @@
     "tests/sdk/linux-host/fault-fixtures.cjs": "tests/sdk/linux-host/fault-fixtures.cjs",
     "tests/sdk/linux-host/wasm-names.cjs": "tests/sdk/linux-host/wasm-names.cjs",
     "tests/sdk/linux-segments.test.mjs": "tests/sdk/linux-segments.test.mjs",
-    "tests/sdk/linux-fork-failure.test.mjs": "tests/sdk/linux-fork-failure.test.mjs"
+    "tests/sdk/linux-fork-failure.test.mjs": "tests/sdk/linux-fork-failure.test.mjs",
+    "scripts/prepare-wine-flat-root.py": "scripts/prepare-wine-flat-root.py",
+    "patches/wine-flat-guest.patch": "patches/wine-flat-guest.patch",
+    "tests/fexhost/wine-flat-native.py": "tests/fexhost/wine-flat-native.py"
   }
 }

@@ -23,7 +23,7 @@ concurrency:
 jobs:
   linux-fixture:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Execute the bundled Linux workload directly (not FEX/device evidence)
@@ -33,7 +33,25 @@ jobs:
         continue-on-error: true
         run: |
           python3 scripts/prepare-wine-root.py
+      - name: Build separate Wine Win64 input for the flat guest window
+        id: wine-flat
+        if: steps.wine-root.outcome == 'success'
+        continue-on-error: true
+        run: |
+          git clone --depth 1 --branch wine-10.7 --no-checkout https://github.com/wine-mirror/wine.git .build/wine-flat-source
+          git -C .build/wine-flat-source checkout --detach 71c6c3dd6dcfffc040aa5a10a825eeb8e17f6299
+          python3 scripts/prepare-wine-flat-root.py --source .build/wine-flat-source
+      - name: Pack stock root and any completed source-built Wine input
+        if: steps.wine-root.outcome == 'success'
+        run: |
           tar -czf .build/bundled-wine-root.tar.gz -C .build device-linuxroot
+      - name: Retain Wine source and preparation evidence
+        if: always() && hashFiles('.build/wine-flat-build/build.log') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wine-flat-source-and-build-${{ github.sha }}
+          path: .build/wine-flat-build/
+          retention-days: 14
       - name: Transfer prepared Wine root to the Apple build
         if: steps.wine-root.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

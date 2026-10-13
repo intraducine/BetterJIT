@@ -1,0 +1,128 @@
+diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
+index 512defa..19e22ac 100644
+--- a/dlls/ntdll/unix/loader.c
++++ b/dlls/ntdll/unix/loader.c
+@@ -1882,7 +1882,8 @@ static void start_main_thread(void)
+     init_startup_info();
+     *(ULONG_PTR *)&peb->CloudFileFlags = get_image_address();
+     set_load_order_app_name( main_wargv[0] );
+-    init_thread_stack( teb, 0, 0, 0 );
++    if (init_thread_stack( teb, 0, 0, 0 ))
++        fatal_error( "BetterJIT Wine: could not allocate the initial thread stacks\n" );
+     NtCreateKeyedEvent( &keyed_event, GENERIC_READ | GENERIC_WRITE, NULL, 0 );
+     load_ntdll();
+     load_wow64_ntdll( main_image_info.Machine );
+diff --git a/dlls/ntdll/unix/signal_x86_64.c b/dlls/ntdll/unix/signal_x86_64.c
+index 3c9b3e9..9175b92 100644
+--- a/dlls/ntdll/unix/signal_x86_64.c
++++ b/dlls/ntdll/unix/signal_x86_64.c
+@@ -398,6 +398,22 @@ C_ASSERT( sizeof(struct callback_stack_layout) == 0x58 );
+ /* flags to control the behavior of the syscall dispatcher */
+ #define SYSCALL_HAVE_XSAVE       1
+ #define SYSCALL_HAVE_XSAVEC      2
++/* The flat guest candidate supports Win64 only. A null FS selector is
++ * implemented by Linux ARCH_SET_FS(0), including its base-clearing effect.
++ * Non-null selectors need a descriptor/32-bit execution model and trap here.
++ * Preserve registers/flags without overwriting the active Wine frame or red zone.
++ * The bottom reserved kernel-stack area supplies scratch space; Win64 signal
++ * paths do not recursively load WoW64 FS selectors.
++ */
++#define BETTERJIT_LOAD_NULL_FS(operand) \
++    "movq %rsp,%gs:0x350\n\tmovq %gs:0x370,%rsp\n\tleaq 0x1000(%rsp),%rsp\n\t" \
++    "pushfq\n\tpushq %rax\n\tpushq %rdi\n\tpushq %rsi\n\tpushq %rcx\n\tpushq %r11\n\t" \
++    "cmpw $0," operand "\n\tjne 99f\n\t" \
++    "xorl %esi,%esi\n\tmovl $0x1002,%edi\n\tmovl $158,%eax\n\tsyscall\n\t" \
++    "testq %rax,%rax\n\tjne 99f\n\tjmp 98f\n" \
++    "99:\tud2\n" \
++    "98:\tpopq %r11\n\tpopq %rcx\n\tpopq %rsi\n\tpopq %rdi\n\tpopq %rax\n\tpopfq\n\tmovq %gs:0x350,%rsp\n\t"
++
+ #define SYSCALL_HAVE_PTHREAD_TEB 4
+ #define SYSCALL_HAVE_WRFSGSBASE  8
+ 
+@@ -455,8 +471,11 @@ struct amd64_thread_data
+     DWORD                 xstate_features_size;  /* 033c */
+     UINT64                xstate_features_mask;  /* 0340 */
+     void                **instrumentation_callback; /* 0348 */
++    void                 *flat_fs_saved_rsp;         /* 0350: flat candidate scratch */
+ };
+ 
++C_ASSERT( offsetof( TEB, GdiTebBatch ) + offsetof( struct amd64_thread_data, flat_fs_saved_rsp ) == 0x350 );
++C_ASSERT( offsetof( TEB, GdiTebBatch ) + offsetof( struct ntdll_thread_data, kernel_stack ) == 0x370 );
+ C_ASSERT( sizeof(struct amd64_thread_data) <= sizeof(((struct ntdll_thread_data *)0)->cpu_data) );
+ C_ASSERT( offsetof( TEB, GdiTebBatch ) + offsetof( struct amd64_thread_data, pthread_teb ) == 0x320 );
+ C_ASSERT( offsetof( TEB, GdiTebBatch ) + offsetof( struct amd64_thread_data, syscall_frame ) == 0x328 );
+@@ -869,7 +888,7 @@ static inline void leave_handler( ucontext_t *sigcontext )
+ {
+ #ifdef __linux__
+     if (fs32_sel && !is_inside_signal_stack( (void *)RSP_sig(sigcontext )) && !is_inside_syscall(sigcontext))
+-        __asm__ volatile( "movw %0,%%fs" :: "r" (fs32_sel) );
++        raise( SIGILL ); /* Non-null FS selectors are unsupported in this Win64 candidate. */
+ #elif defined __APPLE__
+     if (!is_inside_signal_stack( (void *)RSP_sig(sigcontext )) && !is_inside_syscall(sigcontext))
+         _thread_set_tsd_base( (uint64_t)NtCurrentTeb() );
+@@ -1650,7 +1669,7 @@ __ASM_GLOBAL_FUNC( call_user_mode_callback,
+ #ifdef __linux__
+                    "testl $4,%r14d\n\t"        /* SYSCALL_HAVE_PTHREAD_TEB */
+                    "jz 1f\n\t"
+-                   "movw 0x338(%r8),%fs\n"     /* amd64_thread_data()->fs */
++                   BETTERJIT_LOAD_NULL_FS("0x338(%r8)")     /* amd64_thread_data()->fs */
+                    "1:\n\t"
+ #elif defined __APPLE__
+                    "movq %rcx,%r10\n\t"
+@@ -2864,7 +2883,7 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
+ #ifdef __linux__
+                    "testl $4,%r14d\n\t"            /* SYSCALL_HAVE_PTHREAD_TEB */
+                    "jz 1f\n\t"
+-                   "movw %gs:0x338,%fs\n"          /* amd64_thread_data()->fs */
++                   BETTERJIT_LOAD_NULL_FS("%gs:0x338")          /* amd64_thread_data()->fs */
+                    "1:\n\t"
+ #elif defined __APPLE__
+                    "movq %rax,%r8\n\t"
+@@ -3098,7 +3117,7 @@ __ASM_GLOBAL_FUNC( __wine_unix_call_dispatcher,
+ #ifdef __linux__
+                    "testl $4,%r14d\n\t"            /* SYSCALL_HAVE_PTHREAD_TEB */
+                    "jz 1f\n\t"
+-                   "movw %gs:0x338,%fs\n"          /* amd64_thread_data()->fs */
++                   BETTERJIT_LOAD_NULL_FS("%gs:0x338")          /* amd64_thread_data()->fs */
+                    "1:\n\t"
+ #elif defined __APPLE__
+                    "movq %rax,%rdx\n\t"
+diff --git a/dlls/ntdll/unix/thread.c b/dlls/ntdll/unix/thread.c
+index c4086fd..b7cf9e9 100644
+--- a/dlls/ntdll/unix/thread.c
++++ b/dlls/ntdll/unix/thread.c
+@@ -1195,7 +1195,7 @@ NTSTATUS init_thread_stack( TEB *teb, ULONG_PTR limit, SIZE_T reserve_size, SIZE
+     NTSTATUS status;
+ 
+     /* kernel stack */
+-    if ((status = virtual_alloc_thread_stack( &stack, limit_4g, 0, kernel_stack_size, kernel_stack_size, FALSE )))
++    if ((status = virtual_alloc_thread_stack( &stack, 0, (ULONG_PTR)0xffff0000, kernel_stack_size, kernel_stack_size, FALSE )))
+         return status;
+     thread_data->kernel_stack = stack.DeallocationStack;
+ 
+diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
+index 2028947..235fc06 100644
+--- a/dlls/ntdll/unix/virtual.c
++++ b/dlls/ntdll/unix/virtual.c
+@@ -188,9 +188,9 @@ static void *address_space_start = (void *)0x110000; /* keep DOS area clear */
+ static void *address_space_start = (void *)0x10000;
+ #endif
+ #ifdef _WIN64
+-static void *address_space_limit = (void *)0x7fffffff0000;  /* top of the total available address space */
+-static void *user_space_limit    = (void *)0x7fffffff0000;  /* top of the user address space */
+-static void *working_set_limit   = (void *)0x7fffffff0000;  /* top of the current working set */
++static void *address_space_limit = (void *)0xffff0000;  /* top of the total available address space */
++static void *user_space_limit    = (void *)0xffff0000;  /* top of the user address space */
++static void *working_set_limit   = (void *)0xffff0000;  /* top of the current working set */
+ #else
+ static void *address_space_limit = (void *)0xc0000000;
+ static void *user_space_limit    = (void *)0x7fff0000;
+@@ -3649,7 +3649,7 @@ void virtual_init(void)
+ #endif
+ 
+ #ifdef _WIN64
+-    host_addr_space_limit = get_host_addr_space_limit();
++    host_addr_space_limit = min( get_host_addr_space_limit(), address_space_limit );
+     TRACE( "host addr space limit: %p\n", host_addr_space_limit );
+ #else
+     host_addr_space_limit = address_space_limit;

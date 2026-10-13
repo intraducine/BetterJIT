@@ -4,6 +4,8 @@ import importlib.util, io, pathlib, tarfile, tempfile, unittest
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 spec=importlib.util.spec_from_file_location('wine_root',ROOT/'scripts/prepare-wine-root.py')
 module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+flat_spec=importlib.util.spec_from_file_location('wine_flat',ROOT/'scripts/prepare-wine-flat-root.py')
+flat=importlib.util.module_from_spec(flat_spec);flat_spec.loader.exec_module(flat)
 class RootArchiveTests(unittest.TestCase):
     def test_virtual_device_and_wine_entry(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -31,4 +33,29 @@ class RootArchiveTests(unittest.TestCase):
                         member=tarfile.TarInfo(name);member.type=kind
                         tar.addfile(member,io.BytesIO())
                     with self.assertRaises(ValueError): module.extract_input_archive(archive,out)
+    def test_separate_candidate_preserves_stock_and_failure_leaves_manifests(self):
+        # Installation fixture only. Real candidate compatibility is a required
+        # live host Wine workload when these source-built inputs are present.
+        with tempfile.TemporaryDirectory() as tmp:
+            base=pathlib.Path(tmp);root=base/'root';output=base/'output'
+            unix=root/'usr/lib/wine/x86_64-unix';unix.mkdir(parents=True);output.mkdir()
+            stock=unix/'ntdll.so';stock.write_bytes(b'stock')
+            (root/'.symlinks.json').write_text('{}\n');(root/'.modes.json').write_text('{}\n')
+            source=base/'source.tar';source.write_bytes(b'source fixture')
+            patch=base/'patch';patch.write_bytes(b'patch fixture')
+            (output/'ntdll.so').write_bytes(b'adapted fixture')
+            with self.assertRaises(FileNotFoundError): flat.install(root,output,source,patch)
+            self.assertFalse((root/'opt/wine-flat').exists())
+            self.assertEqual((root/'.symlinks.json').read_text(),'{}\n')
+            self.assertEqual(stock.read_bytes(),b'stock')
+            for name in ('wine','COPYING.LIB','fs-reset.elf'): (output/name).write_bytes(b'fixture')
+            flat.install(root,output,source,patch)
+            import json
+            links=json.loads((root/'.symlinks.json').read_text())
+            self.assertEqual(links['/opt/wine-flat/bin/wine'],'../lib/wine/x86_64-unix/wine')
+            self.assertEqual(stock.read_bytes(),b'stock')
+            meta=json.loads((root/'opt/wine-flat/.betterjit-wine-flat.json').read_text())
+            self.assertFalse(meta['stockWineFilesChanged'])
+            self.assertFalse(meta['guestExecutedDuringPreparation'])
+            self.assertEqual(meta['guestAddressLimitExclusive'],'0xffff0000')
 if __name__=='__main__': unittest.main()

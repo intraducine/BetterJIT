@@ -121,8 +121,13 @@ import BetterJITLinux
     }
     private func execute(_ i:Int, stress:Bool) async throws {
         guard let id=report?.phases[i].id else { throw SuiteFailure("Missing phase.") }
-        let wine = id == "wine" || id == "wine-direct"
+        let wine = id == "wine" || id == "wine-direct" || id == "wine-flat"
         if id.hasPrefix("linux-") || wine {
+            if id == "wine-flat" && !LinuxHarness.flatWinePresent {
+                report?.phases[i].status = .unsupported
+                report?.phases[i].details["reason"]="The separate source-built Wine flat-window input is absent. Stock Wine attempts remain available."
+                return
+            }
             if wine && !LinuxHarness.winePresent {
                 report?.phases[i].status = .unsupported
                 report?.phases[i].details["reason"]="Wine root is absent. Choose a staged linuxroot folder or copy it into Documents/linuxroot, then Run All again."
@@ -130,7 +135,7 @@ import BetterJITLinux
             }
             if wine {
                 report?.phases[i].details["memoryFaultTrace"]="Guest instruction and scalar/bulk operands requested; unit translation only. Diagnostic overhead is included in phase time."
-                report?.phases[i].details["loaderMode"]=id == "wine-direct" ? "WINELOADERNOEXEC=1; WINEARCH=win64" : "stock Wine preloader"
+                report?.phases[i].details["loaderMode"]=id == "wine" ? "stock Wine preloader" : "WINELOADERNOEXEC=1; WINEARCH=win64"
                 let root=LinuxHarness.rootURL
                 report?.phases[i].details["rootOrigin"]=root == LinuxHarness.documentsRootURL ? "imported Documents root" : "bundled input candidate"
                 if let handle=try? FileHandle(forReadingFrom:root.appendingPathComponent(".betterjit-linux-root.json")) {
@@ -138,6 +143,16 @@ import BetterJITLinux
                     if let data=try? handle.read(upToCount:1024*1024),
                        let object=try? JSONSerialization.jsonObject(with:data) as? [String:Any] {
                         for key in ["candidate","wineVersion","rootArchiveSHA256","baseImageID"] {
+                            if let value=object[key] as? String { report?.phases[i].details[key]=String(value.prefix(512)) }
+                        }
+                    }
+                }
+                if id == "wine-flat",
+                   let handle=try? FileHandle(forReadingFrom:root.appendingPathComponent("opt/wine-flat/.betterjit-wine-flat.json")) {
+                    defer { try? handle.close() }
+                    if let data=try? handle.read(upToCount:1024*1024),
+                       let object=try? JSONSerialization.jsonObject(with:data) as? [String:Any] {
+                        for key in ["candidate","wineSourceCommit","patchSHA256","guestAddressLimitExclusive","nonNullFSSelectors"] {
                             if let value=object[key] as? String { report?.phases[i].details[key]=String(value.prefix(512)) }
                         }
                     }
@@ -164,7 +179,7 @@ import BetterJITLinux
                 }
             }
             let channels=id == "linux-channels"
-            let mode:LinuxHarness.Mode=id == "wine-direct" ? .wineDirect : (id == "wine" ? .wineCommand : (id == "linux-smoke" ? .smoke : (id == "linux-userspace" ? .userspace : .services)))
+            let mode:LinuxHarness.Mode=id == "wine-flat" ? .wineFlat : (id == "wine-direct" ? .wineDirect : (id == "wine" ? .wineCommand : (id == "linux-smoke" ? .smoke : (id == "linux-userspace" ? .userspace : .services))))
             let value=try await linux.run(mode,nativeChannels:channels)
             try checkStop()
             report?.phases[i].log=String(value.log.suffix(128*1024))
@@ -185,6 +200,9 @@ import BetterJITLinux
                 throw SuiteFailure("Guest did not exit 0 with live FEX translation and code mapping evidence.")
             }
             if wine {
+                if id == "wine-flat", !value.log.contains("BetterJIT Wine FS reset OK") {
+                    throw SuiteFailure("The source-built Wine FS-reset contract did not complete before startup.")
+                }
                 guard value.log.range(of:"(?im)^\\s*(Microsoft )?Windows[^\\n]*[0-9]+\\.[0-9]+",options:.regularExpression) != nil else {
                     throw SuiteFailure("Wine exited 0 but cmd /c ver did not print a Windows version.")
                 }

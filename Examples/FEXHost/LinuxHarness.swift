@@ -4,7 +4,7 @@ import Darwin
 import BetterJITLinux
 
 @MainActor final class LinuxHarness {
-    enum Mode: Equatable { case smoke, services, userspace, wineCommand, wineDirect }
+    enum Mode: Equatable { case smoke, services, userspace, wineCommand, wineDirect, wineFlat }
     private(set) var session: LinuxRuntimeSession?
     private(set) var counters: [String:Int] = [:]
     private let changed: @MainActor (LinuxRuntimeSession?,String,String)->Void
@@ -21,11 +21,14 @@ import BetterJITLinux
     static var winePresent: Bool {
         LinuxRootManifest.wineEntryExists(at:rootURL)
     }
+    static var flatWinePresent: Bool {
+        FileManager.default.fileExists(atPath:rootURL.appendingPathComponent("opt/wine-flat/.betterjit-wine-flat.json").path)
+    }
     func run(_ mode:Mode, nativeChannels:Bool = false) async throws -> LinuxRuntimeResult {
         counters=[:]
         let cache=FileManager.default.urls(for:.cachesDirectory,in:.userDomainMask)[0]
             .appendingPathComponent("BetterJITLinux/xlat-cache",isDirectory:true)
-        let wine = mode == .wineCommand || mode == .wineDirect
+        let wine = mode == .wineCommand || mode == .wineDirect || mode == .wineFlat
         // Keep fault operands in the same phone report. The translator's
         // option fingerprint separates these units from ordinary cached code.
         let backend=try LinkedLinuxFEXBackend(cacheDirectory:cache,extraOptions:wine ? "memtrace=1" : "")
@@ -49,13 +52,20 @@ import BetterJITLinux
         case .userspace:
             cfg=LinuxRuntimeConfiguration(arguments:LinuxUserspaceWorkload.arguments,timeoutSeconds:90,
                                           display:nil,regions:true,slowWaitMilliseconds:100,useNativeChannels:nativeChannels)
-        case .wineCommand, .wineDirect:
+        case .wineCommand, .wineDirect, .wineFlat:
             guard Self.winePresent else {
                 throw LinuxRuntimeError.guest("Wine rootfs is missing at Documents/linuxroot/opt/wine/bin/wine.")
             }
             var environment=["WINEDEBUG":"-all","WINEDLLOVERRIDES":"winemenubuilder.exe=d"]
-            if mode == .wineDirect { environment["WINELOADERNOEXEC"]="1"; environment["WINEARCH"]="win64" }
-            cfg=LinuxRuntimeConfiguration(arguments:["/opt/wine/bin/wine","cmd","/c","ver"],
+            if mode == .wineDirect || mode == .wineFlat { environment["WINELOADERNOEXEC"]="1"; environment["WINEARCH"]="win64" }
+            if mode == .wineFlat {
+                guard Self.flatWinePresent else { throw LinuxRuntimeError.guest("Source-built flat-window Wine candidate is missing.") }
+                environment["WINEPREFIX"]="/home/user/.wine-flat"
+            }
+            let arguments=mode == .wineFlat
+                ? ["/bin/busybox","sh","-c","/opt/wine-flat/share/betterjit-provenance/fs-reset.elf && exec /opt/wine-flat/bin/wine cmd /c ver"]
+                : ["/opt/wine/bin/wine","cmd","/c","ver"]
+            cfg=LinuxRuntimeConfiguration(arguments:arguments,
                                           environment:environment,timeoutSeconds:90,
                                           display:"1024x768",regions:false,slowWaitMilliseconds:100,
                                           useNativeChannels:nativeChannels)

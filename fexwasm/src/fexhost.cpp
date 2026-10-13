@@ -16,6 +16,7 @@
 #include "Interface/Core/Frontend.h"
 #include "Interface/Core/LookupCache.h"
 #include "Interface/Core/OpcodeDispatcher.h"
+#include "Interface/Core/JIT/Relocations.h"
 #include "Interface/IR/IR.h"
 #include "Interface/IR/PassManager.h"
 
@@ -23,7 +24,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#if defined(__APPLE__)
 #include <TargetConditionals.h>
+#endif
 #include <map>
 #include <memory>
 #include <optional>
@@ -87,7 +90,7 @@ extern "C" void __clear_cache(void* Start, void* End) {
 }
 #endif
 
-#if !TARGET_OS_IPHONE
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
 // macOS only grants writable+executable memory with MAP_JIT. (Nothing here
 // runs FEX's JIT; this keeps any executable allocation FEX makes working in
 // the Mac tools. On iOS nothing executable is allocated.)
@@ -174,7 +177,7 @@ struct FexHost::Impl {
 FexHost::FexHost(const Options& Opts)
   : P(std::make_unique<Impl>()) {
   P->DebugGuestInstructions = Opts.DebugGuestInstructions;
-#if !TARGET_OS_IPHONE
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
   FEXCore::Allocator::mmap = JitAwareMmap;
   pthread_jit_write_protect_np(0);
 #endif
@@ -443,7 +446,20 @@ std::vector<uint8_t> FexHost::CPUIDTable(uint32_t* Count) const {
   auto* CI = static_cast<FEXCore::Context::ContextImpl*>(P->CTX.get());
   std::vector<uint8_t> T;
   auto Add = [&](uint32_t Fn, uint32_t Leaf, bool AnyLeaf) {
-    const auto R = CI->CPUID.RunFunction(Fn, Leaf);
+    // This is one fixed virtual CPU table. Brand leaves must use its CPU 0,
+    // rather than indexing the 16 virtual entries by the host scheduler's ID.
+    FEXCore::CPUID::FunctionResults R {};
+    if (Fn >= 0x8000'0002u && Fn <= 0x8000'0004u) {
+#if defined(ARCHITECTURE_x86_64)
+      // The vendor x86 frontend debug configuration has no per-CPU names.
+      static constexpr char Brand[48] = "BetterJIT FEX frontend debug (x86 host)";
+      memcpy(&R, Brand + (Fn - 0x8000'0002u) * 16, sizeof(R));
+#else
+      R = CI->CPUID.RunFunctionName(Fn, Leaf, 0);
+#endif
+    } else {
+      R = CI->CPUID.RunFunction(Fn, Leaf);
+    }
     const uint32_t E[6] = {Fn, AnyLeaf ? 0xFFFF'FFFFu : Leaf, R.eax, R.ebx, R.ecx, R.edx};
     T.insert(T.end(), reinterpret_cast<const uint8_t*>(E), reinterpret_cast<const uint8_t*>(E) + sizeof(E));
   };

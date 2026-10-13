@@ -44,6 +44,17 @@ fails, then trap while copying its startup context through an unset stack base
 (the captured TEB value is the sentinel `-1`).
 The report keeps this as a failed execution attempt. A compatible address-space
 integration or a suitable redistributable Wine build is still required.
+The separate **source-built flat-window Win64** phase attempts a Wine 10.7
+candidate installed beside stock Wine. Its virtual allocator and startup kernel
+stack use addresses below `0xffff0000`. Null FS selector writes clear the base
+through real `ARCH_SET_FS(0)` calls while preserving registers and flags;
+non-null selectors trap and remain unsupported. A checked guest FS-reset workload
+runs before the actual `cmd /c ver` attempt in the same phase. Windows version
+output, exit 0 and observed native translation are still required. This is an
+adapted Wine input, not support for arbitrary 64-bit guest address spaces, Win32,
+WoW64 or DXMT. Source, patch, hashes and preparation logs are retained separately.
+If source compilation is unavailable this phase says UNSUPPORTED; a present
+candidate that fails execution says FAIL. Stock attempts retain their outcomes.
 Missing Wine inputs produce UNSUPPORTED. A present but broken root, failed exit, missing Windows version,
 trap or timeout produces FAIL. **Choose staged Wine root folder** can replace the bundled candidate with your
 existing redistributable root without rebuilding the app. Alternatively copy it
@@ -141,3 +152,8 @@ Linux fixtures. Its Alpine APK downloads return Permission denied/HTTPS CONNECT
 403, so the supported GitHub route prepares the stock root and builds on Apple.
 Device results must come from an exported phone session. Successful DXMT
 integration and a native-FEX speed ratio have not been established.
+
+For local Linux x86 frontend diagnostics, `BETTERJIT_HOST_DEBUG_X86=1 bash
+Backends/FEX/build-host.sh` uses the pinned frontend's x86 debug configuration.
+It translates actual guest instructions to Wasm; it does not execute FEX's native
+JIT or establish arm64/device behavior. The ordinary Apple build remains separate.
