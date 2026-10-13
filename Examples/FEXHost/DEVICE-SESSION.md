@@ -52,7 +52,12 @@ expects; the other phases retain the existing shared address-space mode.
 Null FS selector writes clear the base
 through real `ARCH_SET_FS(0)` calls while preserving registers and flags;
 non-null selectors trap and remain unsupported. A checked guest FS-reset workload
-runs before the actual `cmd /c ver` attempt in the same phase. Windows version
+runs before the actual `cmd /c ver` attempt in the same phase. The candidate
+launches the signed root's `/usr/lib/wine/x86_64-windows/cmd.exe` explicitly.
+A successfully mapped image below its preferred Win64 base keeps Wine's existing
+PE relocation validation instead of being discarded for `start.exe` merely
+because it returned the informational `STATUS_IMAGE_NOT_AT_BASE` status.
+Windows version
 output, exit 0 and observed native translation are still required. This is an
 adapted Wine input, not support for arbitrary 64-bit guest address spaces, Win32,
 WoW64 or DXMT. Source, patch, hashes and preparation logs are retained separately.
