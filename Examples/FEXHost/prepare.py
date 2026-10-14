@@ -29,6 +29,9 @@ def main():
     spec={'include':['project.yml'],'targets':{'BetterJITFEXHost':{'settings':{'base':{
         'BETTERJIT_SOURCE_COMMIT':revision,'BETTERJIT_SOURCE_STATE':state
     }}}}}
+    if (ROOT/'.build/device-linuxroot').is_dir():
+        spec['targets']['BetterJITFEXHost']['sources']=[{
+            'path':'../../.build/device-linuxroot','type':'folder','buildPhase':'resources'}]
     spec['packages']={name:{'path':os.path.relpath(path.resolve(),HERE)}
                       for name,path in [('BetterJITFEXNative',args.native_package),
                                         ('BetterJITFEXAdapter',args.adapter_package)] if path is not None}
