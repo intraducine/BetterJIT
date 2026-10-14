@@ -45,7 +45,7 @@ struct DigestResult { let sha256:String; let counters:[String:Int] }
     @Published var status="Choose a file or use the bundled example."
     @Published var digest=""
     @Published var process:FEXProcess?
-    private var bytes=Data((0..<(256*1024)).map { UInt8(($0*31+7)&255) })
+    private var bytes=LinuxUserspaceWorkload.payload
     private var executor:(any DocumentDigestBackend)?
     private var task:Task<Void,Never>?
     func choose(_ url:URL) {
