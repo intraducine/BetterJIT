@@ -60,6 +60,49 @@ enum AdaptedWinePhase: String, CaseIterable {
 }
 
 enum SessionCheckStatus: String, Codable { case pending, running, passed, failed, unsupported, skipped }
+
+struct SessionOutputRetention: Codable {
+    let originalCharacters: Int
+    let originalUTF8Bytes: Int
+    let retainedTailCharacters: Int
+    let retainedTailUTF8Bytes: Int
+    let droppedPrefixCharacters: Int
+    let tailStartsMidLine: Bool
+    let firstErrorContext: String?
+    let errorContextClipped: Bool
+    let truncated: Bool
+
+    // Count Swift Characters and UTF-8 bytes explicitly. CRLF and non-BMP
+    // characters do not have the same length in every consumer's string model.
+    static func capture(_ text:String, limit:Int=128*1024) -> (tail:String,retention:Self) {
+        precondition(limit > 0)
+        let originalCharacters=text.count
+        var context:String?,contextClipped=false
+        if originalCharacters > limit {
+            let lines=text.split(omittingEmptySubsequences:false,whereSeparator:{$0.isNewline})
+            if let first=lines.firstIndex(where: { line in
+                line.range(of:#"(^|:)err:|(^|[[:space:]])(error|fatal):|contract failed:|"event":"failed""#,
+                           options:[.regularExpression,.caseInsensitive]) != nil
+            }) {
+                let budget=min(8192,limit/4)
+                let before=lines[max(0,first-2)..<first].joined(separator:"\n")
+                let leadBudget=budget/4
+                let lead=before.isEmpty || leadBudget==0 ? "" : String(before.suffix(leadBudget-1))+"\n"
+                let excerpt=lines[first...min(lines.count-1,first+4)].joined(separator:"\n")
+                context=lead+String(excerpt.prefix(budget-lead.count))
+                contextClipped=before.count+(before.isEmpty ? 0 : 1)+excerpt.count > (context?.count ?? 0)
+            }
+        }
+        let tail=String(text.suffix(limit-(context?.count ?? 0)))
+        let dropped=originalCharacters-tail.count
+        let start=text.index(text.endIndex,offsetBy:-tail.count)
+        let midLine=dropped>0 && !text[text.index(before:start)].isNewline
+        return (tail,.init(originalCharacters:originalCharacters,originalUTF8Bytes:text.utf8.count,
+                           retainedTailCharacters:tail.count,retainedTailUTF8Bytes:tail.utf8.count,
+                           droppedPrefixCharacters:dropped,tailStartsMidLine:midLine,
+                           firstErrorContext:context,errorContextClipped:contextClipped,truncated:dropped>0))
+    }
+}
 struct SessionPhase: Codable, Identifiable {
     let id: String
     let title: String
@@ -75,7 +118,17 @@ struct SessionPhase: Codable, Identifiable {
     var stdout: String?
     var stderr: String?
     var outputTruncated: Bool?
+    var runtimeOutputTruncated: Bool?
+    var outputRetention: [String:SessionOutputRetention]?
     var error: String?
+    mutating func captureOutput(log:String,stdout:String,stderr:String,runtimeTruncated:Bool) {
+        let captures=["log":SessionOutputRetention.capture(log),
+                      "stdout":SessionOutputRetention.capture(stdout),"stderr":SessionOutputRetention.capture(stderr)]
+        self.log=captures["log"]!.tail;self.stdout=captures["stdout"]!.tail;self.stderr=captures["stderr"]!.tail
+        outputRetention=captures.mapValues(\.retention)
+        runtimeOutputTruncated=runtimeTruncated
+        outputTruncated=runtimeTruncated || captures.values.contains(where:{$0.retention.truncated})
+    }
 }
 struct DeviceSessionReport: Codable {
     let schema: Int

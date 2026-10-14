@@ -221,10 +221,8 @@ import BetterJITFEXAdapter
             let mode:LinuxHarness.Mode=adapted.map{.adaptedWine($0)} ?? (id == "wine-direct" ? .wineDirect : (id == "wine" ? .wineCommand : (id == "linux-smoke" ? .smoke : (id == "linux-userspace" ? .userspace : .services))))
             let value=try await linux.run(mode,nativeChannels:channels)
             try checkStop()
-            report?.phases[i].log=String(value.log.suffix(128*1024))
-            report?.phases[i].stdout=String(value.stdout.suffix(128*1024))
-            report?.phases[i].stderr=String(value.stderr.suffix(128*1024))
-            report?.phases[i].outputTruncated=value.outputTruncated
+            report?.phases[i].captureOutput(log:value.log,stdout:value.stdout,stderr:value.stderr,
+                                            runtimeTruncated:value.outputTruncated)
             report?.phases[i].counters=linux.counters
             report?.phases[i].details["exitCode"]=String(value.exitCode)
             let allocations=value.log.split(separator:"\n").filter { $0.hasPrefix("[memory-allocation] ") }

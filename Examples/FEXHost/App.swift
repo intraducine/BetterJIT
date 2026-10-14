@@ -144,7 +144,22 @@ private struct PhaseRow: View {
                     Text(stderr.suffix(16000)).font(.caption.monospaced()).textSelection(.enabled)
                 }
                 if phase.outputTruncated == true {
-                    Text("Output capture reached its limit.").font(.caption).foregroundStyle(.secondary)
+                    Text("Output is incomplete; capture or report retention reached its limit.").font(.caption).foregroundStyle(.secondary)
+                }
+                if phase.runtimeOutputTruncated == true {
+                    Text("Runtime capture reached its shared 4 MiB limit.").font(.caption).foregroundStyle(.secondary)
+                }
+                ForEach(["stdout","stderr","log"],id:\.self) { stream in
+                    if let retention=phase.outputRetention?[stream],retention.truncated {
+                        Text("\(stream): report tail omits \(retention.droppedPrefixCharacters) leading characters (\(retention.originalUTF8Bytes) original UTF-8 bytes).")
+                            .font(.caption).foregroundStyle(.secondary)
+                        if let context=retention.firstErrorContext {
+                            DisclosureGroup("First recorded error context: \(stream)") {
+                                Text(context).font(.caption.monospaced()).textSelection(.enabled)
+                                if retention.errorContextClipped { Text("Error context was also clipped.").font(.caption) }
+                            }
+                        }
+                    }
                 }
                 if !phase.log.isEmpty {
                     Text("Log").font(.caption.bold())

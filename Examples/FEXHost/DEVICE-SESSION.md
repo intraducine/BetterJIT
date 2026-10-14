@@ -75,7 +75,15 @@ The report and expanded phase show separate UTF-8 `stdout` and `stderr`; `log`
 contains runtime diagnostics. Writes do not introduce newlines. Malformed or
 incomplete UTF-8 is replaced with U+FFFD, so these fields are not binary archives.
 The session retains at most 4 MiB of combined UTF-8 text and reports truncation;
-the exported report keeps the last 128 Ki characters of each field.
+the exported report retains at most 128 Ki Swift Characters per field. When a
+field is shortened, up to 8 Ki characters of context around its first recorded
+error are preserved separately and the remaining budget holds its tail.
+`outputRetention` records per-field truncation, original character/UTF-8 byte
+counts, retained tail counts and whether the tail starts mid-line. Context is a
+bounded sample, not a root-cause classification. `runtimeOutputTruncated` records
+the runtime limit; report-level `outputTruncated` is true if either limit omitted
+text. Absence of an error in a shortened tail does not establish its absence
+from the original stream.
 The flat Wine guest has a
 180-second deadline and a 200-second phase deadline to include startup/cleanup.
 Each runtime closes its owned workers, translation cache, timers and display
