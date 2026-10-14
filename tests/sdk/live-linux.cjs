@@ -2,7 +2,7 @@
 const fs=require('fs'),path=require('path'),crypto=require('crypto');
 const {runIsolatedGuest}=require('./linux-host/supervise.cjs');
 const {fixture:faultFixture,codeBoundaryFixture}=require('./linux-host/fault-fixtures.cjs');
-const {windowsVersion}=require('./linux-host/console.cjs');
+const {consoleText,windowsVersion}=require('./linux-host/console.cjs');
 const REPO=path.resolve(__dirname,'../..');
 function fixture(name){const source=fs.readFileSync(path.join(REPO,'Examples/FEXHost',name+'.swift'),'utf8');return Buffer.from(source.match(/Data\(base64Encoded:\s*"([A-Za-z0-9+/=]+)"/)[1],'base64');}
 function userspaceScript(){return fs.readFileSync(path.join(REPO,'Examples/FEXHost/LinuxUserspaceWorkload.swift'),'utf8').match(/static let script = #"""\n([\s\S]*?)\n\s*"""#/)[1].replace(/^    /gm,'');}
@@ -57,12 +57,13 @@ async function main() {
   console.log(`RUN ${spec.id}: ${spec.argv.slice(0,3).join(' ')}; deadline ${(spec.timeout??90)+5}s`);
   try {
    const result=await runIsolatedGuest({translator,root,overlay,...spec,trace:true});
+   const text=consoleText(result.stdout);
    const expectedFault=spec.expectedFault && result.code===139 && result.memoryFaults.some(f=>
     Object.entries(spec.expectedFault).every(([k,v])=>k==='instructionHex'?f[k].startsWith(v):f[k]===v));
    const boundary=spec.expectedCodeRejection && result.code===139 && result.units.requests>0 &&
     /(?:translation failed|fatal: signal 11)/.test(result.stderr);
    const correct=(spec.expectedCodeRejection?boundary:((spec.expectedFault?expectedFault:result.code===0) && result.translator.units>0 && result.units.compiled>0)) &&
-    (!spec.marker||result.stdout.includes(spec.marker)) && (!spec.markers||spec.markers.every(m=>result.stdout.includes(m))) && (!spec.digest||result.stdout.includes(spec.digest)) &&
+    (!spec.marker||text.includes(spec.marker)) && (!spec.markers||spec.markers.every(m=>text.includes(m))) && (!spec.digest||text.includes(spec.digest)) &&
     (!(spec.id.startsWith('wine-') && spec.id!=='wine-nested-createprocess')||windowsVersion(result.stdout)!==null);
    report.records.push({id:spec.id,status:correct?'passed':'failed',purpose:spec.memoryConstructionLimit?'Real guest workload under injected constructor exhaustion; not a device quota measurement':spec.expectedCodeRejection?'Expected unmapped-code rejection; no successful guest workload claim':spec.expectedFault?'Expected-fault diagnostic validation':'Real guest workload',expectedFault:spec.expectedFault??null,windowsVersion:spec.id.startsWith('wine-')?windowsVersion(result.stdout):undefined,...result});
    console.log(`${correct?'PASS':'FAIL'} ${spec.id}: exit ${result.code}, ${result.translator.units} native FEX units, ${result.units.compiled} Wasm modules, ${result.milliseconds.toFixed(0)} ms`);

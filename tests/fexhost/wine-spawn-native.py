@@ -86,6 +86,9 @@ int main(int argc,char **argv)
         self[n]=0;
         mkdir("spawn-work",0700);dir=open("spawn-work",O_RDONLY|O_DIRECTORY);
         pipe(in);pipe(out);pipe(socket);write(in[1],"hello",5);close(in[1]);
+        /* A failed child must report a failed check, not block reading a pipe
+         * whose parent-side writer deliberately stays open for fd assertions. */
+        fcntl(out[0],F_SETFL,O_NONBLOCK);fcntl(socket[0],F_SETFL,O_NONBLOCK);
         fcntl(socket[1],F_SETFD,FD_CLOEXEC);
         snprintf(entry,sizeof(entry),"TEST_SOCKET=%d",socket[1]);
         env[0]=entry;env[1]="TEST_VALUE=child";env[2]=NULL;

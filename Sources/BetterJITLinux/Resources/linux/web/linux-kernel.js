@@ -3448,7 +3448,10 @@ function doExec(k, t, path, argv, envp) {
   if (proc.vforkParent) { k.makeRunnable(proc.vforkParent); proc.vforkParent = null; }
   // (the new image first: in a shared memory, the old one's going must not free the memory)
   const old = { mm: proc.mm, image: proc.image, ownsImage: proc.ownsImage, space: proc.space };
-  k.installImage(proc, img, t.tid);
+  const next = k.installImage(proc, img, t.tid);
+  // exec replaces the image and caught dispositions, not the calling thread's
+  // blocked signal set (including POSIX_SPAWN_SETSIGMASK selected by libc).
+  next.sigmask = t.sigmask;
   k.releaseImage(old);
   return EXIT_THREAD;
 }
