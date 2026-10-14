@@ -16,8 +16,11 @@ def module(name,path):
     return value
 
 def digest(path):
+    digest=hashlib.sha256()
     with path.open('rb') as stream:
-        return hashlib.file_digest(stream,'sha256').hexdigest()
+        for chunk in iter(lambda:stream.read(1024*1024),b''):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 def package(native,out,ref='HEAD'):
     if out.exists(): raise ValueError('Existing consumer bundle retained unchanged: '+str(out))
@@ -44,6 +47,7 @@ def package(native,out,ref='HEAD'):
         manifest={'schema':1,'repository':'intraducine/BetterJIT','sourceRevision':revision,
                   'platforms':['iOS device arm64'],'signed':False,'deviceExecuted':False,
                   'nativeBackend':'Existing CFEXWasm binary; exact packaged bytes hashed below',
+                  'hashScope':'SDK, adapter and native inputs before compilation; generated Xcode files are excluded',
                   'files':hashes}
         (out/'PACKAGE-MANIFEST.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
     except BaseException:

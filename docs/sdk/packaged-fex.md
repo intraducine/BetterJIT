@@ -8,7 +8,9 @@ ownership, filesystem boundary, translation cache and transport configuration.
 It links the native C++ runtime. No separate translator Swift files are required
 in the consuming app. This binary supports **iOS device arm64**, not Simulator
 or macOS. The package manifest records the source revision and hashes every
-packaged file, including the existing CFEXWasm binary.
+packaged SDK/backend input file, including the existing CFEXWasm binary. The
+outer GitHub artifact has its own digest; generated Xcode project files added
+during validation are outside the input manifest's scope.
 
 ```swift
 import BetterJITFEXAdapter
