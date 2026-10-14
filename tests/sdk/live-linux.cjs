@@ -39,7 +39,7 @@ async function main() {
      WINEDLLPATH:'/usr/lib/wine',LD_LIBRARY_PATH:'/opt/wine-flat/lib/wine/x86_64-unix:/usr/lib',WINEDEBUG:'+module,+loaddll,+process'},timeout:180,
     translatorOptions:'depth=24 memtrace=1',debugDirectory:path.join(REPO,'.build/wine-instruction-trace','wine-flat')},
    {id:'wine-nested-createprocess',argv:['/opt/wine-flat/bin/wine','/opt/wine-flat/share/betterjit-provenance/createprocess.exe'],
-    marker:'BetterJIT Wine nested CreateProcess OK',markers:['GRANDCHILD argv/env/cwd/stdio OK','CHILD nested wait/exit OK'],
+    sharedAddressSpace:false,marker:'BetterJIT Wine nested CreateProcess OK',markers:['GRANDCHILD argv/env/cwd/stdio OK','CHILD nested wait/exit OK'],
     environment:{WINELOADERNOEXEC:'1',WINEARCH:'win64',WINEPREFIX:'/home/user/.wine-flat',BETTERJIT_WINE_SPAWN:'1',
      WINEDLLPATH:'/usr/lib/wine',LD_LIBRARY_PATH:'/opt/wine-flat/lib/wine/x86_64-unix:/usr/lib',WINEDEBUG:'+process'},timeout:180}
   ] : []),
