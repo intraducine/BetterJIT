@@ -24,6 +24,7 @@ let process = try FEXProcess(
         timeoutSeconds: 60, sharedAddressSpace: false),
     overlay: ["/input/document": documentBytes])
 process.onLog = { text in /* update progress */ }
+process.onOutput = { stream, text in /* append UTF-8 stdout or stderr fragments */ }
 let result = try await process.run()
 // Check result.exitCode and the actual output; close on early abandonment.
 ```

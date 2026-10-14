@@ -18,6 +18,10 @@ import Darwin
         get { session.onLog }
         set { session.onLog = newValue }
     }
+    public var onOutput: (@MainActor (LinuxOutputStream,String)->Void)? {
+        get { session.onOutput }
+        set { session.onOutput = newValue }
+    }
     private let backend: LinkedLinuxFEXBackend
     private var completedChannelStatistics:[String:Int]=[:]
     public init(root:URL, configuration:Configuration, overlay:[String:Data]=[:],

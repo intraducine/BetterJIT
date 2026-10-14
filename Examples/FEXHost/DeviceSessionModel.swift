@@ -182,7 +182,7 @@ import BetterJITFEXAdapter
             }
             if let adapted {
                 report?.phases[i].details["workload"]=adapted.arguments.joined(separator:" ")
-                report?.phases[i].details["standardIO"]="Captured byte streams; EOF stdin; no terminal ioctls"
+                report?.phases[i].details["standardIO"]="Separate UTF-8 stdout/stderr; EOF stdin; no terminal ioctls"
                 report?.phases[i].details["isolation"]="Fresh FEXProcess and kernel worker for this workload; no prerequisite contract in the same guest. Cleanup is not proof of engine collection or a separate OS process."
             }
             if wine {
@@ -222,6 +222,9 @@ import BetterJITFEXAdapter
             let value=try await linux.run(mode,nativeChannels:channels)
             try checkStop()
             report?.phases[i].log=String(value.log.suffix(128*1024))
+            report?.phases[i].stdout=String(value.stdout.suffix(128*1024))
+            report?.phases[i].stderr=String(value.stderr.suffix(128*1024))
+            report?.phases[i].outputTruncated=value.outputTruncated
             report?.phases[i].counters=linux.counters
             report?.phases[i].details["exitCode"]=String(value.exitCode)
             let allocations=value.log.split(separator:"\n").filter { $0.hasPrefix("[memory-allocation] ") }
@@ -250,11 +253,11 @@ import BetterJITFEXAdapter
             }
             if wine {
                 if let adapted {
-                    let missing=adapted.missingMarkers(in:value.log)
+                    let missing=adapted.missingMarkers(in:value.stdout)
                     guard missing.isEmpty else { throw SuiteFailure("Missing guest milestones: "+missing.joined(separator:"; ")) }
                 }
                 if adapted == nil || adapted == .command {
-                    guard let version=DeviceSessionGuestOutput.windowsVersion(in:value.log) else {
+                    guard let version=DeviceSessionGuestOutput.windowsVersion(in:value.stdout) else {
                         throw SuiteFailure("Wine exited 0 but cmd /c ver did not print a Windows version.")
                     }
                     report?.phases[i].details["windowsVersion"]=version
@@ -262,16 +265,16 @@ import BetterJITFEXAdapter
             } else {
                 let marker=id == "linux-smoke" ? "BetterJIT Linux OK" : (id == "linux-userspace" ? LinuxUserspaceWorkload.marker : LinuxSessionFixture.marker)
                 if id == "linux-userspace" {
-                    guard LinuxUserspaceWorkload.requiredMarkers.allSatisfy({ value.log.contains($0) }) else {
+                    guard LinuxUserspaceWorkload.requiredMarkers.allSatisfy({ value.stdout.contains($0) }) else {
                         throw SuiteFailure("Linux userspace did not complete every file, signal and process-status milestone.")
                     }
                     report?.phases[i].details["expectedSHA256"]=LinuxUserspaceWorkload.expectedSHA256
                     report?.phases[i].details["inputBytes"]=String(LinuxUserspaceWorkload.payloadBytes)
-                    guard value.log.contains(LinuxUserspaceWorkload.expectedSHA256+"  -") else {
+                    guard value.stdout.contains(LinuxUserspaceWorkload.expectedSHA256+"  -") else {
                         throw SuiteFailure("Guest shell/pipeline SHA-256 did not match the bundled input.")
                     }
                 }
-                guard value.log.split(separator:"\n").contains(where:{$0.trimmingCharacters(in:.whitespacesAndNewlines) == marker}) else {
+                guard value.stdout.split(separator:"\n").contains(where:{$0.trimmingCharacters(in:.whitespacesAndNewlines) == marker}) else {
                     throw SuiteFailure("Guest success marker was not observed on stdout.")
                 }
             }

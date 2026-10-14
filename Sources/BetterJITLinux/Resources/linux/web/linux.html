@@ -16,7 +16,9 @@
     image-rendering: auto; }
 </style>
 <canvas id="screen" tabindex="0"></canvas>
-<pre id="out"></pre>
+<pre id="stdout" aria-label="Guest stdout"></pre>
+<pre id="stderr" aria-label="Guest stderr"></pre>
+<pre id="out" aria-label="Runtime diagnostics"></pre>
 <script src="../thread_core.js"></script>
 <script src="../compositor.js"></script>
 <script src="owned_workers.js"></script>

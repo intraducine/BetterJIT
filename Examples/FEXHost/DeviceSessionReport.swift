@@ -71,6 +71,10 @@ struct SessionPhase: Codable, Identifiable {
     var counters: [String:Int] = [:]
     var milliseconds: Double?
     var log = ""
+    // Optional fields preserve decoding of reports created before separate streams.
+    var stdout: String?
+    var stderr: String?
+    var outputTruncated: Bool?
     var error: String?
 }
 struct DeviceSessionReport: Codable {

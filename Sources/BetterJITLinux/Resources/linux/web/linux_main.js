@@ -1,7 +1,7 @@
 // The page side of the guest kernel: fetches the translator's configuration
 // and the file index, starts the kernel worker, and a Web Worker for each
-// guest thread it asks for. Everything it prints also goes to /log (the
-// Mac harness, tools/webserve.js, keeps it).
+// guest thread it asks for. Ordered /events batches keep guest text streams,
+// diagnostics and process completion separate.
 //   linux.html?argv=["/opt/wine/bin/wine","cmd"]&env={"K":"V"}&timeout=60  (or argv=/opt/wine/bin/wine|cmd)
 (function () {
   'use strict';
@@ -9,25 +9,64 @@
   const out = document.getElementById('out');
   const q = new URLSearchParams(location.search);
   const origin = location.origin;
-  let pending = [];
-  function log(s) {
-    out.textContent += s + (s.endsWith('\n') ? '' : '\n');
-    pending.push(s.endsWith('\n') ? s : s + '\n');
+  const streamViews = {stdout:document.getElementById('stdout'),stderr:document.getElementById('stderr')};
+  const decoders = {1:new TextDecoder('utf-8',{ignoreBOM:true}),2:new TextDecoder('utf-8',{ignoreBOM:true})};
+  const encoder = new TextEncoder(), outputRequests = new AbortController();
+  const outputLimit = 4*1024*1024;
+  let pending=[],pendingBytes=0,retainedBytes=0,truncated=false,sequence=0;
+  let delivery=Promise.resolve(),transportFailed=false;
+  function emitText(kind,text) {
+    if (!text || truncated) return;
+    const bytes=encoder.encode(text);
+    let count=Math.min(bytes.length,outputLimit-retainedBytes);
+    if(count<bytes.length)while(count>0&&(bytes[count]&0xc0)===0x80)count--;
+    text=new TextDecoder('utf-8',{ignoreBOM:true}).decode(bytes.subarray(0,count));
+    retainedBytes+=count;pendingBytes+=count;
+    if(text) {
+      const view=kind==='log'?out:streamViews[kind];
+      if(view)view.textContent+=text;
+      const last=pending[pending.length-1];
+      if(last?.kind===kind)last.text+=text;else pending.push({kind,text});
+    }
+    if(count<bytes.length){truncated=true;pending.push({kind:'truncated'});}
+    if(pendingBytes>=65536||pending.length>=128)flushLog();
+  }
+  function log(s) { emitText('log',s.endsWith('\n')?s:s+'\n'); }
+  function write(fd,bytes) {
+    if(!decoders[fd])return;
+    // Decode each descriptor independently, including code points split across writes.
+    for(let offset=0;offset<bytes.length&&!truncated;offset+=32768)
+      emitText(fd===1?'stdout':'stderr',decoders[fd].decode(bytes.subarray(offset,offset+32768),{stream:true}));
+  }
+  function endStreams() {
+    for(const fd of [1,2])emitText(fd===1?'stdout':'stderr',decoders[fd].decode());
   }
   const resources=new FexPageResources();
   const startupRequests=new AbortController();
   resources.defer(()=>startupRequests.abort());
   const logTimer=resources.interval(flushLog, 250);
   let stopGuest=null;
-  const closePage=()=>{if(stopGuest)stopGuest();else resources.close();};
+  const closePage=()=>{if(stopGuest)stopGuest();else resources.close();outputRequests.abort();pending=[];};
   resources.on(window,'pagehide',closePage,{once:true});
   globalThis.betterjitClose=closePage;
   resources.defer(()=>{delete globalThis.betterjitClose;});
   function flushLog() {
-    if (!pending.length) return;
-    const body = pending.join('');
-    pending = [];
-    fetch(origin + '/log', { method: 'POST', body }).catch(() => {});
+    if (!pending.length) return delivery;
+    const body=JSON.stringify({sequence:sequence++,events:pending});
+    pending=[];pendingBytes=0;
+    // One in-flight request: exit cannot overtake output from an earlier flush.
+    delivery=delivery.then(async()=>{
+      if(transportFailed||outputRequests.signal.aborted)return;
+      try {
+        const response=await fetch(origin+'/events',{method:'POST',body,signal:outputRequests.signal});
+        if(!response.ok)throw new Error('output HTTP '+response.status);
+      } catch(error) {
+        transportFailed=true;
+        // Never deliver a successful exit after losing an output batch.
+        if(!outputRequests.signal.aborted)out.textContent+='[page] output delivery failed: '+error+'\n';
+      }
+    });
+    return delivery;
   }
 
   // Memory probe (probeWorkers=N): N workers like guest threads', 8 more
@@ -279,7 +318,9 @@
     stopGuest=cleanup;
     const finish = (code) => {
       if(!cleanup())return;
+      endStreams();
       log(`[page] exit ${code} after ${(performance.now() - t0).toFixed(0)} ms`);
+      pending.push({kind:'exit',code});
       flushLog();document.title = 'done ' + code;
     };
     kernel.onmessage = (e) => {
@@ -331,7 +372,7 @@
           threads.kill(m.tid);
           break;
         }
-        case 'write': log(new TextDecoder().decode(m.bytes)); break;
+        case 'write': write(m.fd,m.bytes); break;
         case 'log': log(m.m); break;
         case 'exit':
           log(`[page] units: ${units.stats.requests} requests, ${units.stats.compiled} modules compiled (${(units.stats.compiledBytes / 1e6).toFixed(1)} MB, ${units.stats.epochs} code epochs); translator ${Math.round(units.stats.fetchMs)} ms, compile waits ${Math.round(units.stats.compileMs)} ms`);
@@ -356,5 +397,10 @@
     }, timeout * 1000);
   }
   // (the app waits for "[page] exit")
-  main().catch((e) => { const wasClosed=resources.closed;closePage();if(wasClosed)return;clearInterval(logTimer); log('[page] ' + (e.stack || e)); log('[page] exit 127'); flushLog(); document.title = 'failed'; });
+  main().catch((e) => {
+    if(resources.closed)return;
+    if(stopGuest)stopGuest();else resources.close();
+    endStreams();log('[page] '+(e.stack||e));log('[page] exit 127');
+    pending.push({kind:'exit',code:127});flushLog();document.title='failed';
+  });
 })();

@@ -49,7 +49,8 @@ public struct LinuxRuntimeConfiguration: Sendable, Equatable {
     public var threadSpinMilliseconds: Double
     public var useNativeChannels: Bool
     public var sharedAddressSpace: Bool
-    /// Captured streams provide EOF on stdin and byte output, without terminal ioctls.
+    /// Captured streams provide EOF on stdin and no terminal ioctls.
+    /// Results expose separate UTF-8 text streams, not lossless binary output.
     public var standardIO: StandardIO
 
     public init(arguments: [String],
@@ -90,10 +91,38 @@ public struct LinuxRuntimeConfiguration: Sendable, Equatable {
 public struct LinuxRuntimeResult: Sendable, Equatable {
     public let exitCode: Int
     public let milliseconds: Double
+    /// Runtime diagnostics only; guest stdout and stderr are separate.
     public let log: String
-    public init(exitCode: Int, milliseconds: Double, log: String) {
+    /// UTF-8 text, decoded across writes without inserted newlines. Invalid bytes become U+FFFD.
+    public let stdout: String
+    public let stderr: String
+    /// The shared 4-MiB UTF-8 retention budget for log/stdout/stderr was exceeded.
+    public let outputTruncated: Bool
+    public init(exitCode: Int, milliseconds: Double, log: String,
+                stdout: String = "", stderr: String = "", outputTruncated: Bool = false) {
         self.exitCode = exitCode; self.milliseconds = milliseconds; self.log = log
+        self.stdout=stdout; self.stderr=stderr; self.outputTruncated=outputTruncated
     }
+}
+
+public enum LinuxOutputStream: String, Sendable { case stdout, stderr }
+
+struct LinuxRuntimeEvent: Codable, Sendable {
+    enum Kind: String, Codable, Sendable { case log, stdout, stderr, exit, truncated }
+    let kind: Kind
+    var text: String? = nil
+    var code: Int? = nil
+    var valid: Bool {
+        switch kind {
+        case .log, .stdout, .stderr: return text != nil && code == nil
+        case .exit: return text == nil && code.map { Int32(exactly:$0) != nil } == true
+        case .truncated: return text == nil && code == nil
+        }
+    }
+}
+struct LinuxRuntimeEventBatch: Decodable {
+    let sequence: Int
+    let events: [LinuxRuntimeEvent]
 }
 
 public enum LinuxRuntimeError: Error, LocalizedError, Sendable, Equatable {

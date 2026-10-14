@@ -95,12 +95,24 @@ or Files providers that cannot preserve Unix symlinks and executable modes.
 ## Boundaries
 
 `LinuxRuntimeConfiguration.standardIO` defaults to `.terminal`. Use `.captured`
-for headless byte capture: stdin reaches EOF, stdout/stderr retain their bytes,
-and terminal ioctls return ENOTTY. These streams report FIFO file type instead
+for headless output: stdin reaches EOF and terminal ioctls return ENOTTY.
+These streams report FIFO file type instead
 of a terminal character device. The adapted command and nested Win64 tests use
 this mode so Wine handles them as redirected streams. The nested fixture checks
 the Win32 output handle type and absence of console mode before its spawn tests.
 This does not change Wine bootstrap services or guest memory limits.
+
+`LinuxRuntimeResult.stdout` and `.stderr` contain separate UTF-8 text streams.
+Decoding continues across guest writes, with no inserted newlines; malformed or
+incomplete UTF-8 becomes U+FFFD. This is text capture, not a lossless binary API.
+Use guest files and the filesystem interface for binary output. `.log` and
+`onLog` contain runtime diagnostics only; `onOutput` identifies each guest stream.
+Consumers must check success markers in `.stdout`, not a merged diagnostic log.
+The shared retention limit remains 4 MiB of UTF-8 across all three strings;
+`outputTruncated` reports omitted text. Ordered transport batches deliver retained
+text before the explicit exit event. Guest text that resembles a log or exit
+marker is never interpreted as process completion. Failed output delivery cannot
+produce a successful completion; the session remains subject to its deadline.
 
 Fork constructs a small child memory, grows it to cover inherited mappings, and
 copies their tracked dirty bytes without sharing private data or changing the

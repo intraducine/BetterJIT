@@ -13,6 +13,8 @@ import WebKit
     /// Counts successful native-channel replies; attachment alone is not usage.
     public var nativeChannelStatistics: [String:Int] { server?.channelStatistics() ?? [:] }
     public var onLog: (@MainActor (String)->Void)?
+    /// UTF-8 text fragments; write boundaries are not line boundaries.
+    public var onOutput: (@MainActor (LinuxOutputStream,String)->Void)?
     public var onWindow: (@MainActor ([String:String])->Void)?
     public var onScreenshot: (@MainActor (String,Data)->Void)?
 
@@ -27,6 +29,8 @@ import WebKit
     private var port: UInt16?
     private var startedAt: UInt64=0
     private var logText=""
+    private var stdoutText="",stderrText="",retainedOutputBytes=0
+    private var outputTruncated=false
     private var timeoutTask: Task<Void,Never>?
 
     public init(backend: LinuxTranslationBackend,
@@ -67,8 +71,7 @@ import WebKit
         do {
             let assets=try Self.assets()
             let server=LinuxLoopbackServer(token:token,assets:assets,backend:backend,fileSystem:fileSystem,
-                onLog:{ [weak self] text in Task { @MainActor in self?.receiveLog(text) } },
-                onExit:{ _ in }, // receiveLog handles the exit marker in the same actor turn as its stdout.
+                onEvents:{ [weak self] events in await self?.receiveEvents(events) },
                 onWindow:{ [weak self] event in Task { @MainActor in self?.onWindow?(event) } },
                 onShot:{ [weak self] name,data in Task { @MainActor in self?.onScreenshot?(name,data) } },
                 gpuHandler:gpuHandler)
@@ -105,7 +108,7 @@ import WebKit
         state = .closed; timeoutTask?.cancel(); timeoutTask=nil
         // Consumers commonly capture the mounted session in these callbacks.
         // Terminal cleanup must release those captures before the next guest.
-        onLog=nil; onWindow=nil; onScreenshot=nil
+        onLog=nil; onOutput=nil; onWindow=nil; onScreenshot=nil
         navigation?.resume(throwing:LinuxRuntimeError.closed); navigation=nil
         exitWaiter?.resume(throwing:LinuxRuntimeError.closed); exitWaiter=nil
         server?.stop(); server=nil; backend.close()
@@ -114,22 +117,34 @@ import WebKit
         webView.loadHTMLString("<!doctype html><title>Closed</title>",baseURL:nil)
     }
 
-    private func receiveLog(_ text:String) {
-        guard state != .closed else { return }
-        if logText.utf8.count < 4*1024*1024 {
-            let remaining=4*1024*1024-logText.utf8.count
-            logText += String(text.prefix(remaining))
-        }
-        onLog?(text)
-        for line in text.split(separator:"\n") where line.hasPrefix("[page] exit ") {
-            if let code=Int(line.dropFirst(12).split(separator:" ").first ?? "") { receiveExit(code) }
+    func receiveEvents(_ events:[LinuxRuntimeEvent]) {
+        for event in events {
+            guard state != .closed, result == nil, failure == nil else { return }
+            switch event.kind {
+            case .exit: if let code=event.code { receiveExit(code) }
+            case .truncated: outputTruncated=true
+            case .log, .stdout, .stderr:
+                guard let text=event.text, !outputTruncated else { continue }
+                let remaining=4*1024*1024-retainedOutputBytes
+                var bytes=Data(text.utf8.prefix(remaining))
+                // Keep a valid scalar prefix, never exceed the byte budget with U+FFFD.
+                while String(data:bytes,encoding:.utf8) == nil { bytes.removeLast() }
+                let accepted=String(decoding:bytes,as:UTF8.self)
+                retainedOutputBytes+=bytes.count
+                if bytes.count<text.utf8.count { outputTruncated=true }
+                guard !accepted.isEmpty else { continue }
+                if event.kind == .log { logText+=accepted;onLog?(accepted) }
+                else if event.kind == .stdout { stdoutText+=accepted;onOutput?(.stdout,accepted) }
+                else { stderrText+=accepted;onOutput?(.stderr,accepted) }
+            }
         }
     }
     private func receiveExit(_ code:Int) {
         guard result == nil, failure == nil, state != .closed else { return }
         timeoutTask?.cancel(); timeoutTask=nil
         let ms=Double(DispatchTime.now().uptimeNanoseconds-startedAt)/1_000_000
-        let value=LinuxRuntimeResult(exitCode:code,milliseconds:ms,log:logText)
+        let value=LinuxRuntimeResult(exitCode:code,milliseconds:ms,log:logText,
+                                    stdout:stdoutText,stderr:stderrText,outputTruncated:outputTruncated)
         result=value; state = .exited
         navigation?.resume(); navigation=nil
         exitWaiter?.resume(returning:value); exitWaiter=nil

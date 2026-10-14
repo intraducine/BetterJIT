@@ -89,6 +89,10 @@ import BetterJITFEXAdapter
             log=String((log+text).suffix(128*1024))
             self?.changed(s,"Guest running",log)
         }
+        s.onOutput={ [weak self] _,text in
+            log=String((log+text).suffix(128*1024))
+            self?.changed(s,"Guest running",log)
+        }
         changed(s,"Starting guest",log)
         await Task.yield()
         let result=try await owned.run()

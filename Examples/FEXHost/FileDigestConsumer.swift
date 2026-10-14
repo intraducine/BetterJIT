@@ -29,13 +29,14 @@ struct DigestResult { let sha256:String; let counters:[String:Int] }
             overlay:["/input/document":data])
         process=command; mount?(command)
         command.onLog={ [weak self] in self?.onLog?($0) }
+        command.onOutput={ [weak self] _,text in self?.onLog?(text) }
         defer { command.close();process=nil;mount?(nil) }
         let result=try await command.run(),stats=command.statistics()
         guard result.exitCode==0,(stats["unitRequests"] ?? 0)>0,(stats["codeMappings"] ?? 0)>0,
-              let match=result.log.range(of:"(?m)^[0-9a-f]{64}  /input/document\\r?$",options:.regularExpression) else {
+              let match=result.stdout.range(of:"(?m)^[0-9a-f]{64}  /input/document\\r?$",options:.regularExpression) else {
             throw SuiteFailure("The guest file-digest command did not return a checked digest with real translation evidence.")
         }
-        return DigestResult(sha256:String(result.log[match].prefix(64)),counters:stats)
+        return DigestResult(sha256:String(result.stdout[match].prefix(64)),counters:stats)
     }
     func close() { process?.close();process=nil;mount?(nil) }
 }

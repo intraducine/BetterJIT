@@ -28,8 +28,9 @@ final class LinuxLoopbackServer: @unchecked Sendable {
     private let assets: [String:(Data,String)]
     private let backend: LinuxTranslationBackend
     private let fileSystem: LinuxFileSystemSource
-    private let onLog: @Sendable (String) -> Void
-    private let onExit: @Sendable (Int) -> Void
+    private let onEvents: @Sendable ([LinuxRuntimeEvent]) async -> Void
+    private var eventDelivery: Task<Void,Never>?
+    private var nextEventSequence=0
     private let onWindow: @Sendable ([String:String]) -> Void
     private let onShot: @Sendable (String,Data) -> Void
     private let gpuHandler: LinuxGPUChannelHandler?
@@ -38,13 +39,12 @@ final class LinuxLoopbackServer: @unchecked Sendable {
          assets: [String:(Data,String)],
          backend: LinuxTranslationBackend,
          fileSystem: LinuxFileSystemSource,
-         onLog: @escaping @Sendable (String)->Void,
-         onExit: @escaping @Sendable (Int)->Void,
+         onEvents: @escaping @Sendable ([LinuxRuntimeEvent]) async -> Void,
          onWindow: @escaping @Sendable ([String:String])->Void = { _ in },
          onShot: @escaping @Sendable (String,Data)->Void = { _,_ in },
          gpuHandler: LinuxGPUChannelHandler? = nil) {
         self.token=token; self.assets=assets; self.backend=backend; self.fileSystem=fileSystem
-        self.onLog=onLog; self.onExit=onExit; self.onWindow=onWindow; self.onShot=onShot
+        self.onEvents=onEvents; self.onWindow=onWindow; self.onShot=onShot
         self.gpuHandler=gpuHandler
     }
 
@@ -91,6 +91,7 @@ final class LinuxLoopbackServer: @unchecked Sendable {
     }
     private func stopOnQueue() {
         guard !stopped else { return }; stopped=true
+        eventDelivery?.cancel(); eventDelivery=nil
         listener?.stateUpdateHandler=nil; listener?.newConnectionHandler=nil; listener?.cancel(); listener=nil
         let current=Array(connections.values); connections.removeAll()
         for c in current { c.stop() }
@@ -175,10 +176,19 @@ final class LinuxLoopbackServer: @unchecked Sendable {
                 let path=req.query["p"] ?? ""
                 let off=req.query["off"].flatMap(Int.init), len=req.query["len"].flatMap(Int.init)
                 return Response(status:200,type:"application/octet-stream",body:try fileSystem.readFile(path:path,offset:off,length:len))
-            case ("POST","/log"):
-                let log=String(decoding:req.body,as:UTF8.self); onLog(log)
-                for line in log.split(separator:"\n") where line.hasPrefix("[page] exit ") {
-                    if let code=Int(line.dropFirst(12).split(separator:" ").first ?? "") { onExit(code) }
+            case ("POST","/events"):
+                let batch=try JSONDecoder().decode(LinuxRuntimeEventBatch.self,from:req.body)
+                guard batch.sequence == nextEventSequence, (1...130).contains(batch.events.count),
+                      batch.events.allSatisfy(\.valid) else {
+                    return Response(status:400,type:"text/plain",body:Data())
+                }
+                nextEventSequence += 1
+                let previous=eventDelivery, deliver=onEvents, events=batch.events
+                // Actor delivery is ordered even if an HTTP acknowledgement precedes it.
+                eventDelivery=Task {
+                    await previous?.value
+                    guard !Task.isCancelled else { return }
+                    await deliver(events)
                 }
                 return Response(status:200,type:"text/plain",body:Data())
             case ("GET","/win"):
