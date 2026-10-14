@@ -70,8 +70,13 @@ Mapped builtin image metadata also uses the actual mapped base plus the entry RV
 as Wine already does for non-builtin mappings; preferred high addresses are not
 aliased or truncated into the guest window.
 Windows version output, exit 0 and observed native translation are still required.
-ANSI cursor/color sequences are decoded only for milestone/version matching;
-the exported log keeps the original terminal bytes. The flat Wine guest has a
+ANSI cursor/color sequences are decoded only for milestone/version matching.
+The report and expanded phase show separate UTF-8 `stdout` and `stderr`; `log`
+contains runtime diagnostics. Writes do not introduce newlines. Malformed or
+incomplete UTF-8 is replaced with U+FFFD, so these fields are not binary archives.
+The session retains at most 4 MiB of combined UTF-8 text and reports truncation;
+the exported report keeps the last 128 Ki characters of each field.
+The flat Wine guest has a
 180-second deadline and a 200-second phase deadline to include startup/cleanup.
 Each runtime closes its owned workers, translation cache, timers and display
 callbacks before reporting completion. Dropping references does not prove engine

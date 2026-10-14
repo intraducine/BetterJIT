@@ -135,7 +135,19 @@ private struct PhaseRow: View {
                         if let reason=check.details["reason"] { Text(reason).foregroundStyle(.secondary) }
                     }
                 }
+                if let stdout=phase.stdout, !stdout.isEmpty {
+                    Text("Standard output").font(.caption.bold())
+                    Text(stdout.suffix(16000)).font(.caption.monospaced()).textSelection(.enabled)
+                }
+                if let stderr=phase.stderr, !stderr.isEmpty {
+                    Text("Standard error").font(.caption.bold())
+                    Text(stderr.suffix(16000)).font(.caption.monospaced()).textSelection(.enabled)
+                }
+                if phase.outputTruncated == true {
+                    Text("Output capture reached its limit.").font(.caption).foregroundStyle(.secondary)
+                }
                 if !phase.log.isEmpty {
+                    Text("Log").font(.caption.bold())
                     Text(phase.log.suffix(16000)).font(.caption.monospaced()).textSelection(.enabled)
                 }
                 if let ms=phase.milliseconds { Text(String(format:"Phase %.1f s",ms/1000)).font(.caption.monospacedDigit()) }
