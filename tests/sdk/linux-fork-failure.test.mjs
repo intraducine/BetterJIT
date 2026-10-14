@@ -73,23 +73,25 @@ test('a different immutable maximum releases incompatible spares without clearin
  assert.equal(event.discarded[0].maximumPages,32);assert.equal(event.discarded[0].currentBytes,65536);
  assert.equal(event.pool.length,0);assert.equal(r.stats().waits,0);
 });
-test('retirement retains one spare per maximum and the original quarantine deadline',()=>{
- const r=runtime(),{MemoryPool}=r.kernel,pool=new MemoryPool(),events=[];
- pool.diagnostic=e=>events.push(e);
+test('compatible reservations serve both children when new construction and collection cannot progress',()=>{
+ const r=runtime(),{MemoryPool}=r.kernel,pool=new MemoryPool();
  const first=pool.take(32,1),second=pool.take(32,1);
- pool.give(first.mem,[[0,1]],32);const deadline=pool.free[0].readyAt;
- pool.give(second.mem,[[4,5]],32);
- assert.equal(pool.free.length,1);assert.equal(pool.free[0].mem,first.mem);
- assert.equal(pool.free[0].readyAt,deadline);assert.equal(pool.free[0].dirty[0][0],0);
- r.setRemaining(0);assert.equal(pool.take(32,1).mem,first.mem);
- assert.equal(r.stats().waits,1);assert.equal(r.stats().clock,1500);
- assert.equal(events.find(e=>e.reason==='duplicate maximum spare').discarded.length,1);
+ pool.give(first.mem,[[0,1]],32);pool.give(second.mem,[[4,5]],32);
+ assert.equal(pool.free.length,2);r.setRemaining(0);
+ const left=pool.take(32,1),right=pool.take(32,1);
+ assert.notEqual(left.mem,right.mem);assert.equal(left.mem,first.mem);assert.equal(right.mem,second.mem);
+ assert.equal(r.stats().clock,1500);assert.equal(pool.free.length,0);
 });
-test('a grown spare replaces a smaller one while keeping its own quarantine',()=>{
+test('reuse chooses already-grown capacity instead of failing growth while a fitting spare exists',()=>{
  const r=runtime(),{MemoryPool}=r.kernel,pool=new MemoryPool();
  const small=pool.take(32,1),grown=pool.take(32,2);
- pool.give(small.mem,[],32);r.setClock(600);pool.give(grown.mem,[[4,5]],32);
- assert.equal(pool.free.length,1);assert.equal(pool.free[0].mem,grown.mem);
- assert.equal(pool.free[0].readyAt,2100);r.setRemaining(0);r.setGrowthLimit(1);
- assert.equal(pool.take(32,2).mem,grown.mem);assert.equal(r.stats().clock,2100);
+ pool.give(small.mem,[],32);pool.give(grown.mem,[[4,5]],32);
+ r.setClock(1500);r.setRemaining(0);r.setGrowthLimit(1);
+ assert.equal(pool.take(32,2).mem,grown.mem);assert.equal(pool.free[0].mem,small.mem);
+});
+test('compatible retention stays within the original six-entry budget',()=>{
+ const r=runtime(),{MemoryPool}=r.kernel,pool=new MemoryPool();
+ const entries=Array.from({length:7},()=>pool.take(32,1));
+ for(const e of entries)pool.give(e.mem,[],32);
+ assert.equal(pool.free.length,6);assert.equal(pool.free[0].mem,entries[1].mem);
 });

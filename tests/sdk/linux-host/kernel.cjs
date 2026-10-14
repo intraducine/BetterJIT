@@ -1,6 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 const {workerData:d,parentPort}=require('worker_threads');
 const fs=require('fs'),path=require('path'),vm=require('vm');
+// Fault injection for the real guest regression, not a device quota model.
+// Returned memories are real Wasm memories; only later constructor calls fail.
+if(d.memoryConstructionLimit!==undefined) {
+  if(!Number.isInteger(d.memoryConstructionLimit)||d.memoryConstructionLimit<1)throw Error('Invalid injected construction limit');
+  const NativeMemory=WebAssembly.Memory;let constructed=0;
+  WebAssembly.Memory=class {
+    constructor(descriptor) {
+      if(constructed>=d.memoryConstructionLimit)throw new RangeError('Injected constructor exhaustion; collection has not released a reservation');
+      const memory=new NativeMemory(descriptor);constructed++;return memory;
+    }
+  };
+}
 globalThis.self=globalThis;
 vm.runInThisContext(fs.readFileSync(path.join(d.resources,'linux/web/linux-kernel.js'),'utf8'));
 const {Kernel}=LinuxBundle.require('./kernel.js');

@@ -27,6 +27,8 @@ async function main() {
   {id:'consumer-document-digest',argv:['/bin/busybox','sha256sum','/input/document'],sharedAddressSpace:false,digest},
   {id:'linux-userspace',argv:['/bin/busybox','sh','-c',userspaceScript()],marker:'BetterJIT userspace OK',
    markers:['BetterJIT files OK','BetterJIT signals OK','BetterJIT process status OK'],digest},
+  {id:'linux-userspace-constructor-pressure',argv:['/bin/busybox','sh','-c',userspaceScript()],memoryConstructionLimit:3,
+   marker:'BetterJIT userspace OK',markers:['BetterJIT files OK','BetterJIT signals OK','BetterJIT process status OK'],digest},
   {id:'wine-command',argv:['/opt/wine/bin/wine','cmd','/c','ver'],optional:true,timeout:120},
   {id:'wine-command-no-preloader',argv:['/opt/wine/bin/wine','cmd','/c','ver'],
    environment:{WINELOADERNOEXEC:'1',WINEARCH:'win64'},optional:true,timeout:120},
@@ -57,7 +59,7 @@ async function main() {
    const correct=(spec.expectedCodeRejection?boundary:((spec.expectedFault?expectedFault:result.code===0) && result.translator.units>0 && result.units.compiled>0)) &&
     (!spec.marker||result.stdout.includes(spec.marker)) && (!spec.markers||spec.markers.every(m=>result.stdout.includes(m))) && (!spec.digest||result.stdout.includes(spec.digest)) &&
     (!spec.id.startsWith('wine-')||windowsVersion(result.stdout)!==null);
-   report.records.push({id:spec.id,status:correct?'passed':'failed',purpose:spec.expectedCodeRejection?'Expected unmapped-code rejection; no successful guest workload claim':spec.expectedFault?'Expected-fault diagnostic validation':'Real guest workload',expectedFault:spec.expectedFault??null,windowsVersion:spec.id.startsWith('wine-')?windowsVersion(result.stdout):undefined,...result});
+   report.records.push({id:spec.id,status:correct?'passed':'failed',purpose:spec.memoryConstructionLimit?'Real guest workload under injected constructor exhaustion; not a device quota measurement':spec.expectedCodeRejection?'Expected unmapped-code rejection; no successful guest workload claim':spec.expectedFault?'Expected-fault diagnostic validation':'Real guest workload',expectedFault:spec.expectedFault??null,windowsVersion:spec.id.startsWith('wine-')?windowsVersion(result.stdout):undefined,...result});
    console.log(`${correct?'PASS':'FAIL'} ${spec.id}: exit ${result.code}, ${result.translator.units} native FEX units, ${result.units.compiled} Wasm modules, ${result.milliseconds.toFixed(0)} ms`);
    if(result.memoryFaults.length)console.log(JSON.stringify({id:spec.id,expectedFault:spec.expectedFault??null,memoryFaults:result.memoryFaults}));
    if(spec.id.startsWith('wine-'))console.log(JSON.stringify({id:spec.id,

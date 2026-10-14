@@ -14,7 +14,8 @@
     out.textContent += s + (s.endsWith('\n') ? '' : '\n');
     pending.push(s.endsWith('\n') ? s : s + '\n');
   }
-  setInterval(flushLog, 250);
+  const logTimer=setInterval(flushLog, 250);
+  let stopGuest=null;
   function flushLog() {
     if (!pending.length) return;
     const body = pending.join('');
@@ -241,7 +242,7 @@
     const bridge = new SharedArrayBuffer(16);
     const b32 = new Int32Array(bridge);
     const bootEpoch = performance.timeOrigin + performance.now() - 1e6;
-    const threads = new Map();
+    const threads = new FexGuestWorkers();
     let frames = 0;
     const slowWait = Number(q.get('slowWait') || 0);
     const units = FexLinuxThread.UnitCache(origin, undefined, Number(q.get('codeEpochMB') ?? 0) << 20); // (0: no epochs; they raised the peak: threads re-request their code faster than JSC frees the old)
@@ -250,15 +251,25 @@
     const sampler = q.get('sample') === '1' && cfg.profAddr ? new Worker('sampler.js') : null;
     if (sampler) sampler.onmessage = (x) => { if (x.data.op === 'log') log(x.data.m); };
     // (every 10 s: how much code the page has compiled: most of WebContent's memory after the guest's)
-    setInterval(() => log(`[page] units: ${units.stats.requests} requests, ${units.stats.compiled} modules compiled (${(units.stats.compiledBytes / 1e6).toFixed(1)} MB); page ${document.visibilityState}${document.hasFocus() ? ', focused' : ''}`), 10000);
+    const statisticsTimer=setInterval(() => log(`[page] units: ${units.stats.requests} requests, ${units.stats.compiled} modules compiled (${(units.stats.compiledBytes / 1e6).toFixed(1)} MB); page ${document.visibilityState}${document.hasFocus() ? ', focused' : ''}`), 10000);
     const kernel = new Worker('kworker_web.js');
-    const finish = (code) => {
-      log(`[page] exit ${code} after ${(performance.now() - t0).toFixed(0)} ms`);
-      for (const w of threads.values()) w.terminate();
-      kernel.terminate();
-      flushLog();
-      document.title = 'done ' + code;
+    let finished=false,guestTimer=null,stopTimer=null;
+    const cleanup = () => {
+      if(finished)return false;finished=true;
+      stopGuest=null;window.removeEventListener('pagehide',cleanup);
+      clearInterval(logTimer);clearInterval(statisticsTimer);
+      clearTimeout(guestTimer);clearTimeout(stopTimer);
+      threads.close();kernel.onmessage=null;kernel.onerror=null;kernel.terminate();
+      if(sampler){sampler.onmessage=null;sampler.terminate();}
+      return true;
     };
+    stopGuest=cleanup;
+    const finish = (code) => {
+      if(!cleanup())return;
+      log(`[page] exit ${code} after ${(performance.now() - t0).toFixed(0)} ms`);
+      flushLog();document.title = 'done ' + code;
+    };
+    window.addEventListener('pagehide',cleanup,{once:true});
     kernel.onmessage = (e) => {
       const m = e.data;
       switch (m.op) {
@@ -271,40 +282,41 @@
           break;
         case 'spawn': {
           const w = new Worker('thread_web.js');
-          threads.set(m.tid, w);
+          const tid=m.tid,slot=m.slot,slotBuffer=m.ksab;
           if (sampler) {
             if (!sampler.started) { sampler.started = true; sampler.postMessage({ op: 'init', mem: m.mem, ksab: m.ksab, profAddr: cfg.profAddr }); }
             sampler.postMessage({ op: 'add', tid: m.tid, tb: m.tb, slot: m.slot });
           }
-          const free = () => setTimeout(() => Atomics.store(new Int32Array(m.ksab), ((256 + m.slot * 128) >> 2) + 26, 0), 200);
+          const free = () => setTimeout(() => Atomics.store(new Int32Array(slotBuffer), ((256 + slot * 128) >> 2) + 26, 0), 200);
+          if(!threads.add(tid,w,free))break;
           w.onmessage = (x) => {
+            if(!threads.has(w))return;
             const d = x.data;
             if (d.op === 'module') {
               // (slowWait: when a module is slow, whether it waited to get here or to compile)
               const got = performance.timeOrigin + performance.now(), bytes = d.code.length;
               units.module(d.key, d.code).then((module) => {
+                if(!threads.has(w))return;
                 const done = performance.timeOrigin + performance.now();
-                if (slowWait && done - d.sent > slowWait) log(`[page] module for tid ${m.tid}: ${(got - d.sent).toFixed(0)} ms to arrive, ${(done - got).toFixed(0)} ms to compile (${bytes} bytes)`);
-                w.postMessage({ op: 'unit', id: d.id, module, replied: performance.timeOrigin + performance.now() });
+                if (slowWait && done - d.sent > slowWait) log(`[page] module for tid ${tid}: ${(got - d.sent).toFixed(0)} ms to arrive, ${(done - got).toFixed(0)} ms to compile (${bytes} bytes)`);
+                threads.reply(w,{ op: 'unit', id: d.id, module, replied: performance.timeOrigin + performance.now() });
               },
-                (err) => { log(`[page] module: ${err}`); w.postMessage({ op: 'unit', id: d.id }); });
+                (err) => { if(!threads.has(w))return; log(`[page] module: ${err}`); threads.reply(w,{ op: 'unit', id: d.id }); });
             } else if (d.op === 'unit') {
-              units.get(d.space, d.rip).then((r) => w.postMessage(Object.assign({ op: 'unit', id: d.id }, r)),
-                (err) => { log(`[page] unit 0x${d.rip.toString(16)}: ${err}`); w.postMessage({ op: 'unit', id: d.id }); });
+              units.get(d.space, d.rip).then((r) => threads.reply(w,Object.assign({ op: 'unit', id: d.id }, r)),
+                (err) => { if(!threads.has(w))return; log(`[page] unit 0x${d.rip.toString(16)}: ${err}`); threads.reply(w,{ op: 'unit', id: d.id }); });
             } else if (d.op === 'log') log(d.m);
-            else if (d.op === 'done') { w.terminate(); if (threads.get(m.tid) === w) threads.delete(m.tid); free(); if (sampler) sampler.postMessage({ op: 'remove', tid: m.tid }); }
+            else if (d.op === 'done') { threads.dispose(w); if (sampler) sampler.postMessage({ op: 'remove', tid }); }
           };
-          w.onerror = (err) => log(`[tid ${m.tid}] worker error: ${err.message}`);
+          w.onerror = (err) => log(`[tid ${tid}] worker error: ${err.message}`);
           w.postMessage({ pid: m.pid, tid: m.tid, tb: m.tb, mem: m.mem, wx: m.wx, space: m.space, slot: m.slot, ksab: m.ksab, cfg, dispatcher, xlat: origin, gpuKind: q.get('gpuKind'), gpuStats: q.get('gpuStats') === '1', slowWait: Number(q.get('slowWait') || 0), threadStats: q.get('threadStats') === '1',
             xlatMailbox: xlatChan && xlatChan.mailbox, xlatData: xlatChan && xlatChan.data,
             bootEpoch: m.bootEpoch ?? bootEpoch,
             codeEpoch: units.epoch.buffer, kspinMs: Number(q.get('tspin') ?? 0.02), traceCode: q.get('traceCode') === '1', noRegions: q.get('regions') === '0', regionAfterMs: 1000 * Number(q.get('regionAfter') ?? 30) });
-          w.freeSlot = free;
           break;
         }
         case 'kill': {
-          const w = threads.get(m.tid);
-          if (w) { threads.delete(m.tid); w.terminate(); w.freeSlot(); }
+          threads.kill(m.tid);
           break;
         }
         case 'write': log(new TextDecoder().decode(m.bytes)); break;
@@ -323,13 +335,13 @@
       // a saved system (in OPFS): snapshot=name&snapshotAt=S[&snapshotExit=1] saves one; restore=name[&run=a|b|c] starts from it
       snapshot: q.get('snapshot'), snapshotAt: Number(q.get('snapshotAt') || 30), snapshotExit: q.get('snapshotExit') === '1',
       restore: q.get('restore'), run: q.get('run') ? q.get('run').split('|').map((a) => decodeURIComponent(a)) : null, auto: q.get('auto') });
-    if (timeout) setTimeout(() => {
+    if (timeout) guestTimer=setTimeout(() => {
       log(`[page] timeout after ${timeout} s; units: ${units.stats.requests} requests, ${units.stats.compiled} modules compiled; ` +
         `translator ${Math.round(units.stats.fetchMs)} ms, compile waits ${Math.round(units.stats.compileMs)} ms; threads:`);
       Atomics.store(b32, 2, 1);
-      setTimeout(() => finish(124), 1500);
+      stopTimer=setTimeout(() => finish(124), 1500);
     }, timeout * 1000);
   }
   // (the app waits for "[page] exit")
-  main().catch((e) => { log('[page] ' + (e.stack || e)); log('[page] exit 127'); flushLog(); document.title = 'failed'; });
+  main().catch((e) => { stopGuest?.();clearInterval(logTimer); log('[page] ' + (e.stack || e)); log('[page] exit 127'); flushLog(); document.title = 'failed'; });
 })();

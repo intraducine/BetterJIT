@@ -274,7 +274,15 @@ class MemoryPool {
         requestedMaximumPages:maxPages,discarded,...context});
     }
     const now = performance.now();
-    const i = this.free.findIndex((e) => e.maxPages === maxPages && e.readyAt <= now);
+    const needed=Math.max(initialPages*WASM_PAGE,context.inheritedEnd||0);
+    let i=-1;
+    for(let n=0;n<this.free.length;n++) {
+      const e=this.free[n];if(e.maxPages!==maxPages||e.readyAt>now)continue;
+      if(i<0){i=n;continue;}
+      const size=e.mem.buffer.byteLength,chosen=this.free[i].mem.buffer.byteLength;
+      if((size>=needed&&chosen<needed)||(size>=needed&&chosen>=needed&&size<chosen)||
+         (size<needed&&chosen<needed&&size>chosen))i=n;
+    }
     if (i >= 0) {
       const e = this.free.splice(i, 1)[0];
       const have = e.mem.buffer.byteLength / WASM_PAGE;
@@ -299,17 +307,9 @@ class MemoryPool {
     }
   }
   give(mem, dirty, maxPages) {
-    // Prefer capacity already grown; on ties keep the earlier quarantine.
-    // Every retained buffer still observes its own retirement deadline.
-    const previous=this.free.findIndex(e=>e.maxPages===maxPages);
-    if (previous>=0) {
-      const old=this.free[previous],larger=mem.buffer.byteLength>old.mem.buffer.byteLength;
-      const discarded=larger ? old.mem : mem;
-      if (larger) this.free[previous]={mem,dirty,maxPages,readyAt:performance.now()+1500};
-      this.emit({event:'pool-pruned',stage:'retention',reason:'duplicate maximum spare',
-        retainedLarger:larger,discarded:[{maximumPages:maxPages,currentBytes:discarded.buffer.byteLength}]});
-      return;
-    }
+    // Keep compatible reservations for simultaneous fork/exec demand. A
+    // discarded reservation may remain charged until engine collection; one
+    // spare cannot serve both children of a pipe when construction is refused.
     this.free.push({ mem, dirty, maxPages, readyAt: performance.now() + 1500 });
     if (this.free.length > 6) this.free.shift(); // (the oldest is left to the collector)
   }

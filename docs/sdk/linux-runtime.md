@@ -102,14 +102,23 @@ front or copy an unmapped tail. This is an allocation strategy, not a RAM grant.
 mapping growth, with requested/current pages, inherited mappings, pool state and
 the current kernel's live memories. Tracked dirty bytes and Wasm linear sizes
 are not OS resident memory or an iOS/WebContent memory-limit measurement.
-The pool retains one spare per immutable maximum and releases incompatible
-spares when allocating another size class. It prefers a grown spare, preserving
-each retained buffer's own 1.5-second quarantine; equal-capacity retirements keep
-the earlier candidate. Discarded buffers are never cleared or reused while a
-terminating worker may still own them. `pool-pruned` events record released
-references separately from allocation failures and successful forks. Engine
-collection and budget reclamation are not guaranteed immediately. A construction
-failure can also be recovered by quarantined-memory reuse in a passed phase.
+The pool retains compatible reservations within its original six-entry budget,
+so simultaneous fork/exec demand can reuse more than one buffer if construction
+is refused before collection progresses. It releases incompatible maximum-size
+classes when allocating another class. A ready buffer already large enough is
+preferred over growing a smaller one. Every buffer keeps its own 1.5-second
+quarantine; discarded buffers are never cleared or reused while a terminating
+worker may still own them. `pool-pruned` events describe released references,
+not immediate engine collection or OS RSS reduction. A construction failure can
+also be recovered by quarantined-memory reuse in a passed phase.
+
+The page explicitly owns every guest worker. Termination clears callback captures,
+removes ownership and rejects delayed translation replies for that worker. Slot
+release callbacks retain only the small kernel control buffer and slot number,
+not the full guest spawn message. Session exit and page navigation stop worker,
+statistics, log and deadline activity. This bounds ownership; it does not promise
+that WebKit will immediately reclaim every reservation or accept the next fork.
+
 
 The guest address space is WebAssembly memory32 and therefore remains below
 4 GiB per process. That is an address-space limit, not a RAM entitlement.
