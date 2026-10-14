@@ -345,7 +345,7 @@ class Mm {
     }
     d.splice(i, j - i, [s, e]);
     this.dirtyBytes += (e - s) - removed;
-    // 64 KB chunks ever written (a wasm memory can't give pages back: these stay resident)
+    // 64 KB chunks ever written; tracking writes does not measure OS residency.
     const t = this.mem.touched || (this.mem.touched = { map: new Uint8Array(65536), n: 0 });
     for (let c = start >>> 16, ce = (end - 1) >>> 16; c <= ce; c++) if (!t.map[c]) { t.map[c] = 1; t.n++; }
     if (this.dirtyBytes > this.peakDirty) this.peakDirty = this.dirtyBytes;
@@ -1490,6 +1490,9 @@ class Kernel {
       return this.loadInto(mm, owner, space, path, bytes, elf, argv, envp);
     } catch (e) {
       mm.removeOwner(owner); // (a shared memory keeps everyone else's mappings)
+      // A failed staged image has no worker or process owner. Return its
+      // separate memory to the existing bounded pool instead of orphaning it.
+      if (!this.host.sharedSpace) mm.retire();
       throw e;
     }
   }

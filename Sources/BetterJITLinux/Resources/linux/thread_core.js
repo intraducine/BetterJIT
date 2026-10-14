@@ -425,8 +425,9 @@ function runThread(env) {
       tstats.bytes += r.bytes;
       return r;
     }
-    const r = await fetch(`${xlat}/xlat/unit?space=${space}&rip=${rip}`);
+    const r = await fetch(`${xlat}/xlat/unit?space=${space}&rip=${rip}`, {signal:requests.signal});
     const u = parseUnit(new Uint8Array(await r.arrayBuffer()));
+    checkOpen();
     tstats.fetchMs += performance.now() - t0;
     if (!u) return null;
     const t1 = performance.now();
@@ -576,7 +577,10 @@ function UnitCache(xlat, fetchImpl, epochBytes = 0) {
   const mods = new Map(); // module hash -> Promise<WebAssembly.Module>
   const stats = { requests: 0, compiled: 0, compiledBytes: 0, fetchMs: 0, compileMs: 0, epochs: 0 };
   const epoch = new Int32Array(new SharedArrayBuffer(4));
-  let bytesThisEpoch = 0;
+  let bytesThisEpoch = 0, closed = false;
+  const requests = new AbortController();
+  const checkOpen = () => { if (closed) throw new Error('Unit cache is closed'); };
+  function close() { closed = true; requests.abort(); mods.clear(); }
   function compiled(n) {
     stats.compiled++;
     stats.compiledBytes += n;
@@ -589,10 +593,12 @@ function UnitCache(xlat, fetchImpl, epochBytes = 0) {
     }
   }
   async function get(space, rip, retainCode = false) {
+    checkOpen();
     stats.requests++;
     const t0 = performance.now();
-    const r = await (fetchImpl || fetch)(`${xlat}/xlat/unit?space=${space}&rip=${rip}`);
+    const r = await (fetchImpl || fetch)(`${xlat}/xlat/unit?space=${space}&rip=${rip}`, {signal:requests.signal});
     const u = parseUnit(new Uint8Array(await r.arrayBuffer()));
+    checkOpen();
     const t1 = performance.now();
     stats.fetchMs += t1 - t0;
     if (!u) return null;
@@ -603,11 +609,13 @@ function UnitCache(xlat, fetchImpl, epochBytes = 0) {
       compiled(u.code.length);
     }
     const module = await p;
+    checkOpen();
     stats.compileMs += performance.now() - t1;
     return { module, slot: u.slot, bytes: u.code.length, reloc: u.reloc, code:retainCode ? u.code.slice() : undefined };
   }
   // the module for bytes the caller has (by their hash)
   function module(key, code) {
+    checkOpen();
     let p = mods.get(key);
     if (!p) {
       p = WebAssembly.compile(code);
@@ -617,7 +625,7 @@ function UnitCache(xlat, fetchImpl, epochBytes = 0) {
     stats.requests++;
     return p;
   }
-  return { get, module, stats, epoch };
+  return { get, module, stats, epoch, close };
 }
 G.FexLinuxThread = { UnitCache, runThread, readMemoryTrace };
 })(typeof globalThis !== 'undefined' ? globalThis : self);

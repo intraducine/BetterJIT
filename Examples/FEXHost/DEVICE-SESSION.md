@@ -57,9 +57,12 @@ maximum. This candidate uses separate guest process memories, as stock Wine
 expects; the other phases retain the existing shared address-space mode.
 Null FS selector writes clear the base
 through real `ARCH_SET_FS(0)` calls while preserving registers and flags;
-non-null selectors trap and remain unsupported. A checked guest FS-reset workload
-runs before the actual `cmd /c ver` attempt in the same phase. The candidate
-launches the signed root's `/usr/lib/wine/x86_64-windows/cmd.exe` explicitly.
+non-null selectors trap and remain unsupported. The command and a nested Win64
+CreateProcess workload each start directly in a fresh runtime, before the separate
+FS-reset and POSIX-spawn contract phases. No shell or prerequisite workload shares
+the command's kernel memory pool. CreateProcess checks parent/child/grandchild
+arguments, environment, cwd, inherited output and exit codes; every milestone,
+exit 0 and live translation are required. The candidate launches the signed root's `/usr/lib/wine/x86_64-windows/cmd.exe` explicitly.
 A successfully mapped image below its preferred Win64 base keeps Wine's existing
 PE relocation validation instead of being discarded for `start.exe` merely
 because it returned the informational `STATUS_IMAGE_NOT_AT_BASE` status.
@@ -67,9 +70,13 @@ Mapped builtin image metadata also uses the actual mapped base plus the entry RV
 as Wine already does for non-builtin mappings; preferred high addresses are not
 aliased or truncated into the guest window.
 Windows version output, exit 0 and observed native translation are still required.
-ANSI cursor/color control sequences are removed only for version matching;
+ANSI cursor/color sequences are decoded only for milestone/version matching;
 the exported log keeps the original terminal bytes. The flat Wine guest has a
 180-second deadline and a 200-second phase deadline to include startup/cleanup.
+Each runtime closes its owned workers, translation cache, timers and display
+callbacks before reporting completion. Dropping references does not prove engine
+collection or OS memory reclamation; a new session is not a separate OS process.
+Allocation failure remains a failed attempt with the existing memory maxima.
 This is an adapted Wine input, not support for arbitrary 64-bit guest address spaces, Win32,
 WoW64 or DXMT. Source, patch, hashes and preparation logs are retained separately.
 The build also attempts `cmd /c ver` with signed stock Wine 10.7 in a disposable

@@ -6,6 +6,18 @@ import Foundation
         precondition(DeviceSessionGuestOutput.windowsVersion(in:terminal) == "Microsoft Windows 10.0.19043")
         precondition(DeviceSessionGuestOutput.windowsVersion(in:"BetterJIT Wine FS reset OK\n") == nil)
         precondition(DeviceSessionGuestOutput.windowsVersion(in:"wine: Windows 10.0.19043 failed\n") == nil)
+        let encoded=AdaptedWinePhase.nestedCreateProcess.markers.joined(separator:"\n").map { char in
+            "\u{001B}[?25l"+(char == " " ? "\u{001B}[K\u{001B}[1C" : String(char))+"\u{001B}[?25h"
+        }.joined()
+        precondition(AdaptedWinePhase.nestedCreateProcess.missingMarkers(in:encoded).isEmpty)
+        precondition(AdaptedWinePhase.nestedCreateProcess.missingMarkers(in:"Microsoft Windows 10.0").count == 3)
+        precondition(AdaptedWinePhase.nestedCreateProcess.missingMarkers(in:AdaptedWinePhase.nestedCreateProcess.markers.dropLast().joined(separator:"\n")).count == 1)
+        precondition(DeviceSessionGuestOutput.consoleText("a\u{001B}[9999999999999999999999999999999999Cb").count == 258)
+        precondition(AdaptedWinePhase.command.arguments == ["/opt/wine-flat/bin/wine","/usr/lib/wine/x86_64-windows/cmd.exe","/c","ver"])
+        let ids=DeviceSessionReport.plan.map(\.id)
+        for phase in AdaptedWinePhase.allCases { precondition(ids.filter{$0 == phase.rawValue}.count == 1) }
+        precondition(ids.firstIndex(of:AdaptedWinePhase.nestedCreateProcess.rawValue)! < ids.firstIndex(of:AdaptedWinePhase.spawnContract.rawValue)!)
+        precondition(AdaptedWinePhase.fsContract.arguments.count == 1 && AdaptedWinePhase.spawnContract.arguments.count == 1)
         var original=DeviceSessionReport(environment:["sourceRevision":"fixture"],conditions:[:])
         original.phases[0].status = .passed
         original.phases[1].status = .running

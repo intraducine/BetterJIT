@@ -14,8 +14,15 @@
     out.textContent += s + (s.endsWith('\n') ? '' : '\n');
     pending.push(s.endsWith('\n') ? s : s + '\n');
   }
-  const logTimer=setInterval(flushLog, 250);
+  const resources=new FexPageResources();
+  const startupRequests=new AbortController();
+  resources.defer(()=>startupRequests.abort());
+  const logTimer=resources.interval(flushLog, 250);
   let stopGuest=null;
+  const closePage=()=>{if(stopGuest)stopGuest();else resources.close();};
+  resources.on(window,'pagehide',closePage,{once:true});
+  globalThis.betterjitClose=closePage;
+  resources.defer(()=>{delete globalThis.betterjitClose;});
   function flushLog() {
     if (!pending.length) return;
     const body = pending.join('');
@@ -133,12 +140,17 @@
       LD_LIBRARY_PATH: '/opt/wine/lib/wine/x86_64-unix' }, JSON.parse(q.get('env') || '{}'));
     const timeout = Number(q.get('timeout') || 0);
     const t0 = performance.now();
-    const get = async (p) => { const r = await fetch(origin + p); if (!r.ok) throw new Error(p + ' ' + r.status); return r; };
+    const get = async (p) => {
+      if(resources.closed)throw new Error('Page closed during startup');
+      const r = await fetch(origin + p,{signal:startupRequests.signal});
+      if (!r.ok) throw new Error(p + ' ' + r.status); return r;
+    };
     const cfg = await (await get('/xlat/config?space=0')).json();
     const dispatcher = new Uint8Array(await (await get('/xlat/dispatcher?space=0')).arrayBuffer());
     const state = new Uint8Array(await (await get('/xlat/state?space=0')).arrayBuffer());
     await get('/xlat/drop?space=0');
     const index = await (await get('/fs/index')).json();
+    if(resources.closed)return;
     log(`[page] engine ready: ${index.entries.length} files in the index, ${((performance.now() - t0)).toFixed(0)} ms`);
 
     // The guest's screen (display=WxH, 0: none): windows from Wine's display
@@ -166,7 +178,7 @@
       placed.set(m.hwnd, { m, at });
       fetch(`${origin}/win?${at}`).catch(() => {});
     };
-    addEventListener('resize', () => { for (const { m } of [...placed.values()]) { placed.delete(m.hwnd); place(m); } });
+    resources.on(window,'resize', () => { for (const { m } of [...placed.values()]) { placed.delete(m.hwnd); place(m); } });
     if (screen) {
       canvas.width = DW;
       canvas.height = DH;
@@ -178,9 +190,9 @@
           ctx.putImageData(img, 0, 0);
           canvas.classList.add('on');
         }
-        requestAnimationFrame(draw);
+        resources.frame(draw);
       };
-      requestAnimationFrame(draw);
+      resources.frame(draw);
       // input: {type 0 mouse (x, y, MOUSEEVENTF_ flags, wheel data) | 1 key (VK, KEYEVENTF_ flags)}
       const send = (type, x, y, flags, data) => {
         if (!input32 || !ksab) return;
@@ -198,11 +210,11 @@
         return [Math.max(0, Math.min(DW - 1, Math.round((e.clientX - x0) / k))), Math.max(0, Math.min(DH - 1, Math.round((e.clientY - y0) / k)))];
       };
       const MOVE = 0x1, LDOWN = 0x2, LUP = 0x4, RDOWN = 0x8, RUP = 0x10, WHEEL = 0x800, KEYUP = 0x2;
-      canvas.addEventListener('pointermove', (e) => send(0, ...at(e), MOVE, 0));
-      canvas.addEventListener('pointerdown', (e) => { canvas.focus(); canvas.setPointerCapture(e.pointerId); send(0, ...at(e), MOVE | (e.button === 2 ? RDOWN : LDOWN), 0); e.preventDefault(); });
-      canvas.addEventListener('pointerup', (e) => send(0, ...at(e), MOVE | (e.button === 2 ? RUP : LUP), 0));
-      canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-      canvas.addEventListener('wheel', (e) => { send(0, ...at(e), WHEEL, e.deltaY > 0 ? -120 : 120); e.preventDefault(); }, { passive: false });
+      resources.on(canvas,'pointermove', (e) => send(0, ...at(e), MOVE, 0));
+      resources.on(canvas,'pointerdown', (e) => { canvas.focus(); canvas.setPointerCapture(e.pointerId); send(0, ...at(e), MOVE | (e.button === 2 ? RDOWN : LDOWN), 0); e.preventDefault(); });
+      resources.on(canvas,'pointerup', (e) => send(0, ...at(e), MOVE | (e.button === 2 ? RUP : LUP), 0));
+      resources.on(canvas,'contextmenu', (e) => e.preventDefault());
+      resources.on(canvas,'wheel', (e) => { send(0, ...at(e), WHEEL, e.deltaY > 0 ? -120 : 120); e.preventDefault(); }, { passive: false });
       const vk = (e) => {
         const c = e.code;
         if (/^Key[A-Z]$/.test(c)) return c.charCodeAt(3);
@@ -213,16 +225,16 @@
           Delete: 0x2e, Home: 0x24, End: 0x23, PageUp: 0x21, PageDown: 0x22, Insert: 0x2d, Minus: 0xbd, Equal: 0xbb, Comma: 0xbc,
           Period: 0xbe, Slash: 0xbf, Semicolon: 0xba, Quote: 0xde, BracketLeft: 0xdb, BracketRight: 0xdd, Backslash: 0xdc, Backquote: 0xc0 }[c] || 0;
       };
-      canvas.addEventListener('keydown', (e) => { const v = vk(e); if (v) { send(1, v, 0, 0, 0); e.preventDefault(); } });
-      canvas.addEventListener('keyup', (e) => { const v = vk(e); if (v) { send(1, v, 0, KEYUP, 0); e.preventDefault(); } });
+      resources.on(canvas,'keydown', (e) => { const v = vk(e); if (v) { send(1, v, 0, 0, 0); e.preventDefault(); } });
+      resources.on(canvas,'keyup', (e) => { const v = vk(e); if (v) { send(1, v, 0, KEYUP, 0); e.preventDefault(); } });
       // clicks=x.y.ms|...: taps at screen points, that many ms after the start (testing input)
       for (const c of (q.get('clicks') || '').split('|').filter(Boolean)) {
         const [x, y, ms] = c.split('.').map(Number);
-        setTimeout(() => { send(0, x, y, MOVE, 0); send(0, x, y, MOVE | LDOWN, 0); setTimeout(() => send(0, x, y, MOVE | LUP, 0), 80); log(`[page] tap ${x},${y}`); }, ms);
+        resources.timeout(() => { send(0, x, y, MOVE, 0); send(0, x, y, MOVE | LDOWN, 0); resources.timeout(() => send(0, x, y, MOVE | LUP, 0), 80); log(`[page] tap ${x},${y}`); }, ms);
       }
       // shot=S: a PNG of the screen after S seconds, to the host's /shot (the app keeps it in Documents)
       if (q.get('shot')) {
-        setTimeout(() => canvas.toBlob((b) => fetch(`${origin}/shot?name=${encodeURIComponent(q.get('shotName') || 'shot')}`, { method: 'POST', body: b })
+        resources.timeout(() => canvas.toBlob((b) => !resources.closed && fetch(`${origin}/shot?name=${encodeURIComponent(q.get('shotName') || 'shot')}`, { method: 'POST', body: b })
           .then(() => log('[page] screen saved')), 'image/png'), Number(q.get('shot')) * 1000);
       }
     }
@@ -231,7 +243,7 @@
     // channels: thread_web.js; gpuKind=echo: the app's echo, for timing.)
     const chan = (kind, extra, dataSize = 8 << 20) => {
       const mailbox = new SharedArrayBuffer(64), data = new SharedArrayBuffer(dataSize);
-      const w = new Worker('chan_web.js');
+      const w = resources.worker(new Worker('chan_web.js'));
       w.onmessage = (e) => { if (e.data.op === 'log') log(e.data.m); };
       w.postMessage(Object.assign({ mailbox, data, origin, name: `${kind}-ring`, kind }, extra));
       return { mailbox, data };
@@ -246,21 +258,22 @@
     let frames = 0;
     const slowWait = Number(q.get('slowWait') || 0);
     const units = FexLinuxThread.UnitCache(origin, undefined, Number(q.get('codeEpochMB') ?? 0) << 20); // (0: no epochs; they raised the peak: threads re-request their code faster than JSC frees the old)
+    resources.defer(()=>units.close());
     let ksab = null;
+    resources.defer(()=>{ksab=null;input32=null;placed.clear();if(screen){screen.windows.clear();screen.z=[];}canvas.width=0;canvas.height=0;});
     // (sample=1, with the translator's profrip=1: web/sampler.js)
-    const sampler = q.get('sample') === '1' && cfg.profAddr ? new Worker('sampler.js') : null;
+    const sampler = q.get('sample') === '1' && cfg.profAddr ? resources.worker(new Worker('sampler.js')) : null;
     if (sampler) sampler.onmessage = (x) => { if (x.data.op === 'log') log(x.data.m); };
     // (every 10 s: how much code the page has compiled: most of WebContent's memory after the guest's)
-    const statisticsTimer=setInterval(() => log(`[page] units: ${units.stats.requests} requests, ${units.stats.compiled} modules compiled (${(units.stats.compiledBytes / 1e6).toFixed(1)} MB); page ${document.visibilityState}${document.hasFocus() ? ', focused' : ''}`), 10000);
-    const kernel = new Worker('kworker_web.js');
+    const statisticsTimer=resources.interval(() => log(`[page] units: ${units.stats.requests} requests, ${units.stats.compiled} modules compiled (${(units.stats.compiledBytes / 1e6).toFixed(1)} MB); page ${document.visibilityState}${document.hasFocus() ? ', focused' : ''}`), 10000);
+    const kernel = resources.worker(new Worker('kworker_web.js'));
     let finished=false,guestTimer=null,stopTimer=null;
     const cleanup = () => {
       if(finished)return false;finished=true;
-      stopGuest=null;window.removeEventListener('pagehide',cleanup);
+      stopGuest=null;
       clearInterval(logTimer);clearInterval(statisticsTimer);
       clearTimeout(guestTimer);clearTimeout(stopTimer);
-      threads.close();kernel.onmessage=null;kernel.onerror=null;kernel.terminate();
-      if(sampler){sampler.onmessage=null;sampler.terminate();}
+      threads.close();resources.close();
       return true;
     };
     stopGuest=cleanup;
@@ -269,7 +282,6 @@
       log(`[page] exit ${code} after ${(performance.now() - t0).toFixed(0)} ms`);
       flushLog();document.title = 'done ' + code;
     };
-    window.addEventListener('pagehide',cleanup,{once:true});
     kernel.onmessage = (e) => {
       const m = e.data;
       switch (m.op) {
@@ -287,7 +299,7 @@
             if (!sampler.started) { sampler.started = true; sampler.postMessage({ op: 'init', mem: m.mem, ksab: m.ksab, profAddr: cfg.profAddr }); }
             sampler.postMessage({ op: 'add', tid: m.tid, tb: m.tb, slot: m.slot });
           }
-          const free = () => setTimeout(() => Atomics.store(new Int32Array(slotBuffer), ((256 + slot * 128) >> 2) + 26, 0), 200);
+          const free = () => resources.timeout(() => Atomics.store(new Int32Array(slotBuffer), ((256 + slot * 128) >> 2) + 26, 0), 200);
           if(!threads.add(tid,w,free))break;
           w.onmessage = (x) => {
             if(!threads.has(w))return;
@@ -335,13 +347,13 @@
       // a saved system (in OPFS): snapshot=name&snapshotAt=S[&snapshotExit=1] saves one; restore=name[&run=a|b|c] starts from it
       snapshot: q.get('snapshot'), snapshotAt: Number(q.get('snapshotAt') || 30), snapshotExit: q.get('snapshotExit') === '1',
       restore: q.get('restore'), run: q.get('run') ? q.get('run').split('|').map((a) => decodeURIComponent(a)) : null, auto: q.get('auto') });
-    if (timeout) guestTimer=setTimeout(() => {
+    if (timeout) guestTimer=resources.timeout(() => {
       log(`[page] timeout after ${timeout} s; units: ${units.stats.requests} requests, ${units.stats.compiled} modules compiled; ` +
         `translator ${Math.round(units.stats.fetchMs)} ms, compile waits ${Math.round(units.stats.compileMs)} ms; threads:`);
       Atomics.store(b32, 2, 1);
-      stopTimer=setTimeout(() => finish(124), 1500);
+      stopTimer=resources.timeout(() => finish(124), 1500);
     }, timeout * 1000);
   }
   // (the app waits for "[page] exit")
-  main().catch((e) => { stopGuest?.();clearInterval(logTimer); log('[page] ' + (e.stack || e)); log('[page] exit 127'); flushLog(); document.title = 'failed'; });
+  main().catch((e) => { const wasClosed=resources.closed;closePage();if(wasClosed)return;clearInterval(logTimer); log('[page] ' + (e.stack || e)); log('[page] exit 127'); flushLog(); document.title = 'failed'; });
 })();

@@ -2,10 +2,60 @@
 import Foundation
 
 enum DeviceSessionGuestOutput {
+    static func consoleText(_ raw:String) -> String {
+        let expression=try! NSRegularExpression(pattern:"\u{001B}\\[([0-?]*)([ -/]*)([@-~])")
+        let value=NSMutableString(string:raw)
+        for match in expression.matches(in:raw,range:NSRange(raw.startIndex...,in:raw)).reversed() {
+            let source=raw as NSString
+            let parameters=source.substring(with:match.range(at:1))
+            let padding=source.substring(with:match.range(at:3)) == "C" && match.range(at:2).length == 0 &&
+                parameters.allSatisfy({$0.isASCII && $0.isNumber})
+            let count=parameters.isEmpty ? 1 : min(Double(parameters) ?? 256,256)
+            value.replaceCharacters(in:match.range,with:padding ? String(repeating:" ",count:max(1,Int(count))) : "")
+        }
+        return value as String
+    }
     static func windowsVersion(in raw:String) -> String? {
-        let plain=raw.replacingOccurrences(of:"\u{001B}\\[[0-?]*[ -/]*[@-~]",with:"",options:.regularExpression)
+        let plain=consoleText(raw)
         guard let range=plain.range(of:"(?im)^\\s*(Microsoft )?Windows[^\\n]*[0-9]+\\.[0-9]+",options:.regularExpression) else { return nil }
         return String(plain[range]).trimmingCharacters(in:.whitespacesAndNewlines)
+    }
+}
+
+// Each entry owns a fresh runtime session. Diagnostic contracts must not add
+// fork/exec allocations to the runtime that starts the actual Wine workload.
+enum AdaptedWinePhase: String, CaseIterable {
+    case command="wine-flat", nestedCreateProcess="wine-nested-createprocess"
+    case fsContract="wine-fs-contract", spawnContract="wine-spawn-contract"
+    static let directory="/opt/wine-flat/share/betterjit-provenance/"
+    var arguments:[String] {
+        switch self {
+        case .command: return ["/opt/wine-flat/bin/wine","/usr/lib/wine/x86_64-windows/cmd.exe","/c","ver"]
+        case .nestedCreateProcess: return ["/opt/wine-flat/bin/wine",Self.directory+"createprocess.exe"]
+        case .fsContract: return [Self.directory+"fs-reset.elf"]
+        case .spawnContract: return [Self.directory+"spawn-contract.elf"]
+        }
+    }
+    var markers:[String] {
+        switch self {
+        case .command: return []
+        case .nestedCreateProcess: return ["GRANDCHILD argv/env/cwd/stdio OK","CHILD nested wait/exit OK","BetterJIT Wine nested CreateProcess OK"]
+        case .fsContract: return ["BetterJIT Wine FS reset OK"]
+        case .spawnContract: return ["PASS: real spawn fd/cwd/environment/signal/session contracts"]
+        }
+    }
+    var title:String {
+        switch self {
+        case .command: return "Wine: source-built Win64 cmd /c ver"
+        case .nestedCreateProcess: return "Wine: nested Win64 CreateProcess"
+        case .fsContract: return "Wine contract: FS reset in an isolated session"
+        case .spawnContract: return "Wine contract: spawn and exact-child reaping in an isolated session"
+        }
+    }
+    var timeout:Double { self == .command || self == .nestedCreateProcess ? 180 : 90 }
+    func missingMarkers(in log:String) -> [String] {
+        let plain=DeviceSessionGuestOutput.consoleText(log)
+        return markers.filter{!plain.contains($0)}
     }
 }
 
@@ -41,9 +91,12 @@ struct DeviceSessionReport: Codable {
         .init(id:"linux-channels", title:"Linux workload with native channels requested", deadlineSeconds:50),
         .init(id:"linux-userspace", title:"Linux shell: files, pipes, signals and processes", deadlineSeconds:110),
         .init(id:"consumer-digest",title:"Consumer: packaged backend document digest",deadlineSeconds:80),
+        .init(id:AdaptedWinePhase.command.rawValue,title:AdaptedWinePhase.command.title,deadlineSeconds:200),
+        .init(id:AdaptedWinePhase.nestedCreateProcess.rawValue,title:AdaptedWinePhase.nestedCreateProcess.title,deadlineSeconds:200),
+        .init(id:AdaptedWinePhase.fsContract.rawValue,title:AdaptedWinePhase.fsContract.title,deadlineSeconds:110),
+        .init(id:AdaptedWinePhase.spawnContract.rawValue,title:AdaptedWinePhase.spawnContract.title,deadlineSeconds:110),
         .init(id:"wine", title:"Wine: cmd /c ver", deadlineSeconds:110),
         .init(id:"wine-direct", title:"Wine: cmd /c ver with direct loader", deadlineSeconds:110),
-        .init(id:"wine-flat", title:"Wine: source-built flat-window Win64", deadlineSeconds:200),
         .init(id:"copied-suite", title:"FEX ABI, SIMD, hot regions and timings / copied", deadlineSeconds:480),
         .init(id:"mapped-suite", title:"FEX ABI, SIMD, hot regions and timings / mapped", deadlineSeconds:480),
         .init(id:"diagnostics", title:"Transport, memory, threading and graphics matrix", deadlineSeconds:480)

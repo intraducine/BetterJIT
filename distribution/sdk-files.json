@@ -164,6 +164,7 @@
     "tests/fexhost/wine-spawn-native.py": "tests/fexhost/wine-spawn-native.py",
     "tests/fexhost/wine-createprocess.c": "tests/fexhost/wine-createprocess.c",
     "tests/sdk/linux-live-policy.test.mjs": "tests/sdk/linux-live-policy.test.mjs",
-    "tests/sdk/linux-exec-signals.test.mjs": "tests/sdk/linux-exec-signals.test.mjs"
+    "tests/sdk/linux-exec-signals.test.mjs": "tests/sdk/linux-exec-signals.test.mjs",
+    "tests/sdk/linux-page-lifecycle.test.mjs": "tests/sdk/linux-page-lifecycle.test.mjs"
   }
 }

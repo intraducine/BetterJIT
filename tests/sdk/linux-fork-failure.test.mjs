@@ -95,3 +95,16 @@ test('compatible retention stays within the original six-entry budget',()=>{
  for(const e of entries)pool.give(e.mem,[],32);
  assert.equal(pool.free.length,6);assert.equal(pool.free[0].mem,entries[1].mem);
 });
+test('failed image staging retires only its new memory and preserves the running image',()=>{
+ const r=runtime(),{Kernel,Mm,KError}=r.kernel;
+ const swift=fs.readFileSync(new URL('../../Examples/FEXHost/LinuxSmokeFixture.swift',import.meta.url),'utf8');
+ const elf=Uint8Array.from(Buffer.from(swift.match(/Data\(base64Encoded:\s*"([A-Za-z0-9+/=]+)"/)[1],'base64'));
+ const k=new Kernel({vfs:{stat:()=>({mode:0o100755}),readFile:()=>elf},memPolicy:[['.*',512]]},{});
+ const parent=new Mm(512,1),memory=parent.mem;parent.u8[0]=73;
+ const process={mm:parent};let staged,stagedMemory;
+ k.loadInto=mm=>{staged=mm;stagedMemory=mm.mem;throw new KError(r.abi.E.NOEXEC);};
+ assert.throws(()=>k.loadImage(process,'/fixture/image',[],[]),e=>e.code===r.abi.E.NOEXEC);
+ assert.equal(staged.mem,null);assert.equal(process.mm,parent);assert.equal(parent.mem,memory);assert.equal(parent.u8[0],73);
+ r.setRemaining(0);r.setClock(1500);
+ assert.equal(new Mm(512,256).mem,stagedMemory);
+});

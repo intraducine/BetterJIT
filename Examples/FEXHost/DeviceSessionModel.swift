@@ -167,9 +167,10 @@ import BetterJITFEXAdapter
             report?.phases[i].status = .passed
             return
         }
-        let wine = id == "wine" || id == "wine-direct" || id == "wine-flat"
+        let adapted=AdaptedWinePhase(rawValue:id)
+        let wine = id == "wine" || id == "wine-direct" || adapted != nil
         if id.hasPrefix("linux-") || wine {
-            if id == "wine-flat" && !LinuxHarness.flatWinePresent {
+            if adapted != nil && !LinuxHarness.flatWinePresent {
                 report?.phases[i].status = .unsupported
                 report?.phases[i].details["reason"]="The separate source-built Wine flat-window input is absent. Stock Wine attempts remain available."
                 return
@@ -179,10 +180,14 @@ import BetterJITFEXAdapter
                 report?.phases[i].details["reason"]="Wine root is absent. Choose a staged linuxroot folder or copy it into Documents/linuxroot, then Run All again."
                 return
             }
+            if let adapted {
+                report?.phases[i].details["workload"]=adapted.arguments.joined(separator:" ")
+                report?.phases[i].details["isolation"]="Fresh FEXProcess and kernel worker for this workload; no prerequisite contract in the same guest. Cleanup is not proof of engine collection or a separate OS process."
+            }
             if wine {
                 report?.phases[i].details["memoryFaultTrace"]="Guest instruction and scalar/bulk operands requested; unit translation only. Diagnostic overhead is included in phase time."
                 report?.phases[i].details["loaderMode"]=id == "wine" ? "stock Wine preloader" : "WINELOADERNOEXEC=1; WINEARCH=win64"
-                report?.phases[i].details["addressSpaces"]=id == "wine-flat" ? "Separate guest process memories; existing Wine 2 GiB maximum" : "Existing shared guest address space"
+                report?.phases[i].details["addressSpaces"]=adapted != nil ? "Separate guest process memories; existing per-executable maxima" : "Existing shared guest address space"
                 let root=LinuxHarness.rootURL
                 report?.phases[i].details["rootOrigin"]=root == LinuxHarness.documentsRootURL ? "imported Documents root" : "bundled input candidate"
                 if let handle=try? FileHandle(forReadingFrom:root.appendingPathComponent(".betterjit-linux-root.json")) {
@@ -194,7 +199,7 @@ import BetterJITFEXAdapter
                         }
                     }
                 }
-                if id == "wine-flat",
+                if adapted != nil,
                    let handle=try? FileHandle(forReadingFrom:root.appendingPathComponent("opt/wine-flat/.betterjit-wine-flat.json")) {
                     defer { try? handle.close() }
                     if let data=try? handle.read(upToCount:1024*1024),
@@ -212,7 +217,7 @@ import BetterJITFEXAdapter
             }
             guard try await linuxSupported(phase:i) else { return }
             let channels=id == "linux-channels"
-            let mode:LinuxHarness.Mode=id == "wine-flat" ? .wineFlat : (id == "wine-direct" ? .wineDirect : (id == "wine" ? .wineCommand : (id == "linux-smoke" ? .smoke : (id == "linux-userspace" ? .userspace : .services))))
+            let mode:LinuxHarness.Mode=adapted.map{.adaptedWine($0)} ?? (id == "wine-direct" ? .wineDirect : (id == "wine" ? .wineCommand : (id == "linux-smoke" ? .smoke : (id == "linux-userspace" ? .userspace : .services))))
             let value=try await linux.run(mode,nativeChannels:channels)
             try checkStop()
             report?.phases[i].log=String(value.log.suffix(128*1024))
@@ -238,16 +243,16 @@ import BetterJITFEXAdapter
                 throw SuiteFailure("Guest did not exit 0 with live FEX translation and code mapping evidence.")
             }
             if wine {
-                if id == "wine-flat", !value.log.contains("BetterJIT Wine FS reset OK") {
-                    throw SuiteFailure("The source-built Wine FS-reset contract did not complete before startup.")
+                if let adapted {
+                    let missing=adapted.missingMarkers(in:value.log)
+                    guard missing.isEmpty else { throw SuiteFailure("Missing guest milestones: "+missing.joined(separator:"; ")) }
                 }
-                if id == "wine-flat", !value.log.contains("PASS: real spawn fd/cwd/environment/signal/session contracts") {
-                    throw SuiteFailure("The source-built Wine spawn contract did not complete before startup.")
+                if adapted == nil || adapted == .command {
+                    guard let version=DeviceSessionGuestOutput.windowsVersion(in:value.log) else {
+                        throw SuiteFailure("Wine exited 0 but cmd /c ver did not print a Windows version.")
+                    }
+                    report?.phases[i].details["windowsVersion"]=version
                 }
-                guard let version=DeviceSessionGuestOutput.windowsVersion(in:value.log) else {
-                    throw SuiteFailure("Wine exited 0 but cmd /c ver did not print a Windows version.")
-                }
-                report?.phases[i].details["windowsVersion"]=version
             } else {
                 let marker=id == "linux-smoke" ? "BetterJIT Linux OK" : (id == "linux-userspace" ? LinuxUserspaceWorkload.marker : LinuxSessionFixture.marker)
                 if id == "linux-userspace" {

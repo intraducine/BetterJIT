@@ -5,7 +5,7 @@ import BetterJITLinux
 import BetterJITFEXAdapter
 
 @MainActor final class LinuxHarness {
-    enum Mode: Equatable { case smoke, services, userspace, wineCommand, wineDirect, wineFlat }
+    enum Mode: Equatable { case smoke, services, userspace, wineCommand, wineDirect, adaptedWine(AdaptedWinePhase) }
     private(set) var session: LinuxRuntimeSession?
     private(set) var counters: [String:Int] = [:]
     private var process:FEXProcess?
@@ -30,7 +30,9 @@ import BetterJITFEXAdapter
         counters=[:]
         let cache=FileManager.default.urls(for:.cachesDirectory,in:.userDomainMask)[0]
             .appendingPathComponent("BetterJITLinux/xlat-cache",isDirectory:true)
-        let wine = mode == .wineCommand || mode == .wineDirect || mode == .wineFlat
+        let adapted:AdaptedWinePhase?
+        if case .adaptedWine(let phase)=mode { adapted=phase } else { adapted=nil }
+        let wine = mode == .wineCommand || mode == .wineDirect || adapted != nil
         // Keep fault operands in the same phone report. The translator's
         // option fingerprint separates these units from ordinary cached code.
         let overlay:[String:Data]=[
@@ -52,13 +54,13 @@ import BetterJITFEXAdapter
         case .userspace:
             cfg=LinuxRuntimeConfiguration(arguments:LinuxUserspaceWorkload.arguments,timeoutSeconds:90,
                                           display:nil,regions:true,slowWaitMilliseconds:100,useNativeChannels:nativeChannels)
-        case .wineCommand, .wineDirect, .wineFlat:
+        case .wineCommand, .wineDirect, .adaptedWine:
             guard Self.winePresent else {
                 throw LinuxRuntimeError.guest("Wine rootfs is missing at Documents/linuxroot/opt/wine/bin/wine.")
             }
             var environment=["WINEDEBUG":"-all","WINEDLLOVERRIDES":"winemenubuilder.exe=d"]
-            if mode == .wineDirect || mode == .wineFlat { environment["WINELOADERNOEXEC"]="1"; environment["WINEARCH"]="win64" }
-            if mode == .wineFlat {
+            if mode == .wineDirect || adapted != nil { environment["WINELOADERNOEXEC"]="1"; environment["WINEARCH"]="win64" }
+            if adapted != nil {
                 guard Self.flatWinePresent else { throw LinuxRuntimeError.guest("Source-built flat-window Wine candidate is missing.") }
                 environment["WINEPREFIX"]="/home/user/.wine-flat"
                 environment["BETTERJIT_WINE_SPAWN"]="1"
@@ -68,13 +70,11 @@ import BetterJITFEXAdapter
                 environment["LD_LIBRARY_PATH"]="/opt/wine-flat/lib/wine/x86_64-unix:/usr/lib"
                 environment["WINEDEBUG"]="+module,+loaddll,+process"
             }
-            let arguments=mode == .wineFlat
-                ? ["/bin/busybox","sh","-c","/opt/wine-flat/share/betterjit-provenance/fs-reset.elf && /opt/wine-flat/share/betterjit-provenance/spawn-contract.elf && exec /opt/wine-flat/bin/wine /usr/lib/wine/x86_64-windows/cmd.exe /c ver"]
-                : ["/opt/wine/bin/wine","cmd","/c","ver"]
+            let arguments=adapted?.arguments ?? ["/opt/wine/bin/wine","cmd","/c","ver"]
             cfg=LinuxRuntimeConfiguration(arguments:arguments,
-                                          environment:environment,timeoutSeconds:mode == .wineFlat ? 180 : 90,
-                                          display:"1024x768",regions:false,slowWaitMilliseconds:100,
-                                          useNativeChannels:nativeChannels,sharedAddressSpace:mode != .wineFlat)
+                                          environment:environment,timeoutSeconds:adapted?.timeout ?? 90,
+                                          display:adapted == nil ? "1024x768" : nil,regions:false,slowWaitMilliseconds:100,
+                                          useNativeChannels:nativeChannels,sharedAddressSpace:adapted == nil)
         }
         let owned=try FEXProcess(root:Self.rootURL,configuration:cfg,overlay:overlay,
                                 cacheDirectory:cache,memoryTrace:wine)

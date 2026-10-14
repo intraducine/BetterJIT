@@ -109,6 +109,7 @@ import WebKit
         navigation?.resume(throwing:LinuxRuntimeError.closed); navigation=nil
         exitWaiter?.resume(throwing:LinuxRuntimeError.closed); exitWaiter=nil
         server?.stop(); server=nil; backend.close()
+        webView.evaluateJavaScript("globalThis.betterjitClose?.()",completionHandler:nil)
         webView.stopLoading(); webView.navigationDelegate=nil
         webView.loadHTMLString("<!doctype html><title>Closed</title>",baseURL:nil)
     }

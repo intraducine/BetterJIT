@@ -32,4 +32,43 @@
     }
   }
   root.FexGuestWorkers=GuestWorkers;
+  // Own page resources from startup through exit, error, cancellation or unload.
+  // Releasing references is not a claim that the engine has collected them.
+  class PageResources {
+    constructor() { this.closed=false;this.disposers=new Set(); }
+    defer(dispose) {
+      if(this.closed){dispose();return ()=>{};}
+      this.disposers.add(dispose);return ()=>this.disposers.delete(dispose);
+    }
+    worker(worker) {
+      this.defer(()=>{worker.onmessage=null;worker.onerror=null;worker.terminate();});
+      return worker;
+    }
+    on(target,type,callback,options) {
+      if(this.closed)return;
+      target.addEventListener(type,callback,options);
+      this.defer(()=>target.removeEventListener(type,callback,options));
+    }
+    interval(callback,ms) {
+      if(this.closed)return;
+      const id=setInterval(()=>{if(!this.closed)callback();},ms);
+      this.defer(()=>clearInterval(id));return id;
+    }
+    timeout(callback,ms) {
+      if(this.closed)return;
+      const id=setTimeout(()=>{forget();if(!this.closed)callback();},ms);
+      const forget=this.defer(()=>clearTimeout(id));return id;
+    }
+    frame(callback) {
+      if(this.closed)return;
+      const id=requestAnimationFrame(time=>{forget();if(!this.closed)callback(time);});
+      const forget=this.defer(()=>cancelAnimationFrame(id));return id;
+    }
+    close() {
+      if(this.closed)return;this.closed=true;
+      const owned=[...this.disposers];this.disposers.clear();
+      for(const dispose of owned.reverse()) { try {dispose();} catch {} }
+    }
+  }
+  root.FexPageResources=PageResources;
 })(self);
