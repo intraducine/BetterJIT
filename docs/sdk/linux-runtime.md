@@ -94,6 +94,15 @@ or Files providers that cannot preserve Unix symlinks and executable modes.
 
 ## Boundaries
 
+Fork constructs a small child memory, grows it to cover inherited mappings, and
+copies their tracked dirty bytes without sharing private data or changing the
+configured maximum. It does not construct the parent's entire grown buffer up
+front or copy an unmapped tail. This is an allocation strategy, not a RAM grant.
+`[memory-allocation]` records failures at construction, pooled-memory growth, or
+mapping growth, with requested/current pages, inherited mappings, pool state and
+the current kernel's live memories. Tracked dirty bytes and Wasm linear sizes
+are not OS resident memory or an iOS/WebContent memory-limit measurement.
+
 The guest address space is WebAssembly memory32 and therefore remains below
 4 GiB per process. That is an address-space limit, not a RAM entitlement.
 WebKit/OS memory pressure still applies. The software-paging experiments remain

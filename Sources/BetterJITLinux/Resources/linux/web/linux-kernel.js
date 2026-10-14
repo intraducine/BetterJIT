@@ -238,11 +238,15 @@ const KUSER = 0x7ffe_0000;
 
 class MemoryPool {
   constructor() { this.free = []; }
-  take(maxPages, initialPages) {
+  emit(event) {
+    try { this.diagnostic?.({...event, pool:this.free.map(e => ({maximumPages:e.maxPages,
+      currentBytes:e.mem.buffer.byteLength, ready:e.readyAt<=performance.now()}))}); } catch {}
+  }
+  take(maxPages, initialPages, context={}) {
     // An engine can exhaust its reservation budget while a reusable memory
     // is still quarantined. Keep the existing 1.5 s safety delay and limits;
     // after allocation failure, wait only for an already retired candidate.
-    try { return this.takeReady(maxPages, initialPages); }
+    try { return this.takeReady(maxPages, initialPages, context); }
     catch (error) {
       if (!(error instanceof RangeError)) throw error;
       const pending = this.free.filter(e => e.maxPages === maxPages && e.readyAt > performance.now())
@@ -251,13 +255,13 @@ class MemoryPool {
         const until = Math.min(pending.readyAt, performance.now() + 1500);
         const word = new Int32Array(new SharedArrayBuffer(4));
         while (performance.now() < until) Atomics.wait(word, 0, 0, until-performance.now());
-        try { return this.takeReady(maxPages, initialPages); }
+        try { return this.takeReady(maxPages, initialPages, context); }
         catch (retry) { if (!(retry instanceof RangeError)) throw retry; }
       }
       fail(E.NOMEM);
     }
   }
-  takeReady(maxPages, initialPages) {
+  takeReady(maxPages, initialPages, context={}) {
     const now = performance.now();
     const i = this.free.findIndex((e) => e.maxPages === maxPages && e.readyAt <= now);
     if (i >= 0) {
@@ -265,11 +269,23 @@ class MemoryPool {
       const have = e.mem.buffer.byteLength / WASM_PAGE;
       if (have < initialPages) {
         try { e.mem.grow(initialPages - have); }
-        catch (error) { this.free.push(e); throw error; }
+        catch (error) {
+          this.free.push(e);
+          this.emit({event:'failed',stage:'reuse-grow',maximumPages:maxPages,initialPages,
+            currentBytes:e.mem.buffer.byteLength,errorName:error.name,errorMessage:String(error.message).slice(0,256),...context});
+          throw error;
+        }
       }
       return e;
     }
-    return { mem: new WebAssembly.Memory({ initial: initialPages, maximum: maxPages, shared: true }), dirty: [], maxPages };
+    try {
+      const mem=new WebAssembly.Memory({ initial: initialPages, maximum: maxPages, shared: true });
+      return {mem,dirty:[],maxPages};
+    } catch (error) {
+      this.emit({event:'failed',stage:'construct',maximumPages:maxPages,initialPages,
+        errorName:error.name,errorMessage:String(error.message).slice(0,256),...context});
+      throw error;
+    }
   }
   give(mem, dirty, maxPages) {
     this.free.push({ mem, dirty, maxPages, readyAt: performance.now() + 1500 });
@@ -279,11 +295,12 @@ class MemoryPool {
 const memoryPool = new MemoryPool();
 
 class Mm {
-  constructor(maxPages, initialPages) {
+  constructor(maxPages, initialPages, allocationContext={}) {
     this.maxPages = maxPages;
     // guest addresses: below the memory's maximum (and 4 GB)
     this.limit = Math.min(ADDR_LIMIT, maxPages * WASM_PAGE - WASM_PAGE);
-    const e = memoryPool.take(maxPages, initialPages || 16);
+    this.allocationContext=allocationContext;
+    const e = memoryPool.take(maxPages, initialPages || 16, allocationContext);
     this.mem = e.mem;
     // sorted, non-overlapping {start, end, prot, flags, name, file?, owner}.
     // owner: the process image that mapped it; several processes can share
@@ -318,7 +335,11 @@ class Mm {
     if (end <= have) return;
     const pages = Math.ceil((end - have) / WASM_PAGE);
     try { this.mem.grow(pages); }
-    catch (error) { if (error instanceof RangeError) fail(E.NOMEM); throw error; }
+    catch (error) {
+      memoryPool.emit({event:'failed',stage:'grow',maximumPages:this.maxPages,currentBytes:have,
+        requestedEnd:end,additionalPages:pages,errorName:error.name,errorMessage:String(error.message).slice(0,256),...this.allocationContext});
+      if (error instanceof RangeError) fail(E.NOMEM); throw error;
+    }
     this.peakSize = this.mem.buffer.byteLength;
   }
   find(a) {
@@ -479,9 +500,18 @@ class Mm {
     if (this.dirtyBytes > this.peakDirty) this.peakDirty = this.dirtyBytes;
   }
   // A copy for fork: the same mappings and the bytes of every mapping that may be nonzero.
-  clone(owner, newOwner) {
-    const m = new Mm(this.maxPages, Math.ceil(this.mem.buffer.byteLength / WASM_PAGE));
+  clone(owner, newOwner, context={}) {
     const mine = this.vmas.filter((v) => v.owner === owner || v.owner === GLOBAL);
+    const inheritedEnd=mine.reduce((end,v)=>Math.max(end,v.end),0);
+    const allocationContext={purpose:'fork',parentBytes:this.mem.buffer.byteLength,
+      inheritedMappedBytes:mine.reduce((sum,v)=>sum+v.end-v.start,0),inheritedEnd,
+      parentTrackedDirtyBytes:this.dirtyBytes,...context};
+    // Do not eagerly construct the child's entire grown parent buffer. Grow
+    // for inherited mappings, then copy their dirty bytes. Unmapped tail bytes
+    // are not a fork mapping. Guest maxima and mapping/ownership stay unchanged.
+    const m = new Mm(this.maxPages, Math.min(16,this.mem.buffer.byteLength/WASM_PAGE),allocationContext);
+    try {
+    m.ensure(inheritedEnd);
     m.vmas = mine.map((v) => Object.assign({}, v, { owner: v.owner === GLOBAL ? GLOBAL : newOwner }));
     // (a reused memory: what the parent has mapped but never wrote must read as zero)
     for (const v of mine) m.zero(v.start, v.end);
@@ -492,7 +522,10 @@ class Mm {
         if (lo < hi) { dst.set(src.subarray(lo, hi), lo); m.markDirty(lo, hi); }
       }
     }
+    memoryPool.emit({event:'fork-prepared',stage:'copy',maximumPages:m.maxPages,
+      childBytes:m.mem.buffer.byteLength,copiedTrackedBytes:m.dirtyBytes,...allocationContext});
     return m;
+    } catch (error) { m.retire(); throw error; }
   }
   // Nothing uses this address space any more: its memory goes back to the pool.
   retire() {
@@ -943,6 +976,19 @@ class Kernel {
     this.initProc = null;
     this.spaceUsers = new Map();
     this.sharedFiles = new Map();
+    let allocationSuccesses=0,allocationFailures=0;
+    memoryPool.diagnostic=event=>{
+      if(event.event==='failed'){if(allocationFailures++>=16)return;}
+      else if(allocationSuccesses++>=16)return;
+      const memories=new Set();
+      const live=[];
+      for(const p of this.procs.values())if(p.mm?.mem&&!memories.has(p.mm.mem)){
+        memories.add(p.mm.mem);live.push({pid:p.pid,space:p.space,maximumPages:p.mm.maxPages,
+          currentBytes:p.mm.mem.buffer.byteLength,trackedDirtyBytes:p.mm.dirtyBytes,users:p.mm.users});
+      }
+      this.log('[memory-allocation] '+JSON.stringify({...event,live,
+        scope:'current kernel worker only; linear sizes/dirty tracking are not OS resident memory'}));
+    };
     // Input for the guest's display driver (syscalls.js, fexwasm display):
     // the host writes {type, x, y, flags, data} events (i32) into a ring
     // (i32 0: written, 1: read, then INPUT_RING entries) and rings the
@@ -3292,7 +3338,7 @@ function doClone(k, t, flags, newsp, ptid, ctid, tls) {
     // a copy of our mappings (only ours, in a shared address space) in a memory of its own
     child.image = { image: proc.exe, forkOf: proc.pid };
     child.ownsImage = true;
-    child.mm = proc.mm.clone(proc.image, child.image);
+    child.mm = proc.mm.clone(proc.image, child.image,{parentPid:proc.pid,parentSpace:proc.space});
     child.mm.users = 1;
     // only the calling thread lives on in the child
     for (const v of child.mm.vmas.filter((v) => v.kernel && v.start !== t.tb)) child.mm.cut(v.start, v.end);

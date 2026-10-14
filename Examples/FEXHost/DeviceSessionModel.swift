@@ -186,6 +186,11 @@ import BetterJITLinux
             report?.phases[i].log=String(value.log.suffix(128*1024))
             report?.phases[i].counters=linux.counters
             report?.phases[i].details["exitCode"]=String(value.exitCode)
+            let allocations=value.log.split(separator:"\n").filter { $0.hasPrefix("[memory-allocation] ") }
+            report?.phases[i].details["allocationEventCount"]=String(allocations.count)
+            if let failed=allocations.last(where:{$0.contains("\"event\":\"failed\"")}) {
+                report?.phases[i].details["lastAllocationFailure"]=String(failed.dropFirst(20).prefix(8192))
+            }
             let faults=value.log.split(separator:"\n").filter { $0.hasPrefix("[memory-fault] ") }
             if let first=faults.first {
                 report?.phases[i].details["firstMemoryFaultTrace"]=String(first.dropFirst(15).prefix(2048))

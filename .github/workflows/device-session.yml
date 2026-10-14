@@ -1,7 +1,7 @@
 name: One iPhone device session
 on:
   push:
-    branches: [feature/one-device-session]
+    branches: [feature/one-device-session, feature/packaged-backend]
     paths:
       - 'Sources/**'
       - 'Examples/**'
