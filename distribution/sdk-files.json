@@ -157,6 +157,7 @@
     "tests/sdk/fex-package.test.py": "tests/sdk/fex-package.test.py",
     "docs/sdk/packaged-fex.md": "docs/sdk/packaged-fex.md",
     "THIRD_PARTY.md": "THIRD_PARTY.md",
-    "LICENSES/Apache-2.0.txt": "LICENSES/Apache-2.0.txt"
+    "LICENSES/Apache-2.0.txt": "LICENSES/Apache-2.0.txt",
+    "Tests/BetterJITLinuxTests/LinuxSessionOwnershipTests.swift": "Tests/BetterJITLinuxTests/LinuxSessionOwnershipTests.swift"
   }
 }

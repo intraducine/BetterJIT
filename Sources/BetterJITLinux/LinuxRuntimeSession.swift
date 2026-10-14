@@ -103,6 +103,9 @@ import WebKit
     public func close() {
         guard state != .closed else { return }
         state = .closed; timeoutTask?.cancel(); timeoutTask=nil
+        // Consumers commonly capture the mounted session in these callbacks.
+        // Terminal cleanup must release those captures before the next guest.
+        onLog=nil; onWindow=nil; onScreenshot=nil
         navigation?.resume(throwing:LinuxRuntimeError.closed); navigation=nil
         exitWaiter?.resume(throwing:LinuxRuntimeError.closed); exitWaiter=nil
         server?.stop(); server=nil; backend.close()
@@ -111,6 +114,7 @@ import WebKit
     }
 
     private func receiveLog(_ text:String) {
+        guard state != .closed else { return }
         if logText.utf8.count < 4*1024*1024 {
             let remaining=4*1024*1024-logText.utf8.count
             logText += String(text.prefix(remaining))
