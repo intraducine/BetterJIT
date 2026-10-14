@@ -78,6 +78,7 @@ def check_environment(source,work):
 #define _GNU_SOURCE
 #include <stdlib.h>
 #include <stdint.h>
+#include <sys/types.h>
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
