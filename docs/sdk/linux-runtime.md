@@ -102,6 +102,14 @@ front or copy an unmapped tail. This is an allocation strategy, not a RAM grant.
 mapping growth, with requested/current pages, inherited mappings, pool state and
 the current kernel's live memories. Tracked dirty bytes and Wasm linear sizes
 are not OS resident memory or an iOS/WebContent memory-limit measurement.
+The pool retains one spare per immutable maximum and releases incompatible
+spares when allocating another size class. It prefers a grown spare, preserving
+each retained buffer's own 1.5-second quarantine; equal-capacity retirements keep
+the earlier candidate. Discarded buffers are never cleared or reused while a
+terminating worker may still own them. `pool-pruned` events record released
+references separately from allocation failures and successful forks. Engine
+collection and budget reclamation are not guaranteed immediately. A construction
+failure can also be recovered by quarantined-memory reuse in a passed phase.
 
 The guest address space is WebAssembly memory32 and therefore remains below
 4 GiB per process. That is an address-space limit, not a RAM entitlement.

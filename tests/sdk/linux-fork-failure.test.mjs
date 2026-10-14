@@ -13,7 +13,7 @@ function runtime({maximumInitialPages=Infinity}={}) {
  vm.runInContext(fs.readFileSync(new URL('../../Sources/BetterJITLinux/Resources/linux/web/linux-kernel.js',import.meta.url),'utf8'),context);
  const req=context.self.LinuxBundle.require;
  return {kernel:req('./kernel.js'),sys:req('./syscalls.js').sys,abi:req('./abi.js'),
-  setRemaining:n=>{remaining=n;},setGrowthLimit:n=>{growthLimit=n;},stats:()=>({clock,allocations,waits,descriptors})};
+  setRemaining:n=>{remaining=n;},setGrowthLimit:n=>{growthLimit=n;},setClock:n=>{clock=n;},stats:()=>({clock,allocations,waits,descriptors})};
 }
 test('fork allocation failure leaves no child, descriptor reference or waiter-visible ghost',()=>{
  const r=runtime(),{Mm,Process,Kernel,KError}=r.kernel;
@@ -59,4 +59,37 @@ test('failed inherited-mapping growth reports exact stage and leaves no successf
  assert.equal(event.currentBytes,16*65536);assert.equal(event.requestedEnd,512*65536);
  assert.equal(event.maximumPages,1024);assert.equal(event.parentPid,100);
  assert.match(event.scope,/not OS resident memory/);assert.equal(k.procs.size,0);
+});
+test('a different immutable maximum releases incompatible spares without clearing a worker-owned buffer',()=>{
+ const r=runtime(),{MemoryPool}=r.kernel,pool=new MemoryPool(),events=[];
+ pool.diagnostic=e=>events.push(e);
+ const retired=pool.take(32,1);new Uint8Array(retired.mem.buffer)[0]=73;
+ pool.give(retired.mem,[[0,1]],32);
+ const next=pool.take(64,1);
+ assert.equal(pool.free.length,0);assert.notEqual(next.mem,retired.mem);
+ assert.equal(new Uint8Array(retired.mem.buffer)[0],73);
+ assert.equal(r.stats().descriptors.at(-1).maximum,64);
+ const event=events.find(e=>e.event==='pool-pruned');assert.equal(event.requestedMaximumPages,64);
+ assert.equal(event.discarded[0].maximumPages,32);assert.equal(event.discarded[0].currentBytes,65536);
+ assert.equal(event.pool.length,0);assert.equal(r.stats().waits,0);
+});
+test('retirement retains one spare per maximum and the original quarantine deadline',()=>{
+ const r=runtime(),{MemoryPool}=r.kernel,pool=new MemoryPool(),events=[];
+ pool.diagnostic=e=>events.push(e);
+ const first=pool.take(32,1),second=pool.take(32,1);
+ pool.give(first.mem,[[0,1]],32);const deadline=pool.free[0].readyAt;
+ pool.give(second.mem,[[4,5]],32);
+ assert.equal(pool.free.length,1);assert.equal(pool.free[0].mem,first.mem);
+ assert.equal(pool.free[0].readyAt,deadline);assert.equal(pool.free[0].dirty[0][0],0);
+ r.setRemaining(0);assert.equal(pool.take(32,1).mem,first.mem);
+ assert.equal(r.stats().waits,1);assert.equal(r.stats().clock,1500);
+ assert.equal(events.find(e=>e.reason==='duplicate maximum spare').discarded.length,1);
+});
+test('a grown spare replaces a smaller one while keeping its own quarantine',()=>{
+ const r=runtime(),{MemoryPool}=r.kernel,pool=new MemoryPool();
+ const small=pool.take(32,1),grown=pool.take(32,2);
+ pool.give(small.mem,[],32);r.setClock(600);pool.give(grown.mem,[[4,5]],32);
+ assert.equal(pool.free.length,1);assert.equal(pool.free[0].mem,grown.mem);
+ assert.equal(pool.free[0].readyAt,2100);r.setRemaining(0);r.setGrowthLimit(1);
+ assert.equal(pool.take(32,2).mem,grown.mem);assert.equal(r.stats().clock,2100);
 });

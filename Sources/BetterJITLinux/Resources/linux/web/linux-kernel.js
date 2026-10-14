@@ -227,8 +227,8 @@ class WaitQueue {
 // ---------------------------------------------------------------------------
 // Address space: a shared WebAssembly.Memory and its mappings.
 // Memories for address spaces. The engine budgets address space over all
-// of them by their maximum size (Safari on the Mac: 15 of 4 GB, 23 of 2 GB,
-// 39 of 1 GB), and frees one only when it collects it; so a process gets the
+// of them by their maximum size, with limits varying by engine and process
+// context, and frees one only when it collects it; so a process gets the
 // size it needs, and memories are reused: a dead image's memory goes back to
 // the pool (with its record of what may be nonzero, zeroed as it is mapped
 // again) once its workers are gone.
@@ -262,6 +262,17 @@ class MemoryPool {
     }
   }
   takeReady(maxPages, initialPages, context={}) {
+    // Maximum sizes are immutable. Memories from another image-size class
+    // cannot satisfy this allocation; retaining them only keeps reservations
+    // and old backing buffers alive. Dropping our reference never reuses or
+    // clears a buffer a terminating worker may still own.
+    const discarded=this.free.filter(e=>e.maxPages!==maxPages).map(e=>({
+      maximumPages:e.maxPages,currentBytes:e.mem.buffer.byteLength}));
+    if (discarded.length) {
+      this.free=this.free.filter(e=>e.maxPages===maxPages);
+      this.emit({event:'pool-pruned',stage:'retention',reason:'incompatible immutable maximum',
+        requestedMaximumPages:maxPages,discarded,...context});
+    }
     const now = performance.now();
     const i = this.free.findIndex((e) => e.maxPages === maxPages && e.readyAt <= now);
     if (i >= 0) {
@@ -288,6 +299,17 @@ class MemoryPool {
     }
   }
   give(mem, dirty, maxPages) {
+    // Prefer capacity already grown; on ties keep the earlier quarantine.
+    // Every retained buffer still observes its own retirement deadline.
+    const previous=this.free.findIndex(e=>e.maxPages===maxPages);
+    if (previous>=0) {
+      const old=this.free[previous],larger=mem.buffer.byteLength>old.mem.buffer.byteLength;
+      const discarded=larger ? old.mem : mem;
+      if (larger) this.free[previous]={mem,dirty,maxPages,readyAt:performance.now()+1500};
+      this.emit({event:'pool-pruned',stage:'retention',reason:'duplicate maximum spare',
+        retainedLarger:larger,discarded:[{maximumPages:maxPages,currentBytes:discarded.buffer.byteLength}]});
+      return;
+    }
     this.free.push({ mem, dirty, maxPages, readyAt: performance.now() + 1500 });
     if (this.free.length > 6) this.free.shift(); // (the oldest is left to the collector)
   }
@@ -976,9 +998,10 @@ class Kernel {
     this.initProc = null;
     this.spaceUsers = new Map();
     this.sharedFiles = new Map();
-    let allocationSuccesses=0,allocationFailures=0;
+    let allocationSuccesses=0,allocationFailures=0,allocationRetentions=0;
     memoryPool.diagnostic=event=>{
       if(event.event==='failed'){if(allocationFailures++>=16)return;}
+      else if(event.event==='pool-pruned'){if(allocationRetentions++>=16)return;}
       else if(allocationSuccesses++>=16)return;
       const memories=new Set();
       const live=[];
@@ -1639,8 +1662,8 @@ class Kernel {
     const elf = ELF.parse(bytes);
     if (!elf) fail(E.NOEXEC);
     // Shared address space (host.sharedSpace): every image goes into one
-    // memory (the engine allows only a few large ones: iOS WebContent 3 of
-    // 4 GB, 4 of 2 GB), owned by a token of its own.
+    // memory (engines can limit concurrent large reservations), owned by a
+    // token of its own. A device's limit is not inferred from physical RAM.
     const owner = { image: path };
     let mm, space;
     if (this.host.sharedSpace) {
