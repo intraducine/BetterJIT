@@ -24,6 +24,29 @@ private final class OwnershipBackend:LinuxTranslationBackend {
 }
 
 final class LinuxSessionOwnershipTests:XCTestCase {
+    @MainActor func testLaunchURLPreservesFormSensitiveArgumentsAndEnvironment() throws {
+        #if os(macOS)
+        _=NSApplication.shared
+        #endif
+        let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
+        defer { try? FileManager.default.removeItem(at:root) }
+        let arguments=["/test/a+b","C++","a b","%2B","a&b=c"]
+        let environment=["WINEDEBUG":"+module,+process","VALUE":"a+b & c=%2B"]
+        let session=try LinuxRuntimeSession(backend:OwnershipBackend(),fileSystem:DirectoryLinuxFileSystem(root:root),
+            configuration:.init(arguments:arguments,environment:environment,currentDirectory:"/a+b",standardIO:.captured))
+        defer { session.close() }
+        let url=try session.launchURL(port:12345)
+        let components=try XCTUnwrap(URLComponents(url:url,resolvingAgainstBaseURL:false))
+        let encoded=try XCTUnwrap(components.percentEncodedQuery)
+        XCTAssertFalse(encoded.contains("+"),"URLSearchParams would convert an unescaped plus to a space.")
+        XCTAssertTrue(encoded.contains("%2B"))
+        let query=Dictionary(uniqueKeysWithValues:components.queryItems!.map{($0.name,$0.value!)})
+        XCTAssertEqual(try JSONDecoder().decode([String].self,from:Data(query["argv"]!.utf8)),arguments)
+        XCTAssertEqual(try JSONDecoder().decode([String:String].self,from:Data(query["env"]!.utf8)),environment)
+        XCTAssertEqual(query["cwd"],"/a+b")
+        XCTAssertEqual(query["stdio"],"captured")
+    }
     @MainActor func testTerminalCallbacksReleaseCapturedSession() async throws {
         #if os(macOS)
         _=NSApplication.shared

@@ -74,7 +74,8 @@ import BetterJITFEXAdapter
             cfg=LinuxRuntimeConfiguration(arguments:arguments,
                                           environment:environment,timeoutSeconds:adapted?.timeout ?? 90,
                                           display:adapted == nil ? "1024x768" : nil,regions:false,slowWaitMilliseconds:100,
-                                          useNativeChannels:nativeChannels,sharedAddressSpace:adapted == nil)
+                                          useNativeChannels:nativeChannels,sharedAddressSpace:adapted == nil,
+                                          standardIO:adapted == nil ? .terminal : .captured)
         }
         let owned=try FEXProcess(root:Self.rootURL,configuration:cfg,overlay:overlay,
                                 cacheDirectory:cache,memoryTrace:wine)

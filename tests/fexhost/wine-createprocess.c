@@ -60,7 +60,15 @@ int wmain(int argc, WCHAR **argv)
     DWORD length;
     length = GetModuleFileNameW(NULL, self, 1024);
     if (!length || length >= 1024) return failure("module path");
-    if (argc > 1)
+    if (argc == 2 && !wcscmp(argv[1], L"--captured-stdio"))
+    {
+        DWORD mode;
+        HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (GetConsoleMode(output, &mode)) return failure("captured output unexpectedly has console mode");
+        if (GetFileType(output) != FILE_TYPE_PIPE) return failure("captured output is not a pipe");
+        puts("BetterJIT captured stdio OK");
+    }
+    else if (argc > 1)
     {
         if (argc != 3 || wcscmp(argv[2], L"quoted child value")) return failure("quoted argv");
         if (!GetEnvironmentVariableW(L"BETTERJIT_NESTED_VALUE", value, 64) || wcscmp(value, L"parent-value"))

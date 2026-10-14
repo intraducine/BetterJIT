@@ -478,10 +478,11 @@ class DevFile extends File {
 
 // The host console.
 class ConsoleFile extends File {
-  constructor(fd) { super('console'); this.fd = fd; this.flags = fd === 0 ? 0 : O.WRONLY; }
+  constructor(fd, terminal=true) { super('console'); this.fd = fd; this.terminal=terminal; this.flags = fd === 0 ? 0 : O.WRONLY; }
   read() { return 0; }
   write(k, t, buf) { k.host.write(this.fd, buf.slice()); return buf.length; }
   ioctl(k, t, req, arg) {
+    if (!this.terminal) fail(E.NOTTY);
     if (req === 0x5413) { // TIOCGWINSZ
       const dv = t.proc.mm.dv;
       dv.setUint16(arg, 50, true); dv.setUint16(arg + 2, 160, true); dv.setUint32(arg + 4, 0, true);
@@ -493,7 +494,7 @@ class ConsoleFile extends File {
     }
     fail(E.NOTTY);
   }
-  stat() { return { mode: S_IF.CHR | 0o620, ino: this.ino, rdev: 0x8800 }; }
+  stat() { return { mode: this.terminal ? S_IF.CHR | 0o620 : S_IF.FIFO | 0o600, ino: this.ino, rdev: this.terminal ? 0x8800 : 0 }; }
 }
 
 class Pipe {
@@ -1433,7 +1434,7 @@ class Kernel {
     const p = new Process(this, this.nextPid++, 1);
     this.procs.set(p.pid, p);
     this.initProc = p;
-    const con = [new ConsoleFile(0), new ConsoleFile(1), new ConsoleFile(2)];
+    const con = [0,1,2].map(fd=>new ConsoleFile(fd,this.host.standardIO !== 'captured'));
     for (let i = 0; i < 3; i++) p.fds.set(i, { file: con[i].ref(), cloexec: false });
     p.cwd = this.host.cwd || '/';
     const img = this.loadImage(p, path, argv, envp);

@@ -14,7 +14,7 @@ function target() {
   emit(type){for(const fn of [...(events.get(type)??[])])fn({});},
   listenerCount(){return [...events.values()].reduce((sum,set)=>sum+set.size,0);}};
 }
-async function page({paused=false}={}) {
+async function page({paused=false,extraQuery=''}={}) {
  const window=target(),canvas=target(),workers=[],timers=new Map(),frames=new Map(),caches=[];
  let next=0,continueConfig;
  const config=paused?new Promise(resolve=>{continueConfig=resolve;}):{profAddr:1};
@@ -22,7 +22,7 @@ async function page({paused=false}={}) {
  const out={textContent:''};
  Object.assign(canvas,{classList:{add(){}},getContext:()=>({createImageData:()=>({data:[]}),putImageData(){}})});
  const context=vm.createContext({...window,console,Map,Set,Promise,URLSearchParams,SharedArrayBuffer,Int32Array,
-  Uint8Array,TextDecoder,performance,Atomics,AbortController,location:{origin:'http://fixture',search:'?chan=1&sample=1&display=4x4&timeout=10&clicks=1.1.500'},
+  Uint8Array,TextDecoder,performance,Atomics,AbortController,location:{origin:'http://fixture',search:'?chan=1&sample=1&display=4x4&timeout=10&clicks=1.1.500'+extraQuery},
   document:{getElementById:id=>id==='out'?out:canvas,body:{classList:{add(){}}}},
   setInterval:schedule,setTimeout:schedule,clearTimeout:id=>timers.delete(id),clearInterval:id=>timers.delete(id),
   requestAnimationFrame:fn=>{const id=++next;frames.set(id,fn);return id;},cancelAnimationFrame:id=>frames.delete(id),
@@ -61,6 +61,16 @@ for(const reason of ['exit','error','pagehide','host-close'])test(`page ${reason
 test('closing during startup prevents a late configuration reply from spawning workers',async()=>{
  const p=await page({paused:true});p.window.emit('pagehide');p.continueConfig({profAddr:1});await tick();
  assert.equal(p.workers.length,0);p.assertClosed();
+});
+test('page launch preserves encoded plus signs and forwards captured-stream policy',async()=>{
+ const argv=['/test/a+b','C++','a b','%2B','a&b=c'];
+ const env={WINEDEBUG:'+module,+process',VALUE:'a+b & c=%2B'};
+ const p=await page({extraQuery:'&stdio=captured&argv='+encodeURIComponent(JSON.stringify(argv))+'&env='+encodeURIComponent(JSON.stringify(env))});
+ const launch=p.kernel.messages[0];
+ assert.deepEqual(JSON.parse(JSON.stringify(launch.argv)),argv);
+ assert.ok(launch.env.includes('WINEDEBUG=+module,+process'));
+ assert.ok(launch.env.includes('VALUE=a+b & c=%2B'));
+ assert.equal(launch.standardIO,'captured');p.context.betterjitClose();p.assertClosed();
 });
 test('unit cache aborts requests and cannot compile or retain replies after closure',async()=>{
  let resolve,signal,compiles=0;

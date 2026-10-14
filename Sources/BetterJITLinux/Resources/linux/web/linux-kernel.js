@@ -352,14 +352,14 @@ class Mm {
   }
   get u8() { return new Uint8Array(this.mem.buffer); }
   get dv() { return new DataView(this.mem.buffer); }
-  ensure(end) {
+  ensure(end, operationContext={}) {
     const have = this.mem.buffer.byteLength;
     if (end <= have) return;
     const pages = Math.ceil((end - have) / WASM_PAGE);
     try { this.mem.grow(pages); }
     catch (error) {
       memoryPool.emit({event:'failed',stage:'grow',maximumPages:this.maxPages,currentBytes:have,
-        requestedEnd:end,additionalPages:pages,errorName:error.name,errorMessage:String(error.message).slice(0,256),...this.allocationContext});
+        requestedEnd:end,additionalPages:pages,errorName:error.name,errorMessage:String(error.message).slice(0,256),...this.allocationContext,...operationContext});
       if (error instanceof RangeError) fail(E.NOMEM); throw error;
     }
     this.peakSize = this.mem.buffer.byteLength;
@@ -661,10 +661,11 @@ class DevFile extends File {
 
 // The host console.
 class ConsoleFile extends File {
-  constructor(fd) { super('console'); this.fd = fd; this.flags = fd === 0 ? 0 : O.WRONLY; }
+  constructor(fd, terminal=true) { super('console'); this.fd = fd; this.terminal=terminal; this.flags = fd === 0 ? 0 : O.WRONLY; }
   read() { return 0; }
   write(k, t, buf) { k.host.write(this.fd, buf.slice()); return buf.length; }
   ioctl(k, t, req, arg) {
+    if (!this.terminal) fail(E.NOTTY);
     if (req === 0x5413) { // TIOCGWINSZ
       const dv = t.proc.mm.dv;
       dv.setUint16(arg, 50, true); dv.setUint16(arg + 2, 160, true); dv.setUint32(arg + 4, 0, true);
@@ -676,7 +677,7 @@ class ConsoleFile extends File {
     }
     fail(E.NOTTY);
   }
-  stat() { return { mode: S_IF.CHR | 0o620, ino: this.ino, rdev: 0x8800 }; }
+  stat() { return { mode: this.terminal ? S_IF.CHR | 0o620 : S_IF.FIFO | 0o600, ino: this.ino, rdev: this.terminal ? 0x8800 : 0 }; }
 }
 
 class Pipe {
@@ -999,8 +1000,15 @@ class Kernel {
     this.spaceUsers = new Map();
     this.sharedFiles = new Map();
     let allocationSuccesses=0,allocationFailures=0,allocationRetentions=0;
+    const failedOperations=new Set();
     memoryPool.diagnostic=event=>{
-      if(event.event==='failed'){if(allocationFailures++>=16)return;}
+      if(event.event==='failed'){
+        // Preserve the first failure for each process/operation. One allocator's
+        // range-search retries must not consume the entire diagnostic budget.
+        const key=[event.stage,event.pid,event.space,event.operation,event.purpose,event.parentPid,event.maximumPages].join('/');
+        if(failedOperations.has(key)||allocationFailures>=16)return;
+        failedOperations.add(key);allocationFailures++;
+      }
       else if(event.event==='pool-pruned'){if(allocationRetentions++>=16)return;}
       else if(allocationSuccesses++>=16)return;
       const memories=new Set();
@@ -1630,7 +1638,7 @@ class Kernel {
     const p = new Process(this, this.nextPid++, 1);
     this.procs.set(p.pid, p);
     this.initProc = p;
-    const con = [new ConsoleFile(0), new ConsoleFile(1), new ConsoleFile(2)];
+    const con = [0,1,2].map(fd=>new ConsoleFile(fd,this.host.standardIO !== 'captured'));
     for (let i = 0; i < 3; i++) p.fds.set(i, { file: con[i].ref(), cloexec: false });
     p.cwd = this.host.cwd || '/';
     const img = this.loadImage(p, path, argv, envp);
@@ -1680,7 +1688,7 @@ class Kernel {
       mm = this.sharedMm;
       space = mm.space;
     } else {
-      mm = new Mm(this.memPagesFor(path, elf), 256);
+      mm = new Mm(this.memPagesFor(path, elf), 256, {purpose:'exec',pid:proc.pid,space:this.nextSpace,executable:path});
       space = this.nextSpace++;
     }
     try {
@@ -2729,7 +2737,8 @@ def('mmap', function (t, a0, a1, a2, a3, a4, a5) {
     if (a < 0) fail(E.NOMEM);
   }
   const old = execRanges(mm, a, a + len, owner);
-  mm.ensure(a + len);
+  mm.ensure(a + len, {operation:'mmap',pid:proc.pid,tid:t.tid,space:proc.space,executable:proc.exe,
+    requestedAddress:a,requestedLength:len,protection:prot,flags});
   mm.cut(a, a + len, owner);
   for (const [s, e] of old) k_uncode(this, proc, s, e);
   mm.zero(a, a + len);
@@ -4499,7 +4508,7 @@ Kernel.prototype.snapshot = function () {
     else if (f instanceof EpollFile) {
       fileRecs[id] = r;
       Object.assign(r, { type: 'epoll', watch: [...f.watch].map(([fd, w]) => [fd, fileId(w.file), big2s(w.events), big2s(w.data)]) });
-    } else if (f.kind === 'console') Object.assign(r, { type: 'console', fd: f.fd });
+    } else if (f.kind === 'console') Object.assign(r, { type: 'console', fd: f.fd, terminal: f.terminal });
     else throw new Error('snapshot: a file of kind ' + f.kind);
     fileRecs[id] = r;
     return id;
@@ -4597,7 +4606,7 @@ Kernel.restore = function (host, cfg, snap) {
       case 'host': f = new HostFile(k.vfs, r.fd, r.path, r.flags, r.isDir); if (r.memfd !== undefined) f.memfd = r.memfd; break;
       case 'buffer': f = new BufferFile(snap.blob(r.bytes), r.mode); break;
       case 'dev': f = new DevFile(r.name); break;
-      case 'console': f = new K.ConsoleFile(r.fd); break;
+      case 'console': f = new K.ConsoleFile(r.fd, r.terminal !== false); break;
       case 'pipe': {
         const p = pipes[r.pipe], rd = p.readers, wr = p.writers;
         f = new PipeEnd(p, r.isWrite);

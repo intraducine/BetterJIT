@@ -31,7 +31,7 @@ enum AdaptedWinePhase: String, CaseIterable {
     var arguments:[String] {
         switch self {
         case .command: return ["/opt/wine-flat/bin/wine","/usr/lib/wine/x86_64-windows/cmd.exe","/c","ver"]
-        case .nestedCreateProcess: return ["/opt/wine-flat/bin/wine",Self.directory+"createprocess.exe"]
+        case .nestedCreateProcess: return ["/opt/wine-flat/bin/wine",Self.directory+"createprocess.exe","--captured-stdio"]
         case .fsContract: return [Self.directory+"fs-reset.elf"]
         case .spawnContract: return [Self.directory+"spawn-contract.elf"]
         }
@@ -39,7 +39,7 @@ enum AdaptedWinePhase: String, CaseIterable {
     var markers:[String] {
         switch self {
         case .command: return []
-        case .nestedCreateProcess: return ["GRANDCHILD argv/env/cwd/stdio OK","CHILD nested wait/exit OK","BetterJIT Wine nested CreateProcess OK"]
+        case .nestedCreateProcess: return ["BetterJIT captured stdio OK","GRANDCHILD argv/env/cwd/stdio OK","CHILD nested wait/exit OK","BetterJIT Wine nested CreateProcess OK"]
         case .fsContract: return ["BetterJIT Wine FS reset OK"]
         case .spawnContract: return ["PASS: real spawn fd/cwd/environment/signal/session contracts"]
         }

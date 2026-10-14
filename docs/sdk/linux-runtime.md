@@ -94,13 +94,26 @@ or Files providers that cannot preserve Unix symlinks and executable modes.
 
 ## Boundaries
 
+`LinuxRuntimeConfiguration.standardIO` defaults to `.terminal`. Use `.captured`
+for headless byte capture: stdin reaches EOF, stdout/stderr retain their bytes,
+and terminal ioctls return ENOTTY. These streams report FIFO file type instead
+of a terminal character device. The adapted command and nested Win64 tests use
+this mode so Wine handles them as redirected streams. The nested fixture checks
+the Win32 output handle type and absence of console mode before its spawn tests.
+This does not change Wine bootstrap services or guest memory limits.
+
 Fork constructs a small child memory, grows it to cover inherited mappings, and
 copies their tracked dirty bytes without sharing private data or changing the
 configured maximum. It does not construct the parent's entire grown buffer up
 front or copy an unmapped tail. This is an allocation strategy, not a RAM grant.
 `[memory-allocation]` records failures at construction, pooled-memory growth, or
 mapping growth, with requested/current pages, inherited mappings, pool state and
-the current kernel's live memories. Tracked dirty bytes and Wasm linear sizes
+the current kernel's live memories. Mapping failures identify the requesting
+process, address space, executable and mmap parameters. Sampling retains the
+first failure for each process/operation within the sixteen-event limit, so
+repeated allocation probes do not hide later processes. Reports preserve first
+and last sampled failures; neither is automatically the workload's root cause.
+Tracked dirty bytes and Wasm linear sizes
 are not OS resident memory or an iOS/WebContent memory-limit measurement.
 The pool retains compatible reservations within its original six-entry budget,
 so simultaneous fork/exec demand can reuse more than one buffer if construction

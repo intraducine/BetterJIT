@@ -163,7 +163,7 @@ import WebKit
         decisionHandler(ok ? .allow : .cancel)
     }
 
-    private func launchURL(port:UInt16) throws -> URL {
+    func launchURL(port:UInt16) throws -> URL {
         var c=URLComponents()
         c.scheme="http"; c.host="127.0.0.1"; c.port=Int(port); c.path="/linux/web/linux.html"
         let argv=try JSONSerialization.data(withJSONObject:configuration.arguments)
@@ -179,6 +179,7 @@ import WebKit
             URLQueryItem(name:"timeout",value:String(Int(configuration.timeoutSeconds))),
             URLQueryItem(name:"chan",value:configuration.useNativeChannels ? "1":"0"),
             URLQueryItem(name:"shared",value:configuration.sharedAddressSpace ? "1":"0"),
+            URLQueryItem(name:"stdio",value:configuration.standardIO.rawValue),
             URLQueryItem(name:"regions",value:configuration.regions ? "1":"0"),
             URLQueryItem(name:"trace",value:configuration.trace ? "1":"0"),
             URLQueryItem(name:"traceCode",value:configuration.traceCode ? "1":"0"),
@@ -190,6 +191,9 @@ import WebKit
         q.append(URLQueryItem(name:"display",value:configuration.display ?? "0"))
         if configuration.screenOnly { q.append(URLQueryItem(name:"ui",value:"screen")) }
         c.queryItems=q
+        // URLSearchParams uses form decoding: a literal '+' becomes a space.
+        // Foundation permits '+' in query items, so escape it after encoding.
+        c.percentEncodedQuery=c.percentEncodedQuery?.replacingOccurrences(of:"+",with:"%2B")
         guard let url=c.url else { throw LinuxRuntimeError.invalidConfiguration("Could not build Linux launch URL.") }
         return url
     }

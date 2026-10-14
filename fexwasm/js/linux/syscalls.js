@@ -187,7 +187,8 @@ def('mmap', function (t, a0, a1, a2, a3, a4, a5) {
     if (a < 0) fail(E.NOMEM);
   }
   const old = execRanges(mm, a, a + len, owner);
-  mm.ensure(a + len);
+  mm.ensure(a + len, {operation:'mmap',pid:proc.pid,tid:t.tid,space:proc.space,executable:proc.exe,
+    requestedAddress:a,requestedLength:len,protection:prot,flags});
   mm.cut(a, a + len, owner);
   for (const [s, e] of old) k_uncode(this, proc, s, e);
   mm.zero(a, a + len);

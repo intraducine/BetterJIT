@@ -182,6 +182,7 @@ import BetterJITFEXAdapter
             }
             if let adapted {
                 report?.phases[i].details["workload"]=adapted.arguments.joined(separator:" ")
+                report?.phases[i].details["standardIO"]="Captured byte streams; EOF stdin; no terminal ioctls"
                 report?.phases[i].details["isolation"]="Fresh FEXProcess and kernel worker for this workload; no prerequisite contract in the same guest. Cleanup is not proof of engine collection or a separate OS process."
             }
             if wine {
@@ -225,7 +226,12 @@ import BetterJITFEXAdapter
             report?.phases[i].details["exitCode"]=String(value.exitCode)
             let allocations=value.log.split(separator:"\n").filter { $0.hasPrefix("[memory-allocation] ") }
             report?.phases[i].details["allocationEventCount"]=String(allocations.count)
-            if let failed=allocations.last(where:{$0.contains("\"event\":\"failed\"")}) {
+            let allocationFailures=allocations.filter{$0.contains("\"event\":\"failed\"")}
+            report?.phases[i].details["allocationFailureSampleCount"]=String(allocationFailures.count)
+            if let first=allocationFailures.first {
+                report?.phases[i].details["firstAllocationFailure"]=String(first.dropFirst(20).prefix(8192))
+            }
+            if let failed=allocationFailures.last {
                 report?.phases[i].details["lastAllocationFailure"]=String(failed.dropFirst(20).prefix(8192))
             }
             let faults=value.log.split(separator:"\n").filter { $0.hasPrefix("[memory-fault] ") }

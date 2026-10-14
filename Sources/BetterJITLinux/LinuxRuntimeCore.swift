@@ -33,6 +33,7 @@ public struct LinuxChannelReply: Sendable, Equatable {
 public typealias LinuxGPUChannelHandler = @Sendable (_ request: Data, _ responseCapacity: Int) throws -> LinuxChannelReply
 
 public struct LinuxRuntimeConfiguration: Sendable, Equatable {
+    public enum StandardIO: String, Sendable { case terminal, captured }
     public var arguments: [String]
     public var environment: [String:String]
     public var currentDirectory: String
@@ -48,6 +49,8 @@ public struct LinuxRuntimeConfiguration: Sendable, Equatable {
     public var threadSpinMilliseconds: Double
     public var useNativeChannels: Bool
     public var sharedAddressSpace: Bool
+    /// Captured streams provide EOF on stdin and byte output, without terminal ioctls.
+    public var standardIO: StandardIO
 
     public init(arguments: [String],
                 environment: [String:String] = [:],
@@ -63,7 +66,8 @@ public struct LinuxRuntimeConfiguration: Sendable, Equatable {
                 kernelSpinMilliseconds: Double = 0.05,
                 threadSpinMilliseconds: Double = 0.02,
                 useNativeChannels: Bool = true,
-                sharedAddressSpace: Bool = true) {
+                sharedAddressSpace: Bool = true,
+                standardIO: StandardIO = .terminal) {
         self.arguments = arguments
         self.environment = environment
         self.currentDirectory = currentDirectory
@@ -79,6 +83,7 @@ public struct LinuxRuntimeConfiguration: Sendable, Equatable {
         self.threadSpinMilliseconds = threadSpinMilliseconds
         self.useNativeChannels = useNativeChannels
         self.sharedAddressSpace = sharedAddressSpace
+        self.standardIO = standardIO
     }
 }
 

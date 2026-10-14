@@ -9,7 +9,7 @@ vm.runInThisContext(fs.readFileSync(new URL('../../Sources/BetterJITLinux/Resour
 const {Kernel,HostFile,Pipe,PipeEnd,BLOCK,ConsoleFile}=LinuxBundle.require('./kernel.js');
 const {sys}=LinuxBundle.require('./syscalls.js');
 const {WebVfs}=LinuxBundle.require('./vfs_web.js');
-const {SYS,E,O}=LinuxBundle.require('./abi.js');
+const {SYS,E,O,S_IF}=LinuxBundle.require('./abi.js');
 function setup() {
  const bytes=Uint8Array.from({length:256*1024},(_,i)=>(i*31+7)&255);
  const ranges=[],fetchFile=()=>{throw Error('sendfile must use bounded file ranges');};
@@ -45,6 +45,25 @@ test('sendfile errors do not consume input and console descriptors have correct 
  s.writer.flags|=O.APPEND;
  assert.throws(()=>s.send(0),e=>e.code===E.INVAL);assert.equal(s.input.pos,65536);
  assert.equal(new ConsoleFile(0).flags&O.ACCMODE,0);assert.equal(new ConsoleFile(1).flags&O.ACCMODE,O.WRONLY);
+});
+test('captured standard streams retain exact bytes and EOF without advertising terminal ioctls',()=>{
+ const writes=[],k={host:{write:(fd,bytes)=>writes.push({fd,bytes})}};
+ const bytes=Uint8Array.from([0,10,43,255]);
+ const stdin=new ConsoleFile(0,false),stdout=new ConsoleFile(1,false),stderr=new ConsoleFile(2,false);
+ assert.equal(stdin.read(),0);assert.equal(stdout.stat().mode&S_IF.MT,S_IF.FIFO);
+ for(const file of [stdin,stdout,stderr])for(const request of [0x5401,0x5413])
+  assert.throws(()=>file.ioctl(k,{},request,0),error=>error.code===E.NOTTY);
+ assert.equal(stdout.write(k,{},bytes),bytes.length);assert.equal(stderr.write(k,{},bytes),bytes.length);
+ bytes.fill(9);assert.deepEqual([...writes[0].bytes],[0,10,43,255]);assert.equal(writes[1].fd,2);
+ const terminal=new ConsoleFile(1),memory=new Uint8Array(64),thread={proc:{mm:{u8:memory,dv:new DataView(memory.buffer)}}};
+ assert.equal(terminal.stat().mode&S_IF.MT,S_IF.CHR);assert.equal(terminal.ioctl(k,thread,0x5401,0),0);
+});
+test('initial-process descriptors use only the explicitly selected stream policy',()=>{
+ for(const standardIO of [undefined,'terminal','captured']) {
+  const k=new Kernel({vfs:{},standardIO},{});k.loadImage=()=>({});k.installImage=()=>{};
+  const p=k.spawnInit('/fixture',['/fixture'],[]);
+  for(const entry of p.fds.values())assert.equal(entry.file.terminal,standardIO!=='captured');
+ }
 });
 test('Wine bootstraps a missing prefix with the client and can prestart an existing prefix',()=>{
  const calls=[],vfs=new WebVfs([['/home/user','d',0o755,0,0]],()=>new Uint8Array(),1000,1000);

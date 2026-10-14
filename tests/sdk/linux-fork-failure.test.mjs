@@ -108,3 +108,22 @@ test('failed image staging retires only its new memory and preserves the running
  r.setRemaining(0);r.setClock(1500);
  assert.equal(new Mm(512,256).mem,stagedMemory);
 });
+test('growth refusal preserves mappings and identifies each failing process before range-search retries',()=>{
+ const r=runtime(),{Kernel,Process,Mm,KError}=r.kernel,logs=[];
+ const k=new Kernel({vfs:{},log:line=>logs.push(line)},{});
+ const threads=[100,101].map(pid=>{
+  const p=new Process(k,pid,1);p.mm=new Mm(32,1);p.image={};p.space=pid-99;p.exe='/fixture/program';
+  p.mm.u8[0]=73;k.procs.set(pid,p);return {tid:pid,proc:p};
+ });
+ r.setGrowthLimit(1);
+ for(const thread of threads)for(let attempt=0;attempt<20;attempt++)
+  assert.throws(()=>r.sys[r.abi.SYS.mmap].call(k,thread,BigInt((4+attempt)*65536),65536n,3n,0x32n,-1n,0n),
+   error=>error instanceof KError&&error.code===r.abi.E.NOMEM);
+ const events=logs.filter(line=>line.startsWith('[memory-allocation] ')).map(line=>JSON.parse(line.slice(20)));
+ assert.equal(events.length,2);
+ assert.deepEqual(events.map(event=>event.pid),[100,101]);
+ for(const event of events){assert.equal(event.operation,'mmap');assert.equal(event.requestedAddress,4*65536);
+  assert.equal(event.requestedLength,65536);assert.equal(event.protection,3);assert.equal(event.flags,0x32);
+  assert.equal(event.executable,'/fixture/program');assert.equal(event.live.length,2);}
+ for(const thread of threads){assert.equal(thread.proc.mm.vmas.length,0);assert.equal(thread.proc.mm.u8[0],73);}
+});

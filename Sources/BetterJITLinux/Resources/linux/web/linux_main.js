@@ -342,6 +342,7 @@
     };
     kernel.onerror = (err) => { log('kernel worker error: ' + err.message); finish(126); };
     kernel.postMessage({ cfg, state, index: index.entries, fsBase: origin, xlat: origin, kernChan, uid: index.uid, gid: index.gid, argv, cwd: q.get('cwd') || '/',
+      standardIO:q.get('stdio') === 'captured' ? 'captured' : 'terminal',
       env: Object.entries(envObj).map(([k, v]) => `${k}=${v}`), bridge, bootEpoch, traceExec: q.get('traceExec') === '1', trace: q.get('trace') === '1', traceShm: q.get('traceShm') === '1',
       peek: q.get('peek'), win64: q.get('win64') ?? 'thumper_win10.exe,ucrtbase.dll,d3d11.dll,dxgi.dll', traceMaps: q.get('traceMaps') === '1', spinMs: Number(q.get('kspin') ?? 0.05), traceCode: q.get('traceCode') === '1', sharedSpace: q.get('shared') !== '0', memLog: Number(q.get('memLog') || 0), display: screen ? displaySize : null,
       // a saved system (in OPFS): snapshot=name&snapshotAt=S[&snapshotExit=1] saves one; restore=name[&run=a|b|c] starts from it

@@ -10,7 +10,8 @@ import Foundation
             "\u{001B}[?25l"+(char == " " ? "\u{001B}[K\u{001B}[1C" : String(char))+"\u{001B}[?25h"
         }.joined()
         precondition(AdaptedWinePhase.nestedCreateProcess.missingMarkers(in:encoded).isEmpty)
-        precondition(AdaptedWinePhase.nestedCreateProcess.missingMarkers(in:"Microsoft Windows 10.0").count == 3)
+        precondition(AdaptedWinePhase.nestedCreateProcess.missingMarkers(in:"Microsoft Windows 10.0").count == 4)
+        precondition(AdaptedWinePhase.nestedCreateProcess.arguments.last == "--captured-stdio")
         precondition(AdaptedWinePhase.nestedCreateProcess.missingMarkers(in:AdaptedWinePhase.nestedCreateProcess.markers.dropLast().joined(separator:"\n")).count == 1)
         precondition(DeviceSessionGuestOutput.consoleText("a\u{001B}[9999999999999999999999999999999999Cb").count == 258)
         precondition(AdaptedWinePhase.command.arguments == ["/opt/wine-flat/bin/wine","/usr/lib/wine/x86_64-windows/cmd.exe","/c","ver"])
