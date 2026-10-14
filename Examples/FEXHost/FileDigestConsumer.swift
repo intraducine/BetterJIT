@@ -53,7 +53,15 @@ struct DigestResult { let sha256:String; let counters:[String:Int] }
         let scoped=url.startAccessingSecurityScopedResource();defer { if scoped {url.stopAccessingSecurityScopedResource()} }
         do {
             let file=try FileHandle(forReadingFrom:url);defer {try? file.close()}
-            let data=try file.read(upToCount:32*1024*1024+1) ?? Data()
+            let limit=32*1024*1024
+            var data=Data()
+            // A read may return fewer bytes than requested. Consume through EOF
+            // while retaining only one extra byte to detect an oversized input.
+            while data.count<=limit {
+                guard let chunk=try file.read(upToCount:min(1024*1024,limit+1-data.count)),
+                      !chunk.isEmpty else { break }
+                data.append(chunk)
+            }
             guard data.count<=32*1024*1024 else {throw SuiteFailure("Choose a file of at most 32 MiB.")}
             bytes=data;digest="";status="Selected \(data.count) bytes."
         } catch {status=error.localizedDescription}
