@@ -425,9 +425,8 @@ function runThread(env) {
       tstats.bytes += r.bytes;
       return r;
     }
-    const r = await fetch(`${xlat}/xlat/unit?space=${space}&rip=${rip}`, {signal:requests.signal});
+    const r = await fetch(`${xlat}/xlat/unit?space=${space}&rip=${rip}`);
     const u = parseUnit(new Uint8Array(await r.arrayBuffer()));
-    checkOpen();
     tstats.fetchMs += performance.now() - t0;
     if (!u) return null;
     const t1 = performance.now();

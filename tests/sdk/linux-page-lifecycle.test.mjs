@@ -76,3 +76,16 @@ test('unit cache aborts requests and cannot compile or retain replies after clos
  assert.throws(()=>cache.module('two',new Uint8Array([2])),/closed/);
  assert.equal(compiles,1);
 });
+test('unbrokered thread HTTP translation does not depend on the page cache lifetime',async()=>{
+ let translate,requested;
+ const context=vm.createContext({performance,Int32Array,BigInt64Array,SharedArrayBuffer,DataView,Uint8Array,Map,
+  WebAssembly:{Module:class {}},
+  fetch:async url=>{requested=url;return {arrayBuffer:async()=>new ArrayBuffer(0)};},
+  FexRuntime:{createRuntime:options=>{translate=options.translateAsync;return {runAsync:()=>new Promise(()=>{})};}}
+ });
+ vm.runInContext(read('thread_core.js'),context);
+ context.FexLinuxThread.runThread({data:{pid:1,tid:1,tb:0,space:2,slot:0,ksab:new SharedArrayBuffer(4096),
+  mem:{buffer:new SharedArrayBuffer(65536)},cfg:{ctx:0,ripOff:0},dispatcher:[],xlat:'http://fixture'},post(){}});
+ assert.equal(await translate(4096),null);
+ assert.equal(requested,'http://fixture/xlat/unit?space=2&rip=4096');
+});
