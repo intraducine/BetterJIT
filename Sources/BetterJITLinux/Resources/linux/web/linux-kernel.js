@@ -226,12 +226,11 @@ class WaitQueue {
 
 // ---------------------------------------------------------------------------
 // Address space: a shared WebAssembly.Memory and its mappings.
-// Memories for address spaces. The engine budgets address space over all
-// of them by their maximum size, with limits varying by engine and process
-// context, and frees one only when it collects it; so a process gets the
-// size it needs, and memories are reused: a dead image's memory goes back to
-// the pool (with its record of what may be nonzero, zeroed as it is mapped
-// again) once its workers are gone.
+// Memories for address spaces. Constructors and growth can be refused while
+// other memories remain live; these events do not establish an engine/OS quota.
+// Retired memories can be reused after quarantine, carrying the record of bytes
+// that may be nonzero so new mappings clear them. Dropping a reference does not
+// establish immediate engine collection or release of physical memory.
 // The owner of mappings every process of a shared memory has (KUSER_SHARED_DATA).
 const GLOBAL = { global: true };
 const KUSER = 0x7ffe_0000;
@@ -243,6 +242,19 @@ class MemoryPool {
       currentBytes:e.mem.buffer.byteLength, ready:e.readyAt<=performance.now()}))}); } catch {}
   }
   take(maxPages, initialPages, context={}) {
+    const started=performance.now();
+    // A staged image can know that it will need a high guest address later.
+    // Prefer a fitting retired reservation before binding any worker to it.
+    // Do not force an eager grow or change the immutable maximum.
+    if(context.reuseEnd) {
+      const fitting=e=>e.maxPages===maxPages&&e.mem.buffer.byteLength>=context.reuseEnd;
+      if(!this.free.some(e=>fitting(e)&&e.readyAt<=performance.now())) {
+        const pending=this.free.filter(e=>fitting(e)&&e.readyAt>performance.now())
+          .sort((a,b)=>a.readyAt-b.readyAt)[0];
+        if(pending)this.waitUntil(pending.readyAt,started+1500);
+      }
+    }
+    context={...context,poolWaitMilliseconds:performance.now()-started};
     // An engine can exhaust its reservation budget while a reusable memory
     // is still quarantined. Keep the existing 1.5 s safety delay and limits;
     // after allocation failure, wait only for an already retired candidate.
@@ -252,14 +264,18 @@ class MemoryPool {
       const pending = this.free.filter(e => e.maxPages === maxPages && e.readyAt > performance.now())
         .sort((a,b) => a.readyAt-b.readyAt)[0];
       if (pending) {
-        const until = Math.min(pending.readyAt, performance.now() + 1500);
-        const word = new Int32Array(new SharedArrayBuffer(4));
-        while (performance.now() < until) Atomics.wait(word, 0, 0, until-performance.now());
+        this.waitUntil(pending.readyAt,started+1500);
+        context.poolWaitMilliseconds=performance.now()-started;
         try { return this.takeReady(maxPages, initialPages, context); }
         catch (retry) { if (!(retry instanceof RangeError)) throw retry; }
       }
       fail(E.NOMEM);
     }
+  }
+  waitUntil(readyAt,deadline) {
+    const until=Math.min(readyAt,deadline);
+    const word=new Int32Array(new SharedArrayBuffer(4));
+    while(performance.now()<until)Atomics.wait(word,0,0,until-performance.now());
   }
   takeReady(maxPages, initialPages, context={}) {
     // Maximum sizes are immutable. Memories from another image-size class
@@ -274,7 +290,7 @@ class MemoryPool {
         requestedMaximumPages:maxPages,discarded,...context});
     }
     const now = performance.now();
-    const needed=Math.max(initialPages*WASM_PAGE,context.inheritedEnd||0);
+    const needed=Math.max(initialPages*WASM_PAGE,context.inheritedEnd||0,context.reuseEnd||0);
     let i=-1;
     for(let n=0;n<this.free.length;n++) {
       const e=this.free[n];if(e.maxPages!==maxPages||e.readyAt>now)continue;
@@ -295,10 +311,14 @@ class MemoryPool {
           throw error;
         }
       }
+      this.emit({event:'memory-selected',stage:'selection',source:'pool',maximumPages:maxPages,
+        initialPages,selectedBytes:e.mem.buffer.byteLength,selectionEnd:needed,...context});
       return e;
     }
     try {
       const mem=new WebAssembly.Memory({ initial: initialPages, maximum: maxPages, shared: true });
+      this.emit({event:'memory-selected',stage:'selection',source:'constructor',maximumPages:maxPages,
+        initialPages,selectedBytes:mem.buffer.byteLength,selectionEnd:needed,...context});
       return {mem,dirty:[],maxPages};
     } catch (error) {
       this.emit({event:'failed',stage:'construct',maximumPages:maxPages,initialPages,
@@ -1688,7 +1708,13 @@ class Kernel {
       mm = this.sharedMm;
       space = mm.space;
     } else {
-      mm = new Mm(this.memPagesFor(path, elf), 256, {purpose:'exec',pid:proc.pid,space:this.nextSpace,executable:path});
+      const maximumPages=this.memPagesFor(path,elf);
+      // Only the opted-in adapted Wine loader: its fixed shared-user-data
+      // mapping is known before exec. This is a reuse preference, not a new
+      // mapping, larger maximum, or replacement of an active worker's memory.
+      const reuseEnd=envp.includes('BETTERJIT_WINE_SPAWN=1')&&/\/wine(64)?$/.test(path)
+        ? Math.min(KUSER+2*PAGE,maximumPages*WASM_PAGE-WASM_PAGE) : 0;
+      mm = new Mm(maximumPages, 256, {purpose:'exec',pid:proc.pid,space:this.nextSpace,executable:path,reuseEnd});
       space = this.nextSpace++;
     }
     try {

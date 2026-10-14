@@ -119,11 +119,68 @@ test('growth refusal preserves mappings and identifies each failing process befo
  for(const thread of threads)for(let attempt=0;attempt<20;attempt++)
   assert.throws(()=>r.sys[r.abi.SYS.mmap].call(k,thread,BigInt((4+attempt)*65536),65536n,3n,0x32n,-1n,0n),
    error=>error instanceof KError&&error.code===r.abi.E.NOMEM);
- const events=logs.filter(line=>line.startsWith('[memory-allocation] ')).map(line=>JSON.parse(line.slice(20)));
+ const events=logs.filter(line=>line.startsWith('[memory-allocation] ')).map(line=>JSON.parse(line.slice(20))).filter(e=>e.event==='failed');
  assert.equal(events.length,2);
  assert.deepEqual(events.map(event=>event.pid),[100,101]);
  for(const event of events){assert.equal(event.operation,'mmap');assert.equal(event.requestedAddress,4*65536);
   assert.equal(event.requestedLength,65536);assert.equal(event.protection,3);assert.equal(event.flags,0x32);
   assert.equal(event.executable,'/fixture/program');assert.equal(event.live.length,2);}
  for(const thread of threads){assert.equal(thread.proc.mm.vmas.length,0);assert.equal(thread.proc.mm.u8[0],73);}
+});
+test('a staged-image capacity hint selects a fitting ready reservation without eager growth',()=>{
+ const r=runtime(),pool=new r.kernel.MemoryPool(),events=[];pool.diagnostic=e=>events.push(e);
+ const small=pool.take(32,2),large=pool.take(32,24);
+ pool.give(small.mem,[[0,1]],32);pool.give(large.mem,[[8,9]],32);
+ r.setClock(1500);r.setRemaining(0);r.setGrowthLimit(2);
+ const selected=pool.take(32,1,{purpose:'exec',reuseEnd:20*65536});
+ assert.equal(selected.mem,large.mem);assert.equal(selected.dirty[0][0],8);
+ assert.equal(pool.free[0].mem,small.mem);assert.equal(r.stats().waits,0);
+ assert.equal(events.at(-1).source,'pool');assert.equal(events.at(-1).selectionEnd,20*65536);
+ const empty=new r.kernel.MemoryPool();r.setRemaining(1);
+ const fresh=empty.take(32,1,{reuseEnd:20*65536});
+ assert.equal(fresh.mem.buffer.byteLength,65536);assert.equal(r.stats().descriptors.at(-1).maximum,32);
+});
+test('a fitting retired reservation completes quarantine before a smaller ready one can be selected',()=>{
+ const r=runtime(),pool=new r.kernel.MemoryPool();
+ const small=pool.take(32,2),large=pool.take(32,24);
+ new Uint8Array(large.mem.buffer)[8]=91;
+ pool.give(small.mem,[],32);r.setClock(1500);pool.give(large.mem,[[8,9]],32);
+ r.setRemaining(0);r.setGrowthLimit(2);
+ const selected=pool.take(32,1,{reuseEnd:20*65536});
+ assert.equal(selected.mem,large.mem);assert.equal(r.stats().clock,3000);assert.equal(r.stats().waits,1);
+ assert.equal(new Uint8Array(selected.mem.buffer)[8],91,'Selection must not clear a quarantined buffer.');
+ assert.equal(pool.free[0].mem,small.mem);
+});
+test('capacity preference cannot extend the existing total wait or select an incompatible reservation',()=>{
+ const r=runtime(),pool=new r.kernel.MemoryPool(),{KError}=r.kernel;
+ const wrong=pool.take(64,24);pool.give(wrong.mem,[],64);
+ const pending=pool.take(32,24);pool.give(pending.mem,[],32);pool.free[0].readyAt=9000;
+ r.setRemaining(0);
+ assert.throws(()=>pool.take(32,1,{reuseEnd:20*65536}),e=>e instanceof KError&&e.code===r.abi.E.NOMEM);
+ assert.equal(r.stats().clock,1500);assert.equal(pool.free[0].mem,pending.mem);
+ assert.notEqual(pool.free[0].mem,wrong.mem);
+});
+test('adapted loader exec uses its known high-address hint before publication and retains isolation',()=>{
+ for(const optedIn of [false,true]) {
+  const r=runtime(),{Kernel,Mm}=r.kernel;
+  const swift=fs.readFileSync(new URL('../../Examples/FEXHost/LinuxSmokeFixture.swift',import.meta.url),'utf8');
+  const elf=Uint8Array.from(Buffer.from(swift.match(/Data\(base64Encoded:\s*"([A-Za-z0-9+/=]+)"/)[1],'base64'));
+  const k=new Kernel({vfs:{stat:()=>({mode:0o100755}),readFile:()=>elf},memPolicy:[['.*',512]]},{});
+  const active=new Mm(512,256),small=new Mm(512,384),large=new Mm(512,512);
+  const activeMemory=active.mem,smallMemory=small.mem,largeMemory=large.mem;
+  active.u8[8]=41;large.u8[8]=91;large.markDirty(8,9);small.retire();large.retire();
+  r.setClock(1500);r.setRemaining(0);r.setGrowthLimit(384);
+  k.loadInto=(mm)=>({mm});
+  const process={pid:100,mm:active};
+  const image=k.loadImage(process,'/opt/wine-flat/bin/wine',[],optedIn?['BETTERJIT_WINE_SPAWN=1']:[]);
+  assert.equal(image.mm.mem,optedIn?largeMemory:smallMemory);
+  assert.equal(process.mm.mem,activeMemory);assert.equal(active.u8[8],41);
+  if(optedIn){image.mm.ensure(511*65536);image.mm.zero(0,65536);assert.equal(image.mm.u8[8],0);}
+ }
+});
+test('late growth failure never replaces a memory already bound to a running address space',()=>{
+ const r=runtime(),{Mm,KError}=r.kernel,active=new Mm(32,1),spare=new Mm(32,24);
+ const memory=active.mem;active.u8[8]=41;spare.retire();r.setClock(1500);r.setGrowthLimit(1);
+ assert.throws(()=>active.ensure(20*65536),e=>e instanceof KError&&e.code===r.abi.E.NOMEM);
+ assert.equal(active.mem,memory);assert.equal(active.u8[8],41);
 });

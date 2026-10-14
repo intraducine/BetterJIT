@@ -137,6 +137,16 @@ worker may still own them. `pool-pruned` events describe released references,
 not immediate engine collection or OS RSS reduction. A construction failure can
 also be recovered by quarantined-memory reuse in a passed phase.
 
+The opted-in adapted Wine loader provides a reuse hint for its known fixed
+shared-user-data address before exec publishes the image. Pool selection uses
+that address as well as the small initial allocation. A fitting retired buffer
+can complete its quarantine within the existing total 1.5-second wait budget
+before an undersized ready buffer is selected. With no fitting spare, construction
+still starts small; the hint does not force growth, change maxima, or bypass
+guest mappings. Active memories are never swapped on a late growth failure.
+Bounded `memory-selected` events identify constructor versus pool selection,
+selected capacity, the selection target and time spent waiting.
+
 The page explicitly owns every guest worker. Termination clears callback captures,
 removes ownership and rejects delayed translation replies for that worker. Slot
 release callbacks retain only the small kernel control buffer and slot number,
