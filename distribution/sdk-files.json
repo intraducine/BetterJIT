@@ -161,6 +161,8 @@
     "Tests/BetterJITLinuxTests/LinuxSessionOwnershipTests.swift": "Tests/BetterJITLinuxTests/LinuxSessionOwnershipTests.swift",
     "Sources/BetterJITLinux/Resources/linux/web/owned_workers.js": "Sources/BetterJITLinux/Resources/linux/web/owned_workers.js",
     "tests/sdk/linux-browser-workers.test.mjs": "tests/sdk/linux-browser-workers.test.mjs",
-    "tests/fexhost/wine-spawn-native.py": "tests/fexhost/wine-spawn-native.py"
+    "tests/fexhost/wine-spawn-native.py": "tests/fexhost/wine-spawn-native.py",
+    "tests/fexhost/wine-createprocess.c": "tests/fexhost/wine-createprocess.c",
+    "tests/sdk/linux-live-policy.test.mjs": "tests/sdk/linux-live-policy.test.mjs"
   }
 }
