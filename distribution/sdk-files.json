@@ -160,6 +160,7 @@
     "LICENSES/Apache-2.0.txt": "LICENSES/Apache-2.0.txt",
     "Tests/BetterJITLinuxTests/LinuxSessionOwnershipTests.swift": "Tests/BetterJITLinuxTests/LinuxSessionOwnershipTests.swift",
     "Sources/BetterJITLinux/Resources/linux/web/owned_workers.js": "Sources/BetterJITLinux/Resources/linux/web/owned_workers.js",
-    "tests/sdk/linux-browser-workers.test.mjs": "tests/sdk/linux-browser-workers.test.mjs"
+    "tests/sdk/linux-browser-workers.test.mjs": "tests/sdk/linux-browser-workers.test.mjs",
+    "tests/fexhost/wine-spawn-native.py": "tests/fexhost/wine-spawn-native.py"
   }
 }

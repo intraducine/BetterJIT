@@ -33,9 +33,9 @@ async function main() {
   {id:'wine-command-no-preloader',argv:['/opt/wine/bin/wine','cmd','/c','ver'],
    environment:{WINELOADERNOEXEC:'1',WINEARCH:'win64'},optional:true,timeout:120},
   ...(fs.existsSync(path.join(root,'opt/wine-flat/.betterjit-wine-flat.json')) ? [
-   {id:'wine-command-flat-window',argv:['/bin/busybox','sh','-c','/opt/wine-flat/share/betterjit-provenance/fs-reset.elf && exec /opt/wine-flat/bin/wine /usr/lib/wine/x86_64-windows/cmd.exe /c ver'],
-    marker:'BetterJIT Wine FS reset OK',sharedAddressSpace:false,
-    environment:{WINELOADERNOEXEC:'1',WINEARCH:'win64',WINEPREFIX:'/home/user/.wine-flat',
+   {id:'wine-command-flat-window',argv:['/bin/busybox','sh','-c','/opt/wine-flat/share/betterjit-provenance/fs-reset.elf && /opt/wine-flat/share/betterjit-provenance/spawn-contract.elf && exec /opt/wine-flat/bin/wine /usr/lib/wine/x86_64-windows/cmd.exe /c ver'],
+    marker:'BetterJIT Wine FS reset OK',markers:['PASS: real spawn fd/cwd/environment/signal/session contracts'],sharedAddressSpace:false,
+    environment:{WINELOADERNOEXEC:'1',WINEARCH:'win64',WINEPREFIX:'/home/user/.wine-flat',BETTERJIT_WINE_SPAWN:'1',
      WINEDLLPATH:'/usr/lib/wine',LD_LIBRARY_PATH:'/opt/wine-flat/lib/wine/x86_64-unix:/usr/lib',WINEDEBUG:'+module,+loaddll,+process'},timeout:180,
     translatorOptions:'depth=24 memtrace=1',debugDirectory:path.join(REPO,'.build/wine-instruction-trace','wine-flat')}
   ] : []),

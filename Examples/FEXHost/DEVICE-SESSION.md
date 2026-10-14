@@ -188,3 +188,12 @@ For local Linux x86 frontend diagnostics, `BETTERJIT_HOST_DEBUG_X86=1 bash
 Backends/FEX/build-host.sh` uses the pinned frontend's x86 debug configuration.
 It translates actual guest instructions to Wasm; it does not execute FEX's native
 JIT or establish arm64/device behavior. The ordinary Apple build remains separate.
+
+The flat candidate now attempts an opt-in POSIX process-launch adaptation that
+prepares argv/environment and fd/cwd/session/signal actions in the parent. A
+spawned child uses libc's spawn implementation, with exact-child reaping owned
+by the candidate. Generic Linux fork and stock Wine are unchanged. The phase
+checks a bundled spawn contract before the real Wine command; both contract
+and Windows output/exit requirements remain mandatory. This avoids an extra
+intermediate fork copy but does not promise memory-budget reclamation or phone
+Wine compatibility.

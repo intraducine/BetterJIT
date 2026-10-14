@@ -61,6 +61,7 @@ import BetterJITFEXAdapter
             if mode == .wineFlat {
                 guard Self.flatWinePresent else { throw LinuxRuntimeError.guest("Source-built flat-window Wine candidate is missing.") }
                 environment["WINEPREFIX"]="/home/user/.wine-flat"
+                environment["BETTERJIT_WINE_SPAWN"]="1"
                 // PE and remaining Unix modules come from the signed stock
                 // root; the new loader/ntdll live in the separate candidate.
                 environment["WINEDLLPATH"]="/usr/lib/wine"
@@ -68,7 +69,7 @@ import BetterJITFEXAdapter
                 environment["WINEDEBUG"]="+module,+loaddll,+process"
             }
             let arguments=mode == .wineFlat
-                ? ["/bin/busybox","sh","-c","/opt/wine-flat/share/betterjit-provenance/fs-reset.elf && exec /opt/wine-flat/bin/wine /usr/lib/wine/x86_64-windows/cmd.exe /c ver"]
+                ? ["/bin/busybox","sh","-c","/opt/wine-flat/share/betterjit-provenance/fs-reset.elf && /opt/wine-flat/share/betterjit-provenance/spawn-contract.elf && exec /opt/wine-flat/bin/wine /usr/lib/wine/x86_64-windows/cmd.exe /c ver"]
                 : ["/opt/wine/bin/wine","cmd","/c","ver"]
             cfg=LinuxRuntimeConfiguration(arguments:arguments,
                                           environment:environment,timeoutSeconds:mode == .wineFlat ? 180 : 90,

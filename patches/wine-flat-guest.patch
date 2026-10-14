@@ -1,42 +1,191 @@
+diff --git a/dlls/ntdll/unix/betterjit_spawn.h b/dlls/ntdll/unix/betterjit_spawn.h
+new file mode 100644
+index 0000000..e506867
+--- /dev/null
++++ b/dlls/ntdll/unix/betterjit_spawn.h
+@@ -0,0 +1,85 @@
++/* SPDX-License-Identifier: LGPL-2.1-or-later
++ * Candidate-only process launch. All setup occurs in the parent and in
++ * libc's posix_spawn file actions; generic fork semantics are unchanged.
++ */
++#include <errno.h>
++#include <fcntl.h>
++#include <pthread.h>
++#include <signal.h>
++#include <spawn.h>
++#include <stdlib.h>
++#include <sys/wait.h>
++#include <unistd.h>
++
++static void *betterjit_reap_spawn( void *arg )
++{
++    pid_t pid = *(pid_t *)arg;
++    free( arg );
++    while (waitpid( pid, NULL, 0 ) == -1 && errno == EINTR) {}
++    return NULL;
++}
++
++/* Returns a POSIX error number. Success owns and reaps this exact child,
++ * never stealing another waiter's child. Parent fds/cwd/signals are untouched.
++ */
++static int betterjit_spawn( pid_t *pid, const char *loader, char *const argv[], char *const envp[],
++                           int socketfd, int unixdir, int input, int output, int detached )
++{
++    posix_spawn_file_actions_t actions;
++    posix_spawnattr_t attr;
++    pthread_attr_t thread_attr;
++    pthread_t thread;
++    sigset_t defaults;
++    short flags = POSIX_SPAWN_SETSIGDEF;
++    int ret, i, j, close_fds[3] = {input, output, unixdir};
++    pid_t *owned;
++
++    if (!pid || !loader || !argv || !envp || socketfd < -1 || unixdir < -1 || input < -1 || output < -1)
++        return EINVAL;
++    *pid = -1;
++    if (!(owned = malloc( sizeof(*owned) ))) return ENOMEM;
++    if ((ret = posix_spawn_file_actions_init( &actions ))) goto free_owned;
++    if ((ret = posix_spawnattr_init( &attr ))) goto destroy_actions;
++    if ((ret = pthread_attr_init( &thread_attr ))) goto destroy_attr;
++    if ((ret = pthread_attr_setdetachstate( &thread_attr, PTHREAD_CREATE_DETACHED ))) goto destroy_thread_attr;
++    if (detached) flags |= POSIX_SPAWN_SETSID;
++    sigemptyset( &defaults );
++    sigaddset( &defaults, SIGPIPE );
++    if ((ret = posix_spawnattr_setsigdefault( &attr, &defaults )) ||
++        (ret = posix_spawnattr_setflags( &attr, flags ))) goto destroy_thread_attr;
++    if (unixdir != -1 && (ret = posix_spawn_file_actions_addfchdir_np( &actions, unixdir ))) goto destroy_thread_attr;
++    if (detached || input == -1) ret = posix_spawn_file_actions_addopen( &actions, 0, "/dev/null", O_RDWR, 0 );
++    else ret = posix_spawn_file_actions_adddup2( &actions, input, 0 );
++    if (ret) goto destroy_thread_attr;
++    if (detached || output == -1) ret = posix_spawn_file_actions_addopen( &actions, 1, "/dev/null", O_RDWR, 0 );
++    else ret = posix_spawn_file_actions_adddup2( &actions, output, 1 );
++    if (ret) goto destroy_thread_attr;
++    for (i = 0; i < 3; i++)
++    {
++        if (close_fds[i] <= 1 || close_fds[i] == socketfd) continue;
++        for (j = 0; j < i; j++) if (close_fds[j] == close_fds[i]) break;
++        if (j < i) continue;
++        if ((ret = posix_spawn_file_actions_addclose( &actions, close_fds[i] ))) goto destroy_thread_attr;
++    }
++    /* A dup2 action on the same descriptor makes it inheritable across exec. */
++    if (socketfd != -1 && (ret = posix_spawn_file_actions_adddup2( &actions, socketfd, socketfd )))
++        goto destroy_thread_attr;
++    if ((ret = posix_spawn( pid, loader, &actions, &attr, argv, envp ))) goto destroy_thread_attr;
++    *owned = *pid;
++    if (!(ret = pthread_create( &thread, &thread_attr, betterjit_reap_spawn, owned ))) owned = NULL;
++    else
++    {
++        /* A successful launch must not escape ownership if reaping cannot start. */
++        kill( *pid, SIGKILL );
++        while (waitpid( *pid, NULL, 0 ) == -1 && errno == EINTR) {}
++    }
++destroy_thread_attr:
++    pthread_attr_destroy( &thread_attr );
++destroy_attr:
++    posix_spawnattr_destroy( &attr );
++destroy_actions:
++    posix_spawn_file_actions_destroy( &actions );
++free_owned:
++    free( owned );
++    return ret;
++}
 diff --git a/dlls/ntdll/unix/env.c b/dlls/ntdll/unix/env.c
 index 7193cce..49f6178 100644
 --- a/dlls/ntdll/unix/env.c
 +++ b/dlls/ntdll/unix/env.c
-@@ -1963,7 +1963,11 @@ static RTL_USER_PROCESS_PARAMETERS *build_initial_params( void **module )
-         }
-     }
- 
+@@ -1966 +1966,5 @@ static RTL_USER_PROCESS_PARAMETERS *build_initial_params( void **module )
 -    if (status)  /* try launching it through start.exe */
 +    /* A valid image below its preferred Win64 base can report
 +     * STATUS_IMAGE_NOT_AT_BASE. Keep that successful mapping and let the
 +     * existing PE loader validate/apply its relocations. Real errors, DLL
 +     * images and alternate-machine inputs still use the original fallback. */
 +    if (!NT_SUCCESS(status))  /* try launching it through start.exe */
-     {
-         static const char *args[] = { "start.exe", "/exec" };
-         free( image );
 diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
-index 512defa..19e22ac 100644
+index 512defa..88c5c78 100644
 --- a/dlls/ntdll/unix/loader.c
 +++ b/dlls/ntdll/unix/loader.c
-@@ -1882,7 +1882,8 @@ static void start_main_thread(void)
-     init_startup_info();
-     *(ULONG_PTR *)&peb->CloudFileFlags = get_image_address();
-     set_load_order_app_name( main_wargv[0] );
+@@ -33,0 +34,3 @@
++#ifdef __linux__
++#include "betterjit_spawn.h"
++#endif
+@@ -542,0 +546,47 @@ NTSTATUS exec_wineloader( char **argv, int socketfd, const struct pe_image_info
++/* Only the adapted Win64 candidate opts into this path. Environment and argv
++ * are prepared without mutating the parent, and libc supplies a vfork-safe
++ * launch implementation with explicit actions instead of Wine's double fork. */
++NTSTATUS spawn_wineloader( char **argv, int socketfd, const struct pe_image_info *pe_info,
++                          int unixdir, int input, int output, BOOL detached, char *winedebug )
++{
++#ifdef __linux__
++    WORD machine = pe_info->machine;
++    ULONGLONG start = pe_info->base, end = start + pe_info->map_size;
++    char reserve[64], socket[64], **envp, *alternate;
++    size_t count = 0, n = 0, i;
++    pid_t pid = -1;
++    int ret;
++    if (pe_info->wine_fakedll) start = end = 0;
++    if (pe_info->image_flags & IMAGE_FLAGS_ComPlusNativeReady) machine = native_machine;
++    snprintf( socket, sizeof(socket), "WINESERVERSOCKET=%u", socketfd );
++    snprintf( reserve, sizeof(reserve), "WINEPRELOADRESERVE=%x%08x-%x%08x",
++              (UINT)(start >> 32), (UINT)start, (UINT)(end >> 32), (UINT)end );
++    while (environ[count]) count++;
++    if (!(envp = malloc( (count + 5) * sizeof(*envp) ))) return STATUS_NO_MEMORY;
++    for (i = 0; i < count; i++)
++    {
++        if (!strncmp( environ[i], "WINESERVERSOCKET=", sizeof("WINESERVERSOCKET=") - 1 ) ||
++            !strncmp( environ[i], "WINEPRELOADRESERVE=", sizeof("WINEPRELOADRESERVE=") - 1 ) ||
++            !strncmp( environ[i], "WINELOADERNOEXEC=", sizeof("WINELOADERNOEXEC=") - 1 ) ||
++            (winedebug && !strncmp( environ[i], "WINEDEBUG=", sizeof("WINEDEBUG=") - 1 ))) continue;
++        envp[n++] = environ[i];
++    }
++    envp[n++] = socket;envp[n++] = reserve;envp[n++] = "WINELOADERNOEXEC=1";
++    if (winedebug) envp[n++] = winedebug;
++    envp[n] = NULL;
++    alternate = get_alternate_wineloader( machine );
++    argv[1] = alternate ? alternate : wineloader;
++    ret = betterjit_spawn( &pid, argv[1], argv + 1, envp, socketfd, unixdir, input, output, detached );
++    if (ret && alternate && pid == -1)
++    {
++        argv[1] = wineloader;
++        ret = betterjit_spawn( &pid, argv[1], argv + 1, envp, socketfd, unixdir, input, output, detached );
++    }
++    free( alternate );free( envp );
++    return ret ? errno_to_status( ret ) : STATUS_SUCCESS;
++#else
++    return STATUS_NOT_SUPPORTED;
++#endif
++}
++
++
+@@ -1885 +1935,2 @@ static void start_main_thread(void)
 -    init_thread_stack( teb, 0, 0, 0 );
 +    if (init_thread_stack( teb, 0, 0, 0 ))
 +        fatal_error( "BetterJIT Wine: could not allocate the initial thread stacks\n" );
-     NtCreateKeyedEvent( &keyed_event, GENERIC_READ | GENERIC_WRITE, NULL, 0 );
-     load_ntdll();
-     load_wow64_ntdll( main_image_info.Machine );
+diff --git a/dlls/ntdll/unix/process.c b/dlls/ntdll/unix/process.c
+index 36ffe20..51be0be 100644
+--- a/dlls/ntdll/unix/process.c
++++ b/dlls/ntdll/unix/process.c
+@@ -438,0 +439,16 @@ static NTSTATUS spawn_process( const RTL_USER_PROCESS_PARAMETERS *params, int so
++    if (getenv( "BETTERJIT_WINE_SPAWN" ) && !strcmp( getenv( "BETTERJIT_WINE_SPAWN" ), "1" ))
++    {
++        BOOL detached = (peb->ProcessParameters && params->ProcessGroupId != peb->ProcessParameters->ProcessGroupId) ||
++                        params->ConsoleHandle == CONSOLE_HANDLE_ALLOC ||
++                        params->ConsoleHandle == CONSOLE_HANDLE_ALLOC_NO_WINDOW || params->ConsoleHandle == NULL;
++        if (!(argv = build_argv( &params->CommandLine, 2 ))) status = STATUS_NO_MEMORY;
++        else
++        {
++            status = spawn_wineloader( argv, socketfd, pe_info, unixdir, stdin_fd, stdout_fd, detached, winedebug );
++            free( argv );
++        }
++        if (stdin_fd != -1 && stdin_fd != 0) close( stdin_fd );
++        if (stdout_fd != -1 && stdout_fd != 1) close( stdout_fd );
++        return status;
++    }
++
 diff --git a/dlls/ntdll/unix/signal_x86_64.c b/dlls/ntdll/unix/signal_x86_64.c
 index 3c9b3e9..9175b92 100644
 --- a/dlls/ntdll/unix/signal_x86_64.c
 +++ b/dlls/ntdll/unix/signal_x86_64.c
-@@ -398,6 +398,22 @@ C_ASSERT( sizeof(struct callback_stack_layout) == 0x58 );
- /* flags to control the behavior of the syscall dispatcher */
- #define SYSCALL_HAVE_XSAVE       1
- #define SYSCALL_HAVE_XSAVEC      2
+@@ -400,0 +401,16 @@ C_ASSERT( sizeof(struct callback_stack_layout) == 0x58 );
 +/* The flat guest candidate supports Win64 only. A null FS selector is
 + * implemented by Linux ARCH_SET_FS(0), including its base-clearing effect.
 + * Non-null selectors need a descriptor/32-bit execution model and trap here.
@@ -53,104 +202,53 @@ index 3c9b3e9..9175b92 100644
 +    "99:\tud2\n" \
 +    "98:\tpopq %r11\n\tpopq %rcx\n\tpopq %rsi\n\tpopq %rdi\n\tpopq %rax\n\tpopfq\n\tmovq %gs:0x350,%rsp\n\t"
 +
- #define SYSCALL_HAVE_PTHREAD_TEB 4
- #define SYSCALL_HAVE_WRFSGSBASE  8
- 
-@@ -455,8 +471,11 @@ struct amd64_thread_data
-     DWORD                 xstate_features_size;  /* 033c */
-     UINT64                xstate_features_mask;  /* 0340 */
-     void                **instrumentation_callback; /* 0348 */
+@@ -457,0 +474 @@ struct amd64_thread_data
 +    void                 *flat_fs_saved_rsp;         /* 0350: flat candidate scratch */
- };
- 
+@@ -459,0 +477,2 @@ struct amd64_thread_data
 +C_ASSERT( offsetof( TEB, GdiTebBatch ) + offsetof( struct amd64_thread_data, flat_fs_saved_rsp ) == 0x350 );
 +C_ASSERT( offsetof( TEB, GdiTebBatch ) + offsetof( struct ntdll_thread_data, kernel_stack ) == 0x370 );
- C_ASSERT( sizeof(struct amd64_thread_data) <= sizeof(((struct ntdll_thread_data *)0)->cpu_data) );
- C_ASSERT( offsetof( TEB, GdiTebBatch ) + offsetof( struct amd64_thread_data, pthread_teb ) == 0x320 );
- C_ASSERT( offsetof( TEB, GdiTebBatch ) + offsetof( struct amd64_thread_data, syscall_frame ) == 0x328 );
-@@ -869,7 +888,7 @@ static inline void leave_handler( ucontext_t *sigcontext )
- {
- #ifdef __linux__
-     if (fs32_sel && !is_inside_signal_stack( (void *)RSP_sig(sigcontext )) && !is_inside_syscall(sigcontext))
+@@ -872 +891 @@ static inline void leave_handler( ucontext_t *sigcontext )
 -        __asm__ volatile( "movw %0,%%fs" :: "r" (fs32_sel) );
 +        raise( SIGILL ); /* Non-null FS selectors are unsupported in this Win64 candidate. */
- #elif defined __APPLE__
-     if (!is_inside_signal_stack( (void *)RSP_sig(sigcontext )) && !is_inside_syscall(sigcontext))
-         _thread_set_tsd_base( (uint64_t)NtCurrentTeb() );
-@@ -1650,7 +1669,7 @@ __ASM_GLOBAL_FUNC( call_user_mode_callback,
- #ifdef __linux__
-                    "testl $4,%r14d\n\t"        /* SYSCALL_HAVE_PTHREAD_TEB */
-                    "jz 1f\n\t"
+@@ -1653 +1672 @@ __ASM_GLOBAL_FUNC( call_user_mode_callback,
 -                   "movw 0x338(%r8),%fs\n"     /* amd64_thread_data()->fs */
 +                   BETTERJIT_LOAD_NULL_FS("0x338(%r8)")     /* amd64_thread_data()->fs */
-                    "1:\n\t"
- #elif defined __APPLE__
-                    "movq %rcx,%r10\n\t"
-@@ -2864,7 +2883,7 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
- #ifdef __linux__
-                    "testl $4,%r14d\n\t"            /* SYSCALL_HAVE_PTHREAD_TEB */
-                    "jz 1f\n\t"
+@@ -2867 +2886 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
 -                   "movw %gs:0x338,%fs\n"          /* amd64_thread_data()->fs */
 +                   BETTERJIT_LOAD_NULL_FS("%gs:0x338")          /* amd64_thread_data()->fs */
-                    "1:\n\t"
- #elif defined __APPLE__
-                    "movq %rax,%r8\n\t"
-@@ -3098,7 +3117,7 @@ __ASM_GLOBAL_FUNC( __wine_unix_call_dispatcher,
- #ifdef __linux__
-                    "testl $4,%r14d\n\t"            /* SYSCALL_HAVE_PTHREAD_TEB */
-                    "jz 1f\n\t"
+@@ -3101 +3120 @@ __ASM_GLOBAL_FUNC( __wine_unix_call_dispatcher,
 -                   "movw %gs:0x338,%fs\n"          /* amd64_thread_data()->fs */
 +                   BETTERJIT_LOAD_NULL_FS("%gs:0x338")          /* amd64_thread_data()->fs */
-                    "1:\n\t"
- #elif defined __APPLE__
-                    "movq %rax,%rdx\n\t"
 diff --git a/dlls/ntdll/unix/thread.c b/dlls/ntdll/unix/thread.c
 index c4086fd..ae153e3 100644
 --- a/dlls/ntdll/unix/thread.c
 +++ b/dlls/ntdll/unix/thread.c
-@@ -1195,7 +1195,7 @@ NTSTATUS init_thread_stack( TEB *teb, ULONG_PTR limit, SIZE_T reserve_size, SIZE
-     NTSTATUS status;
- 
-     /* kernel stack */
+@@ -1198 +1198 @@ NTSTATUS init_thread_stack( TEB *teb, ULONG_PTR limit, SIZE_T reserve_size, SIZE
 -    if ((status = virtual_alloc_thread_stack( &stack, limit_4g, 0, kernel_stack_size, kernel_stack_size, FALSE )))
 +    if ((status = virtual_alloc_thread_stack( &stack, 0, (ULONG_PTR)0x7fff0000, kernel_stack_size, kernel_stack_size, FALSE )))
-         return status;
-     thread_data->kernel_stack = stack.DeallocationStack;
- 
+diff --git a/dlls/ntdll/unix/unix_private.h b/dlls/ntdll/unix/unix_private.h
+index 2e80c8b..864086b 100644
+--- a/dlls/ntdll/unix/unix_private.h
++++ b/dlls/ntdll/unix/unix_private.h
+@@ -198,0 +199,2 @@ extern NTSTATUS exec_wineloader( char **argv, int socketfd, const struct pe_imag
++extern NTSTATUS spawn_wineloader( char **argv, int socketfd, const struct pe_image_info *pe_info,
++                                 int unixdir, int input, int output, BOOL detached, char *winedebug );
 diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
 index 2028947..cea6200 100644
 --- a/dlls/ntdll/unix/virtual.c
 +++ b/dlls/ntdll/unix/virtual.c
-@@ -188,9 +188,9 @@ static void *address_space_start = (void *)0x110000; /* keep DOS area clear */
- static void *address_space_start = (void *)0x10000;
- #endif
- #ifdef _WIN64
+@@ -191,3 +191,3 @@ static void *address_space_start = (void *)0x10000;
 -static void *address_space_limit = (void *)0x7fffffff0000;  /* top of the total available address space */
 -static void *user_space_limit    = (void *)0x7fffffff0000;  /* top of the user address space */
 -static void *working_set_limit   = (void *)0x7fffffff0000;  /* top of the current working set */
 +static void *address_space_limit = (void *)0x7fff0000;  /* top of the total available address space */
 +static void *user_space_limit    = (void *)0x7fff0000;  /* top of the user address space */
 +static void *working_set_limit   = (void *)0x7fff0000;  /* top of the current working set */
- #else
- static void *address_space_limit = (void *)0xc0000000;
- static void *user_space_limit    = (void *)0x7fff0000;
-@@ -3649,7 +3649,7 @@ void virtual_init(void)
- #endif
- 
- #ifdef _WIN64
+@@ -3652 +3652 @@ void virtual_init(void)
 -    host_addr_space_limit = get_host_addr_space_limit();
 +    host_addr_space_limit = min( get_host_addr_space_limit(), address_space_limit );
-     TRACE( "host addr space limit: %p\n", host_addr_space_limit );
- #else
-     host_addr_space_limit = address_space_limit;
-@@ -3797,6 +3797,10 @@ NTSTATUS virtual_map_builtin_module( HANDLE mapping, void **module, SIZE_T *size
-         status = virtual_map_image( mapping, module, size, shared_file, limit_low, limit_high, 0,
-                                     machine, image_info, filename, TRUE );
-         virtual_fill_image_information( image_info, info );
+@@ -3799,0 +3800,4 @@ NTSTATUS virtual_map_builtin_module( HANDLE mapping, void **module, SIZE_T *size
 +        /* Match the non-builtin mapping path: startup must use the actual
 +         * mapped base plus RVA, never the preferred high image address. */
 +        if (status == STATUS_IMAGE_NOT_AT_BASE)
 +            info->TransferAddress = (char *)*module + image_info->entry_point;
-     }
- 
-     if (shared_file) NtClose( shared_file );

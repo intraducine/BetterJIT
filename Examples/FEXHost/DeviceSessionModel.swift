@@ -199,7 +199,7 @@ import BetterJITFEXAdapter
                     defer { try? handle.close() }
                     if let data=try? handle.read(upToCount:1024*1024),
                        let object=try? JSONSerialization.jsonObject(with:data) as? [String:Any] {
-                        for key in ["candidate","wineSourceCommit","patchSHA256","guestAddressLimitExclusive","nonNullFSSelectors","nativePrefix","nativePrefixArchiveSHA256","nativePrefixUpdates"] {
+                        for key in ["candidate","wineSourceCommit","patchSHA256","guestAddressLimitExclusive","nonNullFSSelectors","nativePrefix","nativePrefixArchiveSHA256","nativePrefixUpdates","processSpawnPolicy"] {
                             if let value=object[key] as? String { report?.phases[i].details[key]=String(value.prefix(512)) }
                         }
                     }
@@ -240,6 +240,9 @@ import BetterJITFEXAdapter
             if wine {
                 if id == "wine-flat", !value.log.contains("BetterJIT Wine FS reset OK") {
                     throw SuiteFailure("The source-built Wine FS-reset contract did not complete before startup.")
+                }
+                if id == "wine-flat", !value.log.contains("PASS: real spawn fd/cwd/environment/signal/session contracts") {
+                    throw SuiteFailure("The source-built Wine spawn contract did not complete before startup.")
                 }
                 guard let version=DeviceSessionGuestOutput.windowsVersion(in:value.log) else {
                     throw SuiteFailure("Wine exited 0 but cmd /c ver did not print a Windows version.")

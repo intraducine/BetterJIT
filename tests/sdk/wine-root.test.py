@@ -48,7 +48,7 @@ class RootArchiveTests(unittest.TestCase):
             self.assertFalse((root/'opt/wine-flat').exists())
             self.assertEqual((root/'.symlinks.json').read_text(),'{}\n')
             self.assertEqual(stock.read_bytes(),b'stock')
-            for name in ('wine','COPYING.LIB','fs-reset.elf'): (output/name).write_bytes(b'fixture')
+            for name in ('wine','COPYING.LIB','fs-reset.elf','spawn-contract.elf'): (output/name).write_bytes(b'fixture')
             flat.install(root,output,source,patch)
             import json
             links=json.loads((root/'.symlinks.json').read_text())

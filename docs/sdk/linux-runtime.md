@@ -138,3 +138,14 @@ and not on the synchronous syscall critical path.
 The channel backing file is accepted only when it is a regular single-link file
 of the exact expected size, is opened with `O_NOFOLLOW`, and begins with the
 session magic supplied by the WebKit worker. Native mappings are non-executable.
+
+The separately adapted Wine input can opt into `BETTERJIT_WINE_SPAWN=1`. This
+uses parent-prepared argv/environment and POSIX spawn actions for stdio, cwd,
+session, SIGPIPE and server-socket inheritance, removing an intermediate
+double-fork address-space copy. It does not replace generic fork with vfork.
+Spawned Unix children are owned and reaped by a detached native thread; a
+reaping setup failure terminates and waits for the child instead of abandoning
+it. Stock Wine retains its existing launch path. The candidate records this
+policy and runs a real spawn contract before Wine in the same device phase.
+Actual Windows output and exit 0 remain required. Native contract, guest contract,
+Wine host execution and phone execution are separate evidence levels.
