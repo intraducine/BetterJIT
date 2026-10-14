@@ -40,6 +40,7 @@ struct DeviceSessionReport: Codable {
         .init(id:"linux-services", title:"Linux files, GS base, mmap, clock, random, clone / futex", deadlineSeconds:50),
         .init(id:"linux-channels", title:"Linux workload with native channels requested", deadlineSeconds:50),
         .init(id:"linux-userspace", title:"Linux shell: files, pipes, signals and processes", deadlineSeconds:110),
+        .init(id:"consumer-digest",title:"Consumer: packaged backend document digest",deadlineSeconds:80),
         .init(id:"wine", title:"Wine: cmd /c ver", deadlineSeconds:110),
         .init(id:"wine-direct", title:"Wine: cmd /c ver with direct loader", deadlineSeconds:110),
         .init(id:"wine-flat", title:"Wine: source-built flat-window Win64", deadlineSeconds:200),

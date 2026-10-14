@@ -5,9 +5,15 @@ The GitHub artifact contains an **unsigned** device-arm64 IPA; it requires signi
 before iOS will install it. No signing credentials are collected by this workflow.
 
 1. Launch from the Home Screen. Keep the app in the foreground.
-2. Tap **Run All**. Expand a phase to see its live guest log and individual checks.
+2. Open the **Run All** tab and tap **Run All**. Expand a phase to see its live guest log and individual checks.
 3. When finished, tap **Share session report** once. That JSON includes every
    phase, guest log, nested case, sample, capability and exact source identity.
+
+The **Use backend** tab calculates a selected document’s SHA-256 through either
+CryptoKit or the packaged BetterJIT FEX process backend. BetterJIT runs the actual
+x86 Linux BusyBox command and checks its output against CryptoKit. The default
+document is bundled; selected files stay on the device and are limited to 32 MiB.
+Run All includes this consumer operation and its translation evidence too.
 
 The bundled Linux programs need no download or external root. The first must print
 `BetterJIT Linux OK` and exit 0. The larger static ELF reads exact file bytes,
@@ -131,6 +137,7 @@ From a Mac checkout of this branch:
 
 ```sh
 bash Backends/FEX/build-ios.sh # only if the local native package is absent
+python3 scripts/package-fex-adapter.py # around the existing native package
 python3 Examples/FEXHost/prepare.py
 open Examples/FEXHost/BetterJITFEXHost.xcodeproj
 ```

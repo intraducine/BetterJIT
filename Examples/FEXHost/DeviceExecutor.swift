@@ -4,6 +4,7 @@ import WebKit
 import BetterJIT
 import BetterJITWebKit
 import BetterJITFEX
+import BetterJITFEXAdapter
 
 private actor ProbeByteService {
     private(set) var calls = 0

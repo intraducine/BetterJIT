@@ -13,7 +13,7 @@ async function main() {
  const payload=Buffer.from(Array.from({length:256*1024},(_,i)=>(i*31+7)&255));
  const digest=crypto.createHash('sha256').update(payload).digest('hex');
  const overlay={'/test/hello-static':fixture('LinuxSmokeFixture'),'/test/session-static':fixture('LinuxSessionFixture'),
-   '/test/session-input.txt':Buffer.from('BetterJIT data\n'),'/test/userspace.bin':payload};
+   '/test/session-input.txt':Buffer.from('BetterJIT data\n'),'/test/userspace.bin':payload,'/input/document':payload};
  const faults=['direct','fs','gs','fill','copy-destination','copy-source'].map(segment=>{
   const f=faultFixture(segment),name=`/test/fault-${segment}`;overlay[name]=f.bytes;
   return {id:'linux-faulttrace-'+segment,argv:[name],expectedFault:f.expected,
@@ -24,6 +24,7 @@ async function main() {
   {id:'linux-elf',argv:['/test/hello-static'],marker:'BetterJIT Linux OK'},
   {id:'linux-services',argv:['/test/session-static'],cwd:'/test',marker:'BetterJIT Linux services OK'},
   {id:'linux-file-hash',argv:['/bin/busybox','sha256sum','/test/userspace.bin'],digest},
+  {id:'consumer-document-digest',argv:['/bin/busybox','sha256sum','/input/document'],sharedAddressSpace:false,digest},
   {id:'linux-userspace',argv:['/bin/busybox','sh','-c',userspaceScript()],marker:'BetterJIT userspace OK',
    markers:['BetterJIT files OK','BetterJIT signals OK','BetterJIT process status OK'],digest},
   {id:'wine-command',argv:['/opt/wine/bin/wine','cmd','/c','ver'],optional:true,timeout:120},

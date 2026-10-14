@@ -6,6 +6,7 @@ import Darwin
 import BetterJIT
 import BetterJITWebKit
 import BetterJITLinux
+import BetterJITFEXAdapter
 
 @MainActor final class DeviceSessionModel: ObservableObject {
     @Published var report: DeviceSessionReport?
@@ -23,6 +24,7 @@ import BetterJITLinux
     private var stopped: ReportState?
     private var expired=false
     private var activeIndex: Int?
+    private var consumerBackend:FEXDocumentDigestBackend?
     private var lastLogCheckpoint: UInt64=0
     private var linuxEngineCapabilities: RuntimeCapabilities?
     private lazy var linux = LinuxHarness { [weak self] session,status,log in
@@ -75,7 +77,7 @@ import BetterJITLinux
     private func abort(interrupted:Bool = false) {
         suiteRunner?.stop(interrupted:interrupted)
         diagnosticRunner?.stop(interrupted:interrupted)
-        linux.stop(); transport?.close()
+        consumerBackend?.close(); linux.stop(); transport?.close()
     }
     private func checkStop() throws {
         if expired { throw SuiteFailure("Phase exceeded its host deadline; its executor was closed.") }
@@ -119,8 +121,52 @@ import BetterJITLinux
         liveStatus=report?.overall ?? "Finished"; save()
         running=false; task=nil
     }
+    private func linuxSupported(phase:Int) async throws -> Bool {
+        if linuxEngineCapabilities == nil {
+            let probe=WebDiagnosticExecutor(mode:.copied,mount:{ [weak self] in self?.transport=$0 })
+            defer { probe.close() }
+            linuxEngineCapabilities=try await probe.start()
+            try checkStop()
+        }
+        if let caps=linuxEngineCapabilities {
+            report?.phases[phase].details["engineJSPI"]=String(caps.jspi)
+            report?.phases[phase].details["engineSharedMemory"]=String(caps.sharedMemory)
+            guard caps.jspi && caps.sharedMemory else {
+                report?.phases[phase].status = .unsupported
+                report?.phases[phase].details["reason"]="This WebKit engine lacks JSPI or shared Wasm memory required by the Linux/Wine runtime."
+                return false
+            }
+        }
+        return true
+    }
     private func execute(_ i:Int, stress:Bool) async throws {
         guard let id=report?.phases[i].id else { throw SuiteFailure("Missing phase.") }
+        if id == "consumer-digest" {
+            guard try await linuxSupported(phase:i) else { return }
+            guard FileManager.default.fileExists(atPath:LinuxHarness.rootURL.appendingPathComponent("bin/busybox").path) else {
+                report?.phases[i].status = .unsupported
+                report?.phases[i].details["reason"]="BusyBox is missing from the selected Linux root."
+                return
+            }
+            let consumer=FEXDocumentDigestBackend();consumerBackend=consumer
+            consumer.mount={ [weak self] in self?.linuxSession=$0?.session }
+            consumer.onLog={ [weak self] text in
+                guard let self, self.activeIndex == i else { return }
+                self.report?.phases[i].log=String(((self.report?.phases[i].log ?? "")+text).suffix(128*1024))
+                self.liveStatus="Consumer: guest sha256sum running"
+                self.save()
+            }
+            defer {consumer.close();consumerBackend=nil;linuxSession=nil}
+            let result=try await consumer.digest(LinuxUserspaceWorkload.payload)
+            try checkStop()
+            guard result.sha256==LinuxUserspaceWorkload.expectedSHA256 else {throw SuiteFailure("Consumer backend returned a different document digest.")}
+            report?.phases[i].counters=result.counters
+            report?.phases[i].details["sha256"]=result.sha256
+            report?.phases[i].details["execution"]="Public packaged FEXProcess adapter → real x86 Linux sha256sum"
+            report?.phases[i].details["inputBytes"]=String(LinuxUserspaceWorkload.payloadBytes)
+            report?.phases[i].status = .passed
+            return
+        }
         let wine = id == "wine" || id == "wine-direct" || id == "wine-flat"
         if id.hasPrefix("linux-") || wine {
             if id == "wine-flat" && !LinuxHarness.flatWinePresent {
@@ -164,21 +210,7 @@ import BetterJITLinux
                 report?.phases[i].details["reason"]="BusyBox is missing from the selected Linux root. The bundled root includes it."
                 return
             }
-            if linuxEngineCapabilities == nil {
-                let probe=WebDiagnosticExecutor(mode:.copied,mount:{ [weak self] in self?.transport=$0 })
-                defer { probe.close() }
-                linuxEngineCapabilities=try await probe.start()
-                try checkStop()
-            }
-            if let caps=linuxEngineCapabilities {
-                report?.phases[i].details["engineJSPI"]=String(caps.jspi)
-                report?.phases[i].details["engineSharedMemory"]=String(caps.sharedMemory)
-                guard caps.jspi && caps.sharedMemory else {
-                    report?.phases[i].status = .unsupported
-                    report?.phases[i].details["reason"]="This WebKit engine lacks JSPI or shared Wasm memory required by the Linux/Wine runtime."
-                    return
-                }
-            }
+            guard try await linuxSupported(phase:i) else { return }
             let channels=id == "linux-channels"
             let mode:LinuxHarness.Mode=id == "wine-flat" ? .wineFlat : (id == "wine-direct" ? .wineDirect : (id == "wine" ? .wineCommand : (id == "linux-smoke" ? .smoke : (id == "linux-userspace" ? .userspace : .services))))
             let value=try await linux.run(mode,nativeChannels:channels)
