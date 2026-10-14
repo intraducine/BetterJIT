@@ -20,6 +20,7 @@ async function main() {
    translatorOptions:'depth=24 memtrace=1',debugDirectory:path.join(REPO,'.build/wine-instruction-trace',segment)};
  });
  overlay['/test/code-boundary']=codeBoundaryFixture();
+ const flatPresent=fs.existsSync(path.join(root,'opt/wine-flat/.betterjit-wine-flat.json'));
  const cases=[
   {id:'linux-elf',argv:['/test/hello-static'],marker:'BetterJIT Linux OK'},
   {id:'linux-services',argv:['/test/session-static'],cwd:'/test',marker:'BetterJIT Linux services OK'},
@@ -32,7 +33,7 @@ async function main() {
   {id:'wine-command',argv:['/opt/wine/bin/wine','cmd','/c','ver'],optional:true,timeout:120},
   {id:'wine-command-no-preloader',argv:['/opt/wine/bin/wine','cmd','/c','ver'],
    environment:{WINELOADERNOEXEC:'1',WINEARCH:'win64'},optional:true,timeout:120},
-  ...(fs.existsSync(path.join(root,'opt/wine-flat/.betterjit-wine-flat.json')) ? [
+  ...(flatPresent ? [
    {id:'wine-command-flat-window',argv:['/bin/busybox','sh','-c','/opt/wine-flat/share/betterjit-provenance/fs-reset.elf && /opt/wine-flat/share/betterjit-provenance/spawn-contract.elf && exec /opt/wine-flat/bin/wine /usr/lib/wine/x86_64-windows/cmd.exe /c ver'],
     marker:'BetterJIT Wine FS reset OK',markers:['PASS: real spawn fd/cwd/environment/signal/session contracts'],sharedAddressSpace:false,
     environment:{WINELOADERNOEXEC:'1',WINEARCH:'win64',WINEPREFIX:'/home/user/.wine-flat',BETTERJIT_WINE_SPAWN:'1',
@@ -50,8 +51,8 @@ async function main() {
    translatorOptions:'depth=24 memtrace=1',debugDirectory:path.join(REPO,'.build/wine-instruction-trace','wine')}
  ];
  const report={schema:1,source:process.env.GITHUB_SHA??null,evidence:'Live FEX→Wasm on host; not Apple WebKit or device evidence.',records:[]};
- if(!cases.some(spec=>spec.id==='wine-command-flat-window'))for(const id of ['wine-command-flat-window','wine-nested-createprocess'])report.records.push({id,status:'unsupported',reason:'Separate source-built flat-window Wine input is absent.'});
- let requiredFailed=false;
+ if(!flatPresent)for(const id of ['wine-command-flat-window','wine-nested-createprocess'])report.records.push({id,status:'unsupported',reason:'Separate source-built flat-window Wine input is absent.'});
+ let requiredFailed=process.env.BETTERJIT_REQUIRE_WINE_FLAT==='1'&&!flatPresent;
  for(const spec of cases) {
   console.log(`RUN ${spec.id}: ${spec.argv.slice(0,3).join(' ')}; deadline ${(spec.timeout??90)+5}s`);
   try {

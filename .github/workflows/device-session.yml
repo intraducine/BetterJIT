@@ -129,6 +129,8 @@ jobs:
           key: ${{ steps.host-cache.outputs.cache-primary-key }}
       - name: Execute real Linux userspace through live FEX and the promoted runtime
         id: live-linux
+        env:
+          BETTERJIT_REQUIRE_WINE_FLAT: '1'
         continue-on-error: true
         if: hashFiles('.build/device-linuxroot/.betterjit-linux-root.json') != ''
         run: |
@@ -200,9 +202,9 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Retain a failing validation outcome after preserving the compiled app
-        if: steps.live-linux.outcome == 'failure'
+        if: steps.live-linux.outcome != 'success'
         run: |
-          echo 'Live host validation failed. The unsigned app is preserved with failed results; this run remains failed.'
+          echo 'Required live host validation failed or was unavailable. The unsigned app and available results are preserved; this run remains failed.'
           exit 1
       - name: Preserve failure logs
         if: failure()

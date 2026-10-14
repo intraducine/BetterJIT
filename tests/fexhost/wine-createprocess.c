@@ -2,8 +2,12 @@
  * Real Win64 parent/child/grandchild contract. Execute through the adapted Wine
  * candidate and host FEX/Wasm; compiling this fixture is not execution evidence.
  */
+#ifndef UNICODE
 #define UNICODE
+#endif
+#ifndef _UNICODE
 #define _UNICODE
+#endif
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
