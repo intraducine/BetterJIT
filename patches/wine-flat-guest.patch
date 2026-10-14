@@ -1,9 +1,9 @@
 diff --git a/dlls/ntdll/unix/betterjit_spawn.h b/dlls/ntdll/unix/betterjit_spawn.h
 new file mode 100644
-index 0000000..e506867
+index 0000000..7ebcc17
 --- /dev/null
 +++ b/dlls/ntdll/unix/betterjit_spawn.h
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,119 @@
 +/* SPDX-License-Identifier: LGPL-2.1-or-later
 + * Candidate-only process launch. All setup occurs in the parent and in
 + * libc's posix_spawn file actions; generic fork semantics are unchanged.
@@ -17,16 +17,32 @@ index 0000000..e506867
 +#include <sys/wait.h>
 +#include <unistd.h>
 +
++struct betterjit_spawn_owner
++{
++    pthread_mutex_t gate;
++    pid_t pid;
++};
++
 +static void *betterjit_reap_spawn( void *arg )
 +{
-+    pid_t pid = *(pid_t *)arg;
-+    free( arg );
-+    while (waitpid( pid, NULL, 0 ) == -1 && errno == EINTR) {}
++    struct betterjit_spawn_owner *owned = arg;
++    pid_t pid;
++
++    /* The parent publishes the exact pid only after posix_spawn returns.
++     * This libc-only thread has no Wine TEB and keeps all blockable signals
++     * masked from birth, so Wine's process-wide handlers cannot run here. */
++    pthread_mutex_lock( &owned->gate );
++    pid = owned->pid;
++    pthread_mutex_unlock( &owned->gate );
++    pthread_mutex_destroy( &owned->gate );
++    free( owned );
++    if (pid > 0) while (waitpid( pid, NULL, 0 ) == -1 && errno == EINTR) {}
 +    return NULL;
 +}
 +
 +/* Returns a POSIX error number. Success owns and reaps this exact child,
-+ * never stealing another waiter's child. Parent fds/cwd/signals are untouched.
++ * never stealing another waiter's child. Reaping capacity is reserved before
++ * launch. Parent fds/cwd/dispositions and the caller signal mask are retained.
 + */
 +static int betterjit_spawn( pid_t *pid, const char *loader, char *const argv[], char *const envp[],
 +                           int socketfd, int unixdir, int input, int output, int detached )
@@ -35,16 +51,19 @@ index 0000000..e506867
 +    posix_spawnattr_t attr;
 +    pthread_attr_t thread_attr;
 +    pthread_t thread;
-+    sigset_t defaults;
-+    short flags = POSIX_SPAWN_SETSIGDEF;
++    sigset_t defaults, blocked, original;
++    short flags = POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK;
 +    int ret, i, j, close_fds[3] = {input, output, unixdir};
-+    pid_t *owned;
++    struct betterjit_spawn_owner *owned;
++    int reaper_started = 0, mask_ret;
 +
 +    if (!pid || !loader || !argv || !envp || socketfd < -1 || unixdir < -1 || input < -1 || output < -1)
 +        return EINVAL;
 +    *pid = -1;
 +    if (!(owned = malloc( sizeof(*owned) ))) return ENOMEM;
-+    if ((ret = posix_spawn_file_actions_init( &actions ))) goto free_owned;
++    owned->pid = -1;
++    if ((ret = pthread_mutex_init( &owned->gate, NULL ))) goto free_owned;
++    if ((ret = posix_spawn_file_actions_init( &actions ))) goto destroy_gate;
 +    if ((ret = posix_spawnattr_init( &attr ))) goto destroy_actions;
 +    if ((ret = pthread_attr_init( &thread_attr ))) goto destroy_attr;
 +    if ((ret = pthread_attr_setdetachstate( &thread_attr, PTHREAD_CREATE_DETACHED ))) goto destroy_thread_attr;
@@ -70,14 +89,27 @@ index 0000000..e506867
 +    /* A dup2 action on the same descriptor makes it inheritable across exec. */
 +    if (socketfd != -1 && (ret = posix_spawn_file_actions_adddup2( &actions, socketfd, socketfd )))
 +        goto destroy_thread_attr;
-+    if ((ret = posix_spawn( pid, loader, &actions, &attr, argv, envp ))) goto destroy_thread_attr;
-+    *owned = *pid;
-+    if (!(ret = pthread_create( &thread, &thread_attr, betterjit_reap_spawn, owned ))) owned = NULL;
-+    else
++    /* Reserve the detached waiter before any child can execute. Mask signals
++     * in the creator before pthread_create: masking in its entry is too late. */
++    sigfillset( &blocked );
++    if ((ret = pthread_sigmask( SIG_SETMASK, &blocked, &original ))) goto destroy_thread_attr;
++    ret = posix_spawnattr_setsigmask( &attr, &original );
++    if (!ret)
 +    {
-+        /* A successful launch must not escape ownership if reaping cannot start. */
-+        kill( *pid, SIGKILL );
-+        while (waitpid( *pid, NULL, 0 ) == -1 && errno == EINTR) {}
++        pthread_mutex_lock( &owned->gate );
++        ret = pthread_create( &thread, &thread_attr, betterjit_reap_spawn, owned );
++        if (!ret) reaper_started = 1;
++        else pthread_mutex_unlock( &owned->gate );
++    }
++    mask_ret = pthread_sigmask( SIG_SETMASK, &original, NULL );
++    if (!ret) ret = mask_ret;
++    if (!ret) ret = posix_spawn( pid, loader, &actions, &attr, argv, envp );
++    if (reaper_started)
++    {
++        if (!ret) owned->pid = *pid;
++        /* On launch failure the reserved waiter exits without calling waitpid. */
++        pthread_mutex_unlock( &owned->gate );
++        owned = NULL;
 +    }
 +destroy_thread_attr:
 +    pthread_attr_destroy( &thread_attr );
@@ -85,6 +117,8 @@ index 0000000..e506867
 +    posix_spawnattr_destroy( &attr );
 +destroy_actions:
 +    posix_spawn_file_actions_destroy( &actions );
++destroy_gate:
++    if (owned) pthread_mutex_destroy( &owned->gate );
 +free_owned:
 +    free( owned );
 +    return ret;
@@ -161,10 +195,25 @@ index 512defa..88c5c78 100644
 +    if (init_thread_stack( teb, 0, 0, 0 ))
 +        fatal_error( "BetterJIT Wine: could not allocate the initial thread stacks\n" );
 diff --git a/dlls/ntdll/unix/process.c b/dlls/ntdll/unix/process.c
-index 36ffe20..51be0be 100644
+index 36ffe20..9b960cf 100644
 --- a/dlls/ntdll/unix/process.c
 +++ b/dlls/ntdll/unix/process.c
-@@ -438,0 +439,16 @@ static NTSTATUS spawn_process( const RTL_USER_PROCESS_PARAMETERS *params, int so
+@@ -83 +83 @@ static char **build_argv( const UNICODE_STRING *cmdline, int reserved )
+-    char **argv, *arg, *src, *dst;
++    char **argv, *arg, *src, *dst, *buffer;
+@@ -86 +86 @@ static char **build_argv( const UNICODE_STRING *cmdline, int reserved )
+-    if (!(src = malloc( len * 3 + 1 ))) return NULL;
++    if (!(buffer = src = malloc( len * 3 + 1 ))) return NULL;
+@@ -91 +91,5 @@ static char **build_argv( const UNICODE_STRING *cmdline, int reserved )
+-    argv = malloc( argc * sizeof(*argv) + len );
++    if (!(argv = malloc( argc * sizeof(*argv) + len )))
++    {
++        free( buffer );
++        return NULL;
++    }
+@@ -143,0 +148 @@ static char **build_argv( const UNICODE_STRING *cmdline, int reserved )
++    free( buffer );
+@@ -438,0 +444,16 @@ static NTSTATUS spawn_process( const RTL_USER_PROCESS_PARAMETERS *params, int so
 +    if (getenv( "BETTERJIT_WINE_SPAWN" ) && !strcmp( getenv( "BETTERJIT_WINE_SPAWN" ), "1" ))
 +    {
 +        BOOL detached = (peb->ProcessParameters && params->ProcessGroupId != peb->ProcessParameters->ProcessGroupId) ||

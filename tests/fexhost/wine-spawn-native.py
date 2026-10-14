@@ -4,8 +4,46 @@ import argparse, pathlib, re, subprocess, tempfile
 
 C = r'''
 #define _GNU_SOURCE
-#include "betterjit_spawn.h"
+#include <errno.h>
+#include <pthread.h>
+#include <signal.h>
+#include <spawn.h>
+#include <stdlib.h>
+#include <stdatomic.h>
 #include <stdio.h>
+static int fail_allocation, fail_thread, fail_spawn, spawn_calls, created;
+static atomic_int allocations, mask_error;
+static void *betterjit_reap_spawn(void *);
+static void *checked_malloc(size_t n) {
+    void *p;if(fail_allocation)return NULL;p=malloc(n);if(p)atomic_fetch_add(&allocations,1);return p;
+}
+static void checked_free(void *p) {if(p)atomic_fetch_sub(&allocations,1);free(p);}
+static void *checked_entry(void *p) {
+    sigset_t mask;pthread_sigmask(SIG_SETMASK,NULL,&mask);
+    if(!sigismember(&mask,SIGUSR1)||!sigismember(&mask,SIGUSR2)||!sigismember(&mask,SIGINT)||
+       !sigismember(&mask,SIGQUIT)||!sigismember(&mask,SIGTERM)||!sigismember(&mask,SIGSEGV))
+        atomic_store(&mask_error,1);
+    return betterjit_reap_spawn(p);
+}
+static int checked_create(pthread_t *t,const pthread_attr_t *attr,void *(*fn)(void *),void *arg) {
+    int ret;if(fail_thread)return EAGAIN;if(fn!=betterjit_reap_spawn)abort();ret=pthread_create(t,attr,checked_entry,arg);
+    if(!ret)created++;
+    return ret;
+}
+static int checked_spawn(pid_t *pid,const char *file,const posix_spawn_file_actions_t *actions,
+                         const posix_spawnattr_t *attr,char *const argv[],char *const envp[]) {
+    spawn_calls++;if(!created)abort();if(fail_spawn)return ENOENT;
+    return posix_spawn(pid,file,actions,attr,argv,envp);
+}
+#define malloc checked_malloc
+#define free checked_free
+#define pthread_create checked_create
+#define posix_spawn checked_spawn
+#include "betterjit_spawn.h"
+#undef malloc
+#undef free
+#undef pthread_create
+#undef posix_spawn
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -20,7 +58,11 @@ int main(int argc,char **argv)
 {
     if(argc>1)
     {
-        struct sigaction action;char input[16]={0},cwd[1024];int fd=atoi(getenv("TEST_SOCKET"));
+        struct sigaction action;sigset_t mask;char input[16]={0},cwd[1024];int fd;
+        if(!strcmp(argv[1],"unrelated"))return 42;
+        fd=atoi(getenv("TEST_SOCKET"));
+        pthread_sigmask(SIG_SETMASK,NULL,&mask);
+        if(sigismember(&mask,SIGUSR1)||!sigismember(&mask,SIGUSR2))return 25;
         sigaction(SIGPIPE,NULL,&action);
         if(action.sa_handler!=SIG_DFL || fcntl(fd,F_GETFD)==-1 || !getcwd(cwd,sizeof(cwd))) return 21;
         if(strcmp(getenv("TEST_VALUE"),"child") || !strstr(cwd,"spawn-work")) return 22;
@@ -38,7 +80,7 @@ int main(int argc,char **argv)
     }
     {
         int in[2],out[2],socket[2],dir,ret;pid_t pid;char self[1024],cwd[1024],buffer[32]={0},entry[64];
-        char *env[4],*args[3];struct sigaction action;ssize_t n;
+        char *env[4],*args[3];struct sigaction action;sigset_t mask,original;ssize_t n;
         n=readlink("/proc/self/exe",self,sizeof(self)-1);
         if(n<=0 || !getcwd(cwd,sizeof(cwd))) return 1;
         self[n]=0;
@@ -49,6 +91,13 @@ int main(int argc,char **argv)
         env[0]=entry;env[1]="TEST_VALUE=child";env[2]=NULL;
         args[0]=self;args[1]="attached";args[2]=NULL;
         signal(SIGPIPE,SIG_IGN);
+        pthread_sigmask(SIG_SETMASK,NULL,&original);mask=original;
+        sigaddset(&mask,SIGUSR2);sigdelset(&mask,SIGUSR1);pthread_sigmask(SIG_SETMASK,&mask,NULL);
+        fail_allocation=1;
+        if(betterjit_spawn(&pid,self,args,env,socket[1],dir,in[0],out[1],0)!=ENOMEM || pid!=-1 || spawn_calls) return 12;
+        fail_allocation=0;fail_thread=1;
+        if(betterjit_spawn(&pid,self,args,env,socket[1],dir,in[0],out[1],0)!=EAGAIN || pid!=-1 || spawn_calls || atomic_load(&allocations)) return 13;
+        fail_thread=0;
         ret=betterjit_spawn(&pid,self,args,env,socket[1],dir,in[0],out[1],0);
         if(ret || !finished(pid)) return 2;
         n=read(out[0],buffer,8);if(n!=8 || memcmp(buffer,"STDIO OK",8)) return 3;
@@ -63,8 +112,24 @@ int main(int argc,char **argv)
         n=read(socket[0],buffer,10);if(n!=10 || memcmp(buffer,"SESSION OK",10)) return 10;
         ret=betterjit_spawn(&pid,"/no/such/betterjit-loader",args,env,socket[1],dir,-1,-1,0);
         if(ret!=ENOENT || pid!=-1) return 11;
+        fail_spawn=1;
+        if(betterjit_spawn(&pid,self,args,env,socket[1],dir,-1,-1,0)!=ENOENT || pid!=-1)return 14;
+        fail_spawn=0;
+        {
+            pid_t unrelated;int status;char *other[]={self,"unrelated",NULL};
+            if(posix_spawn(&unrelated,self,NULL,NULL,other,env))return 15;
+            for(int i=0;i<4;i++) {
+                if(betterjit_spawn(&pid,self,args,env,socket[1],dir,-1,-1,1) || !finished(pid))return 16;
+            }
+            if(waitpid(unrelated,&status,0)!=unrelated || !WIFEXITED(status) || WEXITSTATUS(status)!=42)return 17;
+        }
+        pthread_sigmask(SIG_SETMASK,NULL,&mask);
+        if(sigismember(&mask,SIGUSR1)||!sigismember(&mask,SIGUSR2)||atomic_load(&mask_error))return 18;
+        pthread_sigmask(SIG_SETMASK,&original,NULL);
+        for(int i=0;i<300 && atomic_load(&allocations);i++){struct timespec d={0,10000000};nanosleep(&d,NULL);}
+        if(atomic_load(&allocations))return 19;
         close(in[0]);close(out[0]);close(out[1]);close(socket[0]);close(socket[1]);close(dir);
-        puts("PASS: real spawn fd/cwd/environment/signal/session contracts, error propagation and exact-child reaping; parent state retained.");
+        puts("PASS: real spawn fd/cwd/environment/signal/session contracts, error propagation and exact-child reaping; parent state retained; allocation/thread/launch failures, reserved reaper and inherited masks checked.");
         return 0;
     }
 }
@@ -121,11 +186,60 @@ int main(void) {
     subprocess.run(['cc','-O2','-Wall','-Wextra','-Werror',str(target),'-o',str(work/'environment')],check=True)
     subprocess.run([str(work/'environment')],check=True,timeout=5)
 
+def check_argv(source, work):
+    process=(source/'dlls/ntdll/unix/process.c').read_text()
+    function=re.search(r'static char \*\*build_argv\([\s\S]*?\n\}',process)
+    if not function:raise SystemExit('Wine argv builder is absent')
+    stubs=r"""
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+#include <stdio.h>
+typedef uint16_t WCHAR;
+typedef struct {unsigned short Length;WCHAR *Buffer;} UNICODE_STRING;
+#define FALSE 0
+static int calls,fail_at,live;
+static void *checked_malloc(size_t size) {
+ void *p;if(++calls==fail_at)return NULL;p=malloc(size);if(p)live++;return p;
+}
+static void checked_free(void *p){if(p)live--;free(p);}
+static int ntdll_wcstoumbs(const WCHAR *s,int n,char *d,int capacity,int strict) {
+ (void)strict;if(capacity<n)abort();for(int i=0;i<n;i++)d[i]=(char)s[i];return n;
+}
+#define malloc checked_malloc
+#define free checked_free
+"""
+    after=r"""
+int main(void) {
+ const char *text="program.exe \"two words\" tail";WCHAR wide[128];char **argv;
+ UNICODE_STRING command={(unsigned short)(strlen(text)*sizeof(WCHAR)),wide};
+ for(size_t i=0;i<=strlen(text);i++)wide[i]=text[i];
+ for(fail_at=1;fail_at<=2;fail_at++) {
+  calls=0;if(build_argv(&command,2)!=NULL || live)return fail_at;
+ }
+ fail_at=0;
+ for(int i=0;i<100;i++) {
+  argv=build_argv(&command,2);
+  if(!argv || strcmp(argv[2],"program.exe") || strcmp(argv[3],"two words") || strcmp(argv[4],"tail") || argv[5] || live!=1)return 3;
+  free(argv);if(live)return 4;
+ }
+ command.Length=0;argv=build_argv(&command,0);
+ if(!argv || strcmp(argv[0],"") || argv[1] || live!=1)return 5;
+ free(argv);if(live)return 6;
+ puts("PASS: actual Wine argv builder: both allocation failures, quoting, empty input and repeated scratch cleanup.");return 0;
+}
+"""
+    target=work/'argv.c';target.write_text(stubs+function.group()+after)
+    subprocess.run(['cc','-O2','-Wall','-Wextra','-Werror',str(target),'-o',str(work/'argv')],check=True)
+    subprocess.run([str(work/'argv')],check=True,timeout=5)
+
+
 def check(source):
     header=source/'dlls/ntdll/unix/betterjit_spawn.h'
     if not header.is_file(): raise SystemExit('Adapted spawn helper is absent')
     with tempfile.TemporaryDirectory(prefix='wine-spawn-native-') as name:
         work=pathlib.Path(name)
+        check_argv(source,work)
         check_environment(source,work)
         (work/'betterjit_spawn.h').write_bytes(header.read_bytes())
         (work/'check.c').write_text(C)

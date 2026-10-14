@@ -37,7 +37,11 @@ async function main() {
     marker:'BetterJIT Wine FS reset OK',markers:['PASS: real spawn fd/cwd/environment/signal/session contracts'],sharedAddressSpace:false,
     environment:{WINELOADERNOEXEC:'1',WINEARCH:'win64',WINEPREFIX:'/home/user/.wine-flat',BETTERJIT_WINE_SPAWN:'1',
      WINEDLLPATH:'/usr/lib/wine',LD_LIBRARY_PATH:'/opt/wine-flat/lib/wine/x86_64-unix:/usr/lib',WINEDEBUG:'+module,+loaddll,+process'},timeout:180,
-    translatorOptions:'depth=24 memtrace=1',debugDirectory:path.join(REPO,'.build/wine-instruction-trace','wine-flat')}
+    translatorOptions:'depth=24 memtrace=1',debugDirectory:path.join(REPO,'.build/wine-instruction-trace','wine-flat')},
+   {id:'wine-nested-createprocess',argv:['/opt/wine-flat/bin/wine','/opt/wine-flat/share/betterjit-provenance/createprocess.exe'],
+    marker:'BetterJIT Wine nested CreateProcess OK',markers:['GRANDCHILD argv/env/cwd/stdio OK','CHILD nested wait/exit OK'],
+    environment:{WINELOADERNOEXEC:'1',WINEARCH:'win64',WINEPREFIX:'/home/user/.wine-flat',BETTERJIT_WINE_SPAWN:'1',
+     WINEDLLPATH:'/usr/lib/wine',LD_LIBRARY_PATH:'/opt/wine-flat/lib/wine/x86_64-unix:/usr/lib',WINEDEBUG:'+process'},timeout:180}
   ] : []),
   ...faults,
   {id:'linux-code-boundary',argv:['/test/code-boundary'],expectedCodeRejection:true},
@@ -46,7 +50,7 @@ async function main() {
    translatorOptions:'depth=24 memtrace=1',debugDirectory:path.join(REPO,'.build/wine-instruction-trace','wine')}
  ];
  const report={schema:1,source:process.env.GITHUB_SHA??null,evidence:'Live FEX→Wasm on host; not Apple WebKit or device evidence.',records:[]};
- if(!cases.some(spec=>spec.id==='wine-command-flat-window'))report.records.push({id:'wine-command-flat-window',status:'unsupported',reason:'Separate source-built flat-window Wine input is absent.'});
+ if(!cases.some(spec=>spec.id==='wine-command-flat-window'))for(const id of ['wine-command-flat-window','wine-nested-createprocess'])report.records.push({id,status:'unsupported',reason:'Separate source-built flat-window Wine input is absent.'});
  let requiredFailed=false;
  for(const spec of cases) {
   console.log(`RUN ${spec.id}: ${spec.argv.slice(0,3).join(' ')}; deadline ${(spec.timeout??90)+5}s`);
@@ -58,7 +62,7 @@ async function main() {
     /(?:translation failed|fatal: signal 11)/.test(result.stderr);
    const correct=(spec.expectedCodeRejection?boundary:((spec.expectedFault?expectedFault:result.code===0) && result.translator.units>0 && result.units.compiled>0)) &&
     (!spec.marker||result.stdout.includes(spec.marker)) && (!spec.markers||spec.markers.every(m=>result.stdout.includes(m))) && (!spec.digest||result.stdout.includes(spec.digest)) &&
-    (!spec.id.startsWith('wine-')||windowsVersion(result.stdout)!==null);
+    (!(spec.id.startsWith('wine-') && spec.id!=='wine-nested-createprocess')||windowsVersion(result.stdout)!==null);
    report.records.push({id:spec.id,status:correct?'passed':'failed',purpose:spec.memoryConstructionLimit?'Real guest workload under injected constructor exhaustion; not a device quota measurement':spec.expectedCodeRejection?'Expected unmapped-code rejection; no successful guest workload claim':spec.expectedFault?'Expected-fault diagnostic validation':'Real guest workload',expectedFault:spec.expectedFault??null,windowsVersion:spec.id.startsWith('wine-')?windowsVersion(result.stdout):undefined,...result});
    console.log(`${correct?'PASS':'FAIL'} ${spec.id}: exit ${result.code}, ${result.translator.units} native FEX units, ${result.units.compiled} Wasm modules, ${result.milliseconds.toFixed(0)} ms`);
    if(result.memoryFaults.length)console.log(JSON.stringify({id:spec.id,expectedFault:spec.expectedFault??null,memoryFaults:result.memoryFaults}));
