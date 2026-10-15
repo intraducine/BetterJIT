@@ -168,6 +168,9 @@
     "tests/sdk/linux-page-lifecycle.test.mjs": "tests/sdk/linux-page-lifecycle.test.mjs",
     "scripts/build-assets.py": "scripts/build-assets.py",
     "tests/sdk/build-assets.test.py": "tests/sdk/build-assets.test.py",
-    "docs/sdk/build-assets.md": "docs/sdk/build-assets.md"
+    "docs/sdk/build-assets.md": "docs/sdk/build-assets.md",
+    "Sources/BetterJITLinux/Resources/linux/guest_memory.js": "Sources/BetterJITLinux/Resources/linux/guest_memory.js",
+    "tests/sdk/linux-guest-memory.test.mjs": "tests/sdk/linux-guest-memory.test.mjs",
+    "docs/sdk/sparse-guest-memory.md": "docs/sdk/sparse-guest-memory.md"
   }
 }
