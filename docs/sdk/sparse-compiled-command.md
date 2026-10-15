@@ -25,7 +25,7 @@ zero-fill BSS case while retaining alignment restrictions for file-backed loads;
 readable distinct R/RW/RX pages, W+X refusal and rollback bounds still apply.
 
 Native memory/checkpoint versions remain 1/1, step remains 3 with a 96-byte header,
-and **coverage becomes 4**. The added family `READ_FLAGS=8` accepts exactly one
+and **coverage becomes 5**. The added family `READ_FLAGS=8` accepts exactly one
 READ RPC and flag updates; it cannot write, perform RMW, branch or call a syscall.
 The complete IR effect checks still precede emission. Arithmetic remains
 register-only; stack PUSH/POP, CALL/RET, indirect control flow, signed/parity/
@@ -35,6 +35,28 @@ unsigned/equality branch conditions are checked against 104 independently
 executed native x86 rows, producing 624 FEX/Wasm branch/flag comparisons.
 The previous 64 branch comparisons, memory faults and lifecycle fixtures remain
 separate regressions.
+
+The fresh Ubuntu GCC 13 output also contains GNU property metadata and `ENDBR64`
+at its C entry. The first Apple CI run refused the metadata before target startup;
+the isolated marker was also outside admission. Rebuilding with that exact
+compiler locally reproduced the identical ELF hash and failure. The loader now
+accepts only one aligned 32-byte GNU `FEATURE_1_AND` IBT/SHSTK compatibility note
+and its optional PT_NOTE/PT_GNU_PROPERTY alias, contained in the same read-only
+file-backed load. It checks the note framing, property size, feature mask,
+padding and alias identity before any image allocation. Unknown/required
+properties, duplicate/distinct notes and malformed framing remain refused.
+[Linux's CET application-enabling documentation](https://github.com/torvalds/linux/blob/v6.12/Documentation/arch/x86/shstk.rst)
+distinguishes this compatibility marker from explicit userspace enablement;
+the sparse profile never enables CET and refuses its enabling syscalls.
+The instruction profile now admits only the
+exact `f3 0f 1e fa` marker with legacy no-op semantics; CET is not enabled or
+advertised, and indirect branches remain unsupported. FEX still decodes it and
+checks the complete IR effects. A live step verifies full CPU, lazy flags and
+rounding state preservation, no guest-memory RPC and RIP+4; ENDBR32, truncated,
+wrong-prefix and extra-prefix forms still refuse. This follows
+[Intel's backward-compatible ENDBR semantics](https://edc.intel.com/content/www/us/en/design/ipla/software-development-platforms/client/platforms/alder-lake-desktop/12th-generation-intel-core-processors-datasheet-volume-1-of-2/010/indirect-branch-tracking/),
+not an emulation of CET enforcement. The compiler payload and recipe remain
+unaltered; no compiler flag suppresses the marker to make validation pass.
 
 Host lifecycle capability 4 adds bounded write(1) and actual stdout/stderr file
 descriptions in the process descriptor table. Only descriptors 1 and 2 of this

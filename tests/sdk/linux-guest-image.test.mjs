@@ -32,3 +32,30 @@ test('ordinary compiler zero-file BSS loads may start within a distinct page wit
  const {space}=old(t),b=F.elf().bytes,v=new DataView(b.buffer),at=64+2*56;v.setBigUint64(at+8,64n,true);v.setBigUint64(at+16,F.ELFDATA+64n,true);v.setBigUint64(at+32,0n,true);const image=I.prepare(space,b,args,new Uint8Array(16));t.after(()=>image.space.close());assert.deepEqual(image.space.read(F.ELFDATA,128),new Uint8Array(128));assert.deepEqual(image.space.read(F.ELFDATA+64n,8192),new Uint8Array(8192));
  v.setBigUint64(at+32,8n,true);assert.throws(()=>I.prepare(space,b,args,new Uint8Array(16)),I.ImageUnsupported);
 });
+
+function compatibleNote(){
+ const b=F.elf().bytes,v=new DataView(b.buffer),off=512n;v.setUint16(56,5,true);
+ for(const [i,type]of [[3,4],[4,0x6474e553]]){const at=64+i*56;v.setUint32(at,type,true);v.setUint32(at+4,4,true);for(const [n,x]of [[8,off],[16,F.HEADER+off],[32,32n],[40,32n],[48,8n]])v.setBigUint64(at+n,x,true);}
+ for(const [n,x]of [[0,4],[4,16],[8,5],[12,0x00554e47],[16,0xc0000002],[20,4],[24,3],[28,0]])v.setUint32(Number(off)+n,x,true);
+ return {b,v};
+}
+test('compiler GNU compatibility metadata aliases read-only bytes without enabling CET or adding mappings',t=>{
+ const {space,budget}=old(t);
+ for(let features=0;features<=3;features++){
+  const {b,v}=compatibleNote();v.setUint32(512+24,features,true);const image=I.prepare(space,b,args,new Uint8Array(16));
+  try{assert.deepEqual(image.space.read(F.HEADER+512n,32),b.slice(512,544));assert.throws(()=>image.space.write(F.HEADER+512n,Uint8Array.of(1)),M.MemoryFault);assert.equal(image.codes.length,1);}finally{image.space.close();}
+  assert.equal(budget.stats().ownedPayloadBytes,M.PAGE);
+ }
+});
+test('malformed, required or ambiguously mapped GNU properties refuse before allocation and preserve the old image',t=>{
+ const {space,budget}=old(t),id=space.mappingInfo(F.DATA).frameId,before=space.read(F.DATA,256);
+ for(const [mutate,kind]of [
+  [v=>v.setBigUint64(64+3*56+8,BigInt(v.byteLength),true),I.ImageError],
+  [v=>v.setUint32(512,5,true),I.ImageError],[v=>v.setUint32(516,15,true),I.ImageError],[v=>v.setUint32(524,0,true),I.ImageError],
+  [v=>v.setUint32(532,8,true),I.ImageError],[v=>v.setUint32(540,1,true),I.ImageError],
+  [v=>v.setUint32(528,0xc0008002,true),I.ImageUnsupported],[v=>v.setUint32(536,4,true),I.ImageUnsupported],
+  [v=>v.setUint32(64+4*56,4,true),I.ImageUnsupported],
+  [v=>v.setBigUint64(64+4*56+16,F.HEADER+520n,true),I.ImageUnsupported],
+  [v=>{v.setBigUint64(64+3*56+16,F.TEXT+512n,true);v.setBigUint64(64+4*56+16,F.TEXT+512n,true);},I.ImageUnsupported]
+ ]){const {b,v}=compatibleNote();mutate(v);assert.throws(()=>I.prepare(space,b,args,new Uint8Array(16)),kind);assert.equal(budget.stats().ownedPayloadBytes,M.PAGE);assert.equal(space.mappingInfo(F.DATA).frameId,id);assert.deepEqual(space.read(F.DATA,256),before);}
+});

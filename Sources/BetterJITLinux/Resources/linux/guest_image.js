@@ -54,12 +54,24 @@
   const entry=v.getBigUint64(24,true),phoff=v.getBigUint64(32,true),phnum=v.getUint16(56,true),phent=v.getUint16(54,true),fileSize=BigInt(bytes.length);
   if(phent!==56||!phnum)bad('Invalid program-header table');if(phnum>16)unsupported('More than 16 program headers');
   if(phoff<64n||phoff+BigInt(phnum)*56n>fileSize)bad('Program-header table outside file');
-  const limit=oldSpace.stats().virtualLimit,loads=[],stackBytes=256n*1024n,stackTop=limit/P*P-16n*P,stackBase=stackTop-stackBytes;let mapped=stackBytes,phdr;
+  const limit=oldSpace.stats().virtualLimit,loads=[],notes=[],stackBytes=256n*1024n,stackTop=limit/P*P-16n*P,stackBase=stackTop-stackBytes;let mapped=stackBytes,phdr;
   if(stackBase<0x10000n)unsupported('Guest window too small for exec stack');
   for(let i=0;i<phnum;i++){
    const at=Number(phoff)+i*56,type=v.getUint32(at,true),flags=v.getUint32(at+4,true),off=v.getBigUint64(at+8,true),va=v.getBigUint64(at+16,true),filesz=v.getBigUint64(at+32,true),memsz=v.getBigUint64(at+40,true),align=v.getBigUint64(at+48,true);
    if(type===0)continue;
    if(type===0x6474e551){if(flags!==6)unsupported('Only RW non-executable GNU stack');continue;}
+   if(type===4||type===0x6474e553){
+    // Only one GNU FEATURE_1_AND compatibility note, optionally aliased by
+    // PT_NOTE/PT_GNU_PROPERTY. These markers never enable IBT/shadow stacks.
+    if(off+filesz>fileSize||va+memsz>1n<<64n||filesz>memsz)bad('Invalid GNU property span');
+    if(filesz!==32n||memsz!==32n||align!==8n||off%8n||va%8n||flags!==4)unsupported('Only one aligned read-only GNU compatibility note');
+    const n=Number(off);if(v.getUint32(n,true)!==4||v.getUint32(n+4,true)!==16||v.getUint32(n+8,true)!==5||v.getUint32(n+12,true)!==0x00554e47)bad('Invalid GNU property note');
+    if(v.getUint32(n+16,true)!==0xc0000002)unsupported('Unknown or required GNU property');
+    if(v.getUint32(n+20,true)!==4||v.getUint32(n+28,true)!==0)bad('Invalid GNU feature property size or padding');
+    if(v.getUint32(n+24,true)&~3)unsupported('Unknown GNU compatibility features');
+    if(notes.some(p=>p.type===type||p.off!==off||p.va!==va))unsupported('Multiple distinct GNU property notes');
+    notes.push({type,off,va,filesz});continue;
+   }
    if(type!==1)unsupported('Unimplemented ELF segment type');
    if(filesz>memsz||off+filesz>fileSize||va+memsz>1n<<64n)bad('Invalid ELF segment span');if(!memsz)continue;
    if((flags&~7)||!(flags&4)||(flags&3)===3)unsupported('Load permissions are outside the RX/R/RW profile');
@@ -69,6 +81,7 @@
    if(flags===4&&phoff>=off&&phoff+BigInt(phnum)*56n<=off+filesz)phdr=va+phoff-off;
    loads.push({start,va,end,off,filesz,memsz,flags});
   }
+  for(const n of notes)if(!loads.some(p=>p.flags===4&&n.off>=p.off&&n.off+n.filesz<=p.off+p.filesz&&n.va===p.va+n.off-p.off))unsupported('GNU metadata must alias file-backed read-only load bytes');
   if(!loads.some(p=>(p.flags&1)&&entry>=p.va&&entry<p.va+p.filesz))bad('Entry is not in file-backed executable bytes');
   if(phdr===undefined)unsupported('Program headers must be mapped read-only');
   if(!ordinary(random)||random.length!==16)throw new TypeError('Owned 16-byte AT_RANDOM required');

@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 4;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 5;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
@@ -17,6 +17,11 @@ struct Admission {
 // admits an explicit semantic family; unsupported prefixes/opcodes never run.
 inline Admission Admit(const uint8_t* Bytes, size_t Size) {
   if (!Bytes || !Size) return {};
+  // Exact ENDBR64 encoding only: this profile does not enable/advertise CET,
+  // so FEX decodes its legacy no-op semantics. Keep all other REP encodings
+  // outside admission and retain the complete IR-effect check below decode.
+  if (Size >= 4 && Bytes[0] == 0xf3 && Bytes[1] == 0x0f && Bytes[2] == 0x1e && Bytes[3] == 0xfa)
+    return {true, 0, 0};
   size_t I = 0;
   bool Word = false, Segment = false, Lock = false;
   while (I < Size && (Bytes[I] == 0x66 || Bytes[I] == 0x64 || Bytes[I] == 0x65 || Bytes[I] == 0xf0)) {

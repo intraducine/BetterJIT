@@ -62,9 +62,23 @@ async function main() {
   await assert.rejects(WebAssembly.instantiate(units[0].module,{e:{...imported,mem:new WebAssembly.Memory({initial:32,maximum:33,shared:true})}}),WebAssembly.LinkError);
   assert.equal((await(await get('/xlat/unit?rip='+Number(F.CODE&0xffffffffn))).arrayBuffer()).byteLength,0);
   assert.equal((await(await get('/xlat/dispatcher')).arrayBuffer()).byteLength,0);
+  // Ubuntu's ordinary compiler emits this function-entry marker by default.
+  // With CET unavailable it must advance RIP without changing CPU/lazy/round
+  // state or touching guest memory. This is not CET/indirect-branch support.
+  const endbrRip=F.CODE+0x20000n,endbrCode=Uint8Array.from([0xf3,0x0f,0x1e,0xfa]);
+  await get('/xlat/code?addr='+endbrRip.toString(16),{method:'POST',body:endbrCode});
+  const endbr=FexLinuxThread.parseBrokerStep(new Uint8Array(await(await get('/xlat/step?rip='+endbrRip)).arrayBuffer()));
+  assert.equal(endbr.status,0,log());assert.equal(endbr.operation,0);assert.equal(endbr.width,0);assert.equal(endbr.nextRip,endbrRip+4n);assert.deepEqual(endbr.instruction,endbrCode);
+  const space=new BetterJITGuestMemory.GuestAddressSpace(new BetterJITGuestMemory.BackingBudget()),memory=B.createInternalMemory(),broker=new B.GuestMemoryBroker(),token=broker.register(0,{space,memory,checkpointLayout:cfg.checkpoint}),tb=B.ABI.threadBase,view=new DataView(memory.buffer);
+  new Uint8Array(memory.buffer,tb+cfg.ctx,state.length).set(state);for(let i=0;i<16;i++)view.setBigUint64(tb+cfg.ctx+cfg.gregsOff+i*8,0x1234000000000000n+BigInt(i),true);view.setBigUint64(tb+cfg.ctx+cfg.ripOff,endbrRip,true);
+  const lazy=cfg.checkpoint.lazyFlags,round=cfg.checkpoint.roundMode;new Uint8Array(memory.buffer,tb+lazy.offset,lazy.size).fill(0x5a);view.setUint32(tb+round.offset,2,true);
+  const cpuBefore=new Uint8Array(memory.buffer,tb+cfg.ctx,state.length).slice(),lazyBefore=new Uint8Array(memory.buffer,tb+lazy.offset,lazy.size).slice();new DataView(cpuBefore.buffer).setBigUint64(cfg.ripOff,endbrRip+4n,true);
+  broker.beginInstruction(token,{rip:endbr.rip,operation:0,width:0,continuations:endbr.continuations});
+  const module=await WebAssembly.compile(endbr.code),instance=await WebAssembly.instantiate(module,{e:{mem:memory,tb:new WebAssembly.Global({value:'i32'},tb),memory:()=>{throw Error('ENDBR64 touched guest memory');}}});
+  const endbrResult=broker.finishInstruction(token,{status:instance.exports.run(),nextRip:endbr.nextRip});assert.equal(endbrResult.status,0);assert.equal(endbrResult.rip,endbrRip+4n);assert.deepEqual(new Uint8Array(memory.buffer,tb+cfg.ctx,state.length),cpuBefore);assert.deepEqual(new Uint8Array(memory.buffer,tb+lazy.offset,lazy.size),lazyBefore);assert.equal(view.getUint32(tb+round.offset,true),2);broker.unregister(token);space.close();
   const rejected=[];
   const negatives={push:[0x50],pop:[0x58],call:[0xe8,0,0,0,0],ret:[0xc3],atomicPair:[0xf0,0x48,0x0f,0xc7,0x0b],
-   rep:[0xf3,0xa4],simd:[0x0f,0x10,0x03],legacyInt80:[0xcd,0x80],indirectBranch:[0xff,0xe0],addressSize:[0x67,0x48,0x8b,0x03],truncated:[0x48,0x8b,0x83]};
+   rep:[0xf3,0xa4],endbr32:[0xf3,0x0f,0x1e,0xfb],endbrTruncated:[0xf3,0x0f,0x1e],endbrWrongPrefix:[0xf2,0x0f,0x1e,0xfa],endbrExtraPrefix:[0x66,0xf3,0x0f,0x1e,0xfa],simd:[0x0f,0x10,0x03],legacyInt80:[0xcd,0x80],indirectBranch:[0xff,0xe0],addressSize:[0x67,0x48,0x8b,0x03],truncated:[0x48,0x8b,0x83]};
   for(const [i,[name,bytes]]of Object.entries(negatives).entries()) {
    const rip=F.CODE+0x1000n+BigInt(i)*0x100n;
    await get('/xlat/code?addr='+rip.toString(16),{method:'POST',body:Uint8Array.from(bytes)});
@@ -72,9 +86,9 @@ async function main() {
    assert.equal(unit.status,2,name);assert.equal(unit.code.length,0);rejected.push(name);
   }
   const actual=await execute(cfg,state,units),native=await(await get('/xlat/stats')).json();
-  assert.equal(native.units,13);assert.equal(native.guestInsts,13);assert.equal(native.failed,rejected.length);
+  assert.equal(native.units,14);assert.equal(native.guestInsts,14);assert.equal(native.failed,rejected.length);
   const result={evidence:'Fresh FEX-generated scalar Wasm, three separate workers and host-created kernel Process/Thread records. No ELF/fork/exec, atomics/futex, Apple/device or RAM-saving claim.',
-   cfg,native,compiledModules:units.length,executedWasmSteps:39,rejected,...actual};
+   cfg,native,compiledModules:units.length,executedWasmSteps:39,endbr64:{status:0,steps:1,statePreserved:true,guestMemoryRequests:0,cetEnabled:false},rejected,...actual};
   if(process.argv[3])fs.writeFileSync(process.argv[3],stringify(result)+'\n');console.log(stringify(result));
  });
 }
