@@ -165,6 +165,9 @@
     "tests/fexhost/wine-createprocess.c": "tests/fexhost/wine-createprocess.c",
     "tests/sdk/linux-live-policy.test.mjs": "tests/sdk/linux-live-policy.test.mjs",
     "tests/sdk/linux-exec-signals.test.mjs": "tests/sdk/linux-exec-signals.test.mjs",
-    "tests/sdk/linux-page-lifecycle.test.mjs": "tests/sdk/linux-page-lifecycle.test.mjs"
+    "tests/sdk/linux-page-lifecycle.test.mjs": "tests/sdk/linux-page-lifecycle.test.mjs",
+    "scripts/build-assets.py": "scripts/build-assets.py",
+    "tests/sdk/build-assets.test.py": "tests/sdk/build-assets.test.py",
+    "docs/sdk/build-assets.md": "docs/sdk/build-assets.md"
   }
 }

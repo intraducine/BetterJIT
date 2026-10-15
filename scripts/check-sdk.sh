@@ -4,8 +4,8 @@ cd "$(dirname "$0")/.."
 # Do not omit newly added SDK tests by matching only the original class names.
 swift test -j 2 --filter 'BetterJITTests|BetterJITFEXTests|BetterJITLinuxTests'
 node --test tests/sdk/*.test.mjs
-python3 -m py_compile scripts/stage-linux-runtime.py scripts/prepare-wine-root.py scripts/prepare-wine-flat-root.py scripts/package-fex-adapter.py scripts/package-fex-consumer.py tests/fexhost/wine-spawn-native.py
-for test in tests/sdk/tooling.test.py tests/sdk/cleanup.test.py tests/sdk/wine-root.test.py tests/sdk/fex-package.test.py; do
+python3 -m py_compile scripts/stage-linux-runtime.py scripts/prepare-wine-root.py scripts/prepare-wine-flat-root.py scripts/package-fex-adapter.py scripts/package-fex-consumer.py scripts/build-assets.py tests/fexhost/wine-spawn-native.py
+for test in tests/sdk/tooling.test.py tests/sdk/cleanup.test.py tests/sdk/wine-root.test.py tests/sdk/fex-package.test.py tests/sdk/build-assets.test.py; do
   if [[ -f "$test" ]]; then python3 "$test"; fi
 done
 for file in tests/sdk/linux-host/*.cjs tests/sdk/live-linux.cjs; do node --check "$file"; done

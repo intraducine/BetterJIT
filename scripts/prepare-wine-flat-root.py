@@ -13,6 +13,8 @@ IMAGE = 'alpine:3.22.2@sha256:4b7ce07002c69e8f3d704a9c5d6fd3053be500b7f1c69fc0d8
 CONTAINER = r'''
 set -eu
 apk add --no-cache build-base bison flex-dev perl mingw-w64-gcc python3 freetype-dev linux-headers
+cp /lib/apk/db/installed /output/build-dependencies.txt
+{ cc --version; x86_64-w64-mingw32-gcc --version; make --version; } > /output/build-toolchain.txt
 ulimit -c 0
 mkdir /source /build
 trap 'if test -f /build/config.log; then cp /build/config.log /output/config.log; fi' EXIT
@@ -217,7 +219,7 @@ def main():
             shutil.copyfile(inputs / 'wine-spawn-native.py', evidence / 'wine-spawn-native.py')
             shutil.copyfile(inputs / 'wine-createprocess.c', evidence / 'wine-createprocess.c')
             shutil.copyfile(output / 'build.log', evidence / 'build.log')
-            for name in ('config.log', 'fs-reset.elf', 'spawn-contract.elf', 'createprocess.exe', 'native-prefix.log', 'native-prefix-exit.txt',
+            for name in ('config.log', 'build-dependencies.txt', 'build-toolchain.txt', 'fs-reset.elf', 'spawn-contract.elf', 'createprocess.exe', 'native-prefix.log', 'native-prefix-exit.txt',
                          'native-prefix-preparation.log', 'native-prefix-preparation-exit.txt'):
                 if (output / name).exists(): shutil.copyfile(output / name, evidence / name)
             print((output / 'build.log').read_text()[-12000:])
