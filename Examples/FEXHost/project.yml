@@ -37,6 +37,9 @@ targets:
       - path: SyscallGuest.swift
       - path: LinuxSmokeFixture.swift
       - path: LinuxHarness.swift
+      - path: SparseROT13Fixture.swift
+      - path: Guest/sparse-rot13.json
+        buildPhase: resources
     dependencies:
       - package: BetterJIT
         product: BetterJIT

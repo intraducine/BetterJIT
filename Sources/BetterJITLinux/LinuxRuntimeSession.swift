@@ -46,6 +46,12 @@ import WebKit
               configuration.currentDirectory.first == "/" else {
             throw LinuxRuntimeError.invalidConfiguration("Invalid Linux runtime arguments, environment, timeout or cwd.")
         }
+        if configuration.executionProfile == .sparseStatic &&
+           (configuration.standardIO != .captured || configuration.regions || configuration.useNativeChannels || !configuration.sharedAddressSpace ||
+            configuration.display != nil || configuration.screenOnly || configuration.currentDirectory != "/" ||
+            configuration.trace || configuration.traceCode || configuration.traceMaps) {
+            throw LinuxRuntimeError.unsupported("The sparse command profile requires captured single-process execution without regions, native channels, display, tracing or a different cwd.")
+        }
         self.backend=backend; self.fileSystem=fileSystem; self.configuration=configuration
         self.gpuHandler=gpuHandler
         let c=WKWebViewConfiguration()
@@ -122,6 +128,8 @@ import WebKit
             guard state != .closed, result == nil, failure == nil else { return }
             switch event.kind {
             case .exit: if let code=event.code { receiveExit(code) }
+            case .unsupported: fail(.unsupported(event.text ?? "Sparse runtime is unsupported."))
+            case .failure: fail(.guest(event.text ?? "Sparse runtime failed."))
             case .truncated: outputTruncated=true
             case .log, .stdout, .stderr:
                 guard let text=event.text, !outputTruncated else { continue }
@@ -180,7 +188,7 @@ import WebKit
 
     func launchURL(port:UInt16) throws -> URL {
         var c=URLComponents()
-        c.scheme="http"; c.host="127.0.0.1"; c.port=Int(port); c.path="/linux/web/linux.html"
+        c.scheme="http"; c.host="127.0.0.1"; c.port=Int(port); c.path=configuration.executionProfile == .sparseStatic ? "/linux/web/sparse.html" : "/linux/web/linux.html"
         let argv=try JSONSerialization.data(withJSONObject:configuration.arguments)
         let env=try JSONSerialization.data(withJSONObject:configuration.environment)
         guard let a=String(data:argv,encoding:.utf8),let e=String(data:env,encoding:.utf8) else {
@@ -217,6 +225,8 @@ import WebKit
         let paths=[
             "runtime.js",
             "linux/thread_core.js","linux/compositor.js",
+            "linux/guest_memory.js","linux/guest_memory_broker.js","linux/guest_image.js",
+            "linux/web/sparse.html","linux/web/sparse_main.js","linux/web/sparse_kernel.js","linux/web/sparse_thread.js",
             "linux/web/linux.html","linux/web/linux_main.js","linux/web/kworker_web.js",
             "linux/web/thread_web.js","linux/web/chan_web.js","linux/web/chan_file.js",
             "linux/web/sampler.js","linux/web/probe_worker.js","linux/web/linux-kernel.js",

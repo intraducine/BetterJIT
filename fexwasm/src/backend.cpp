@@ -11095,7 +11095,7 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
         Cfg.HotThreshold || Cfg.ABILocalFlags || Cfg.ABI != BackendConfig::GuestABI::None || Cfg.FlagsDeadAt) {
       CompileResult R; R.Error = "invalid broker backend contract"; return R;
     }
-    // Admission of raw MOV/NOP semantics and this complete IR allowlist both
+    // Admission of raw scalar/flag/branch semantics and this complete IR allowlist both
     // precede execution. No unknown memory or architectural side-effect path
     // can reach a legacy direct-access emitter.
     uint32_t Reads = 0, Writes = 0, Atomics = 0, Syscalls = 0, Exits = 0, Blocks = 0, Branches = 0;
@@ -11108,7 +11108,7 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
       case OP_IRHEADER: case OP_CODEBLOCK: case OP_BEGINBLOCK: case OP_ENDBLOCK:
       case OP_GUESTOPCODE: case OP_INLINECONSTANT: case OP_INLINEENTRYPOINTOFFSET:
       case OP_CONSTANT: case OP_ENTRYPOINTOFFSET:
-      case OP_ADD: case OP_SUB: case OP_AND: case OP_OR: case OP_XOR:
+      case OP_ADD: case OP_SUB: case OP_AND: case OP_OR: case OP_XOR: case OP_NOT:
       case OP_LSHL: case OP_LSHR: case OP_ASHR: case OP_ADDSHIFT:
       case OP_BFE: case OP_SBFE: case OP_BFI: case OP_ORLSHL: break;
       case OP_LOADPF: case OP_LOADAF: case OP_STOREPF: case OP_STOREAF:
@@ -11117,10 +11117,10 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
         if (Cfg.BrokerOperation < 3) return Reject(H);
         break;
       case OP_INVALIDATEFLAGS:
-        if (Cfg.BrokerOperation != 6 || H->C<IROp_InvalidateFlags>()->Flags != (1u << FEXCore::X86State::RFLAG_AF_RAW_LOC)) return Reject(H);
+        if ((Cfg.BrokerOperation != 6 && Cfg.BrokerOperation != 8) || H->C<IROp_InvalidateFlags>()->Flags != (1u << FEXCore::X86State::RFLAG_AF_RAW_LOC)) return Reject(H);
         break;
-      case OP_ANDWITHFLAGS:
-        if (Cfg.BrokerOperation != 6 || (uint32_t(H->Size) != 4 && uint32_t(H->Size) != 8)) return Reject(H);
+      case OP_ANDWITHFLAGS: case OP_SUBNZCV: case OP_TESTNZ:
+        if ((Cfg.BrokerOperation != 6 && Cfg.BrokerOperation != 8) || (uint32_t(H->Size) != 1 && uint32_t(H->Size) != 2 && uint32_t(H->Size) != 4 && uint32_t(H->Size) != 8)) return Reject(H);
         break;
       case OP_PARITY: case OP_ORNROR: case OP_ORLSHR: case OP_ANDSHIFT: case OP_ROR: case OP_EXTR:
         if (Cfg.BrokerOperation < 5) return Reject(H);
@@ -11159,7 +11159,7 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
       case OP_CONDJUMP: {
         auto O = H->C<IROp_CondJump>();
         if (Cfg.BrokerFlow != 2 || Cfg.BrokerOperation != 7 ||
-            (O->Cond != CondClass::EQ && O->Cond != CondClass::NEQ)) return Reject(H);
+            (O->Cond != CondClass::EQ && O->Cond != CondClass::NEQ && O->Cond != CondClass::ULT && O->Cond != CondClass::UGE && O->Cond != CondClass::UGT && O->Cond != CondClass::ULE)) return Reject(H);
         if (!O->FromNZCV) {
           const auto* C = IR.GetOp<IROp_Header>(O->Cmp2);
           if (!((C->Op == OP_INLINECONSTANT && C->C<IROp_InlineConstant>()->Constant == 0) ||
@@ -11168,7 +11168,7 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
         Branches++; break;
       }
       case OP_LOADMEM: case OP_LOADMEMTSO:
-        if (H->C<IROp_LoadMem>()->Class != RegClass::GPR || Cfg.BrokerOperation != 1 || uint32_t(H->Size) != Cfg.BrokerWidth)
+        if (H->C<IROp_LoadMem>()->Class != RegClass::GPR || (Cfg.BrokerOperation != 1 && Cfg.BrokerOperation != 8) || uint32_t(H->Size) != Cfg.BrokerWidth)
           return Reject(H);
         Reads++; break;
       case OP_STOREMEM: case OP_STOREMEMTSO:
@@ -11200,7 +11200,7 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
     }}
     if (Blocks != (Cfg.BrokerFlow == 2 ? 3u : 1u) || Exits != (Cfg.BrokerFlow == 2 ? 2u : 1u) ||
         Branches != (Cfg.BrokerFlow == 2) || (Cfg.BrokerFlow && !SawTarget) ||
-        (Cfg.BrokerFlow == 2 && !SawFallthrough) || Reads != (Cfg.BrokerOperation == 1) || Writes != (Cfg.BrokerOperation == 2) ||
+        (Cfg.BrokerFlow == 2 && !SawFallthrough) || Reads != (Cfg.BrokerOperation == 1 || Cfg.BrokerOperation == 8) || Writes != (Cfg.BrokerOperation == 2) ||
         Atomics != (Cfg.BrokerOperation == 3 || Cfg.BrokerOperation == 4) || Syscalls != (Cfg.BrokerOperation == 5)) {
       CompileResult R; R.Error = "broker instruction effect count mismatch"; return R;
     }

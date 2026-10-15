@@ -9,7 +9,7 @@ for(const file of ['guest_memory.js','guest_memory_broker.js','thread_core.js','
  vm.runInThisContext(fs.readFileSync(new URL('../../Sources/BetterJITLinux/Resources/linux/'+file,import.meta.url),'utf8'));
 const {Kernel,SLOT_BASE,SLOT_SIZE,S_REQ,S_DONE}=LinuxBundle.require('./kernel.js');
 const M=BetterJITGuestMemory,B=BetterJITGuestMemoryBroker,RIP=0x123400004000n,AT=0x123456780000n;
-const cfg={guestMemory:'broker1',memoryABI:1,stepABI:3,coverageVersion:3,stepHeaderBytes:96,memPages:33,memMaxPages:33,threadBase:65536,
+const cfg={guestMemory:'broker1',memoryABI:1,stepABI:3,coverageVersion:4,stepHeaderBytes:96,memPages:33,memMaxPages:33,threadBase:65536,
  regArgs:0,callsViaDispatcher:false,maxInstructions:1,shared:true,
  ctx:256,stateSize:1024,ripOff:24,gregsOff:32,checkpoint:{version:1,cpu:{offset:256,size:1024,ripOffset:24},
  lazyFlags:{offset:64,size:24},roundMode:{offset:112,size:4}}};
@@ -76,8 +76,9 @@ test('boundary replay and success without full post-state are fatal rather than 
 });
 test('step parser rejects incompatible or malformed typed native headers',()=>{
  const bytes=new Uint8Array(96),v=new DataView(bytes.buffer);
- [0x31534a42,1,1,3,3,2].forEach((x,i)=>v.setUint32(i*4,x,true));
+ [0x31534a42,1,1,3,4,2].forEach((x,i)=>v.setUint32(i*4,x,true));
  assert.equal(FexLinuxThread.parseBrokerStep(bytes).status,2);
+ v.setUint32(16,3,true);assert.throws(()=>FexLinuxThread.parseBrokerStep(bytes),/ABI/);v.setUint32(16,4,true);
  v.setUint32(4,2,true);assert.throws(()=>FexLinuxThread.parseBrokerStep(bytes),/ABI/);
  v.setUint32(4,1,true);v.setUint32(20,0,true);assert.throws(()=>FexLinuxThread.parseBrokerStep(bytes),/metadata/);
 });
@@ -103,7 +104,8 @@ test('threads share guest storage but own separate fixed internal contexts under
 test('finite branch metadata derives full signed-relative targets from admitted bytes',()=>{
  const p={operation:7,rip:RIP,nextRip:RIP+2n,length:2,instruction:Uint8Array.of(0x75,0xfe),continuationKind:2,branchTarget:RIP};
  assert.deepEqual(B.instructionContinuations(p),[RIP+2n,RIP]);
- for(const change of [{branchTarget:RIP&0xffffffffn},{continuationKind:1},{instruction:Uint8Array.of(0x72,0xfe)}])assert.throws(()=>B.instructionContinuations({...p,...change}));
+ for(const change of [{branchTarget:RIP&0xffffffffn},{continuationKind:1},{instruction:Uint8Array.of(0x70,0xfe)}])assert.throws(()=>B.instructionContinuations({...p,...change}));
+ for(const opcode of [0x72,0x73,0x74,0x75,0x76,0x77])assert.deepEqual(B.instructionContinuations({...p,instruction:Uint8Array.of(opcode,0xfe)}),[RIP+2n,RIP]);
  assert.throws(()=>B.instructionContinuations({...p,operation:0}),/Unexpected/);
 });
 test('branch completion accepts only the checkpointed finite continuation set',t=>{
@@ -113,7 +115,7 @@ test('branch completion accepts only the checkpointed finite continuation set',t
  begin();v.setBigUint64(at,0x4000n,true);assert.throws(()=>f.k.sparseBroker.finishInstruction(f.thread.sparse.token,{status:0,nextRip:RIP+2n}),/post-state/);
 });
 test('old step headers and forged continuation fields cannot become runnable units',()=>{
- const bytes=new Uint8Array(97),v=new DataView(bytes.buffer);[0x31534a42,1,1,3,3,0,7,0].forEach((x,i)=>v.setUint32(i*4,x,true));
+ const bytes=new Uint8Array(97),v=new DataView(bytes.buffer);[0x31534a42,1,1,3,4,0,7,0].forEach((x,i)=>v.setUint32(i*4,x,true));
  v.setBigUint64(32,RIP,true);v.setBigUint64(40,RIP+2n,true);v.setUint32(56,1,true);v.setUint32(60,2,true);bytes.set([0x74,0x10],64);v.setBigUint64(80,RIP+0x12n,true);v.setUint32(88,2,true);
  assert.equal(FexLinuxThread.parseBrokerStep(bytes).branchTarget,RIP+0x12n);v.setBigUint64(80,0x4012n,true);assert.throws(()=>FexLinuxThread.parseBrokerStep(bytes),/continuation/);
  v.setUint32(12,2,true);assert.throws(()=>FexLinuxThread.parseBrokerStep(bytes),/ABI/);

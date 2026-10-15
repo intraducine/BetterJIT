@@ -1,5 +1,10 @@
 # Experimental guest-initiated clone and thread exit
 
+The [compiled C command profile](sparse-compiled-command.md) now extends this
+work with coverage4, bounded stdout/stderr and a separate single-process phone
+route. Its browser route still refuses fork/exec/retirement; host evidence is
+separate from physical-device validation.
+
 The separately selected [version-3 static ELF exec profile](sparse-exec.md)
 adds checked image loading and acknowledged replacement; the version described
 here keeps its original syscall scope.

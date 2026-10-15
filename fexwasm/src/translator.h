@@ -33,7 +33,7 @@ typedef struct {
 //                         register arguments or ABI state pruning. Still direct
 //                         guest memory and the legacy i32 RIP result ABI.
 //   guestmem=direct|broker1  broker1 requires Linux, uses only fexwasm_step,
-//                         immutable private code and admitted MOV/NOP steps,
+//                         immutable private code and explicitly admitted scalar steps,
 //                         aligned 32/64-bit locked CAS/XADD and spilled futex
 //                         syscall boundaries; no legacy dispatcher or regions
 //   x87=80|64             x87 in 80-bit soft float, or on doubles (FEX's reduced precision)
@@ -73,10 +73,13 @@ fexwasm_bytes fexwasm_state(fexwasm_translator* T);
 // caches agree. size 0 if FEX can't translate it.
 fexwasm_bytes fexwasm_unit(fexwasm_translator* T, uint32_t rip32);
 
-// Experimental broker1: full u64 RIP; 80-byte little-endian BJS1 header then
+// Experimental broker1: full u64 RIP; 96-byte little-endian BJS1 header then
 // Wasm. Header: magic, memory/checkpoint/step/coverage versions, typed status,
 // operation, width (u32 each); RIP/next RIP/module hash (u64); module bytes,
-// instruction length (u32); original instruction bytes padded to 16 bytes.
+// instruction length (u32); original instruction bytes padded to 16 bytes;
+// branch target (u64), finite flow kind and reserved word (u32 each).
+// Coverage4 adds bounded register arithmetic/byte flags/unsigned branches and
+// operation8: one checked read plus flags, never a direct or RMW memory path.
 // Unsupported results have status 2, no module and no executable fallback.
 fexwasm_bytes fexwasm_step(fexwasm_translator* T, uint64_t rip);
 

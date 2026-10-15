@@ -122,7 +122,7 @@ final class LinuxLoopbackServer: @unchecked Sendable {
 
     private func route(_ req: Request) -> Response {
         do {
-            let initial = req.method == "GET" && req.path == "/linux/web/linux.html" && req.query["session"] == token
+            let initial = req.method == "GET" && ["/linux/web/linux.html","/linux/web/sparse.html"].contains(req.path) && req.query["session"] == token
             if !initial {
                 let cookies=req.headers["cookie"] ?? ""
                 guard cookies.split(separator:";").map({$0.trimmingCharacters(in:.whitespaces)})
@@ -149,6 +149,9 @@ final class LinuxLoopbackServer: @unchecked Sendable {
                 return Response(status:200,type:"application/wasm",body:try backend.dispatcher(space:space()))
             case ("GET","/xlat/state"):
                 return Response(status:200,type:"application/octet-stream",body:try backend.initialState(space:space()))
+            case ("GET","/xlat/step"):
+                guard let rip=UInt64(req.query["rip"] ?? "") else { throw LinuxRuntimeError.guest("Invalid full-width FEX RIP.") }
+                return Response(status:200,type:"application/octet-stream",body:try backend.step(space:space(),rip:rip))
             case ("GET","/xlat/unit"):
                 guard let rip=UInt32(req.query["rip"] ?? "") else { throw LinuxRuntimeError.guest("Invalid FEX RIP.") }
                 return Response(status:200,type:"application/wasm",body:try backend.unit(space:space(),rip:rip))

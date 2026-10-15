@@ -1,5 +1,10 @@
 # Experimental static ELF exec
 
+The [compiled C command profile](sparse-compiled-command.md) now extends this
+work with coverage4, bounded stdout/stderr and a separate single-process phone
+route. Its browser route still refuses fork/exec/retirement; host evidence is
+separate from physical-device validation.
+
 Host capability `sparseLifecycleVersion: 3` adds guest `execve(59)` to the
 [bounded fork/wait profile](sparse-fork.md). Only initial bootstrap creation and
 worker provisioning are host operations: the running guest supplies the path,

@@ -10,6 +10,7 @@ public protocol LinuxTranslationBackend: AnyObject {
     func configuration(space: UInt32) throws -> Data
     func dispatcher(space: UInt32) throws -> Data
     func initialState(space: UInt32) throws -> Data
+    func step(space: UInt32, rip: UInt64) throws -> Data
     func unit(space: UInt32, rip: UInt32) throws -> Data
     func region(space: UInt32, profile: Data) throws -> Data
     func mapCode(space: UInt32, address: UInt64, bytes: Data, abi: UInt32) throws
@@ -17,6 +18,12 @@ public protocol LinuxTranslationBackend: AnyObject {
     func unmapCode(space: UInt32, address: UInt64, size: UInt64) throws
     func drop(space: UInt32)
     func close()
+}
+
+public extension LinuxTranslationBackend {
+    func step(space: UInt32, rip: UInt64) throws -> Data {
+        throw LinuxRuntimeError.unsupported("This backend does not provide sparse full-width steps.")
+    }
 }
 
 public protocol LinuxFileSystemSource: AnyObject {
@@ -33,6 +40,9 @@ public struct LinuxChannelReply: Sendable, Equatable {
 public typealias LinuxGPUChannelHandler = @Sendable (_ request: Data, _ responseCapacity: Int) throws -> LinuxChannelReply
 
 public struct LinuxRuntimeConfiguration: Sendable, Equatable {
+    /// Sparse static is an experimental single-process, normal-exit profile.
+    public enum ExecutionProfile: String, Sendable { case direct, sparseStatic }
+    public var executionProfile: ExecutionProfile
     public enum StandardIO: String, Sendable { case terminal, captured }
     public var arguments: [String]
     public var environment: [String:String]
@@ -68,7 +78,9 @@ public struct LinuxRuntimeConfiguration: Sendable, Equatable {
                 threadSpinMilliseconds: Double = 0.02,
                 useNativeChannels: Bool = true,
                 sharedAddressSpace: Bool = true,
-                standardIO: StandardIO = .terminal) {
+                standardIO: StandardIO = .terminal,
+                executionProfile: ExecutionProfile = .direct) {
+        self.executionProfile=executionProfile
         self.arguments = arguments
         self.environment = environment
         self.currentDirectory = currentDirectory
@@ -108,13 +120,13 @@ public struct LinuxRuntimeResult: Sendable, Equatable {
 public enum LinuxOutputStream: String, Sendable { case stdout, stderr }
 
 struct LinuxRuntimeEvent: Codable, Sendable {
-    enum Kind: String, Codable, Sendable { case log, stdout, stderr, exit, truncated }
+    enum Kind: String, Codable, Sendable { case log, stdout, stderr, exit, truncated, unsupported, failure }
     let kind: Kind
     var text: String? = nil
     var code: Int? = nil
     var valid: Bool {
         switch kind {
-        case .log, .stdout, .stderr: return text != nil && code == nil
+        case .log, .stdout, .stderr, .unsupported, .failure: return text != nil && code == nil
         case .exit: return text == nil && code.map { Int32(exactly:$0) != nil } == true
         case .truncated: return text == nil && code == nil
         }
@@ -126,6 +138,7 @@ struct LinuxRuntimeEventBatch: Decodable {
 }
 
 public enum LinuxRuntimeError: Error, LocalizedError, Sendable, Equatable {
+    case unsupported(String)
     case invalidConfiguration(String)
     case server(String)
     case guest(String)
@@ -133,7 +146,7 @@ public enum LinuxRuntimeError: Error, LocalizedError, Sendable, Equatable {
 
     public var errorDescription: String? {
         switch self {
-        case .invalidConfiguration(let m), .server(let m), .guest(let m): return m
+        case .unsupported(let m), .invalidConfiguration(let m), .server(let m), .guest(let m): return m
         case .closed: return "The Linux runtime session is closed."
         }
     }

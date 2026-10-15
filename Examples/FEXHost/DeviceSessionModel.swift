@@ -141,6 +141,33 @@ import BetterJITFEXAdapter
     }
     private func execute(_ i:Int, stress:Bool) async throws {
         guard let id=report?.phases[i].id else { throw SuiteFailure("Missing phase.") }
+        if id == "compiled-rot13" {
+            report?.phases[i].details["execution"]="Ordinary compiler ELF → sparse FEX/Wasm → captured output and normal exit"
+            report?.phases[i].details["JSPIRequired"]="false"
+            report?.phases[i].details["lifecycle"]="One process; storage retained until session teardown; fork/exec/retirement unsupported"
+            do {
+                let fixture=try SparseROT13Fixture.load()
+                report?.phases[i].details["compiler"]=fixture.1.compiler
+                report?.phases[i].details["elfSHA256"]=fixture.1.elfSHA256
+                report?.phases[i].details["sourceSHA256"]=fixture.1.sourceSHA256
+                let value=try await linux.run(.sparseROT13)
+                try checkStop()
+                report?.phases[i].captureOutput(log:value.log,stdout:value.stdout,stderr:value.stderr,runtimeTruncated:value.outputTruncated)
+                report?.phases[i].counters=linux.counters
+                report?.phases[i].details["exitCode"]=String(value.exitCode)
+                guard value.exitCode == 0, value.stdout == SparseROT13Fixture.expected, value.stderr.isEmpty,
+                      (linux.counters["stepRequests"] ?? 0)>0, (linux.counters["codeMappings"] ?? 0)>0,
+                      value.log.contains("retainedUntilSessionTeardown"), !value.outputTruncated else {
+                    throw SuiteFailure("Compiled ROT13 did not produce the expected text through live sparse FEX steps.")
+                }
+                report?.phases[i].status = .passed
+            } catch LinuxRuntimeError.unsupported(let reason) {
+                report?.phases[i].status = .unsupported;report?.phases[i].details["reason"]=reason
+            } catch SparseROT13Fixture.LinuxFixtureError.missing {
+                report?.phases[i].status = .unsupported;report?.phases[i].details["reason"]="The compiled command payload is absent from this app build."
+            }
+            return
+        }
         if id == "consumer-digest" {
             guard try await linuxSupported(phase:i) else { return }
             guard FileManager.default.fileExists(atPath:LinuxHarness.rootURL.appendingPathComponent("bin/busybox").path) else {

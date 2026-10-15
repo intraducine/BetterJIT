@@ -218,6 +218,24 @@
     "tests/sdk/linux-host/sparse-exec-thread.cjs": "tests/sdk/linux-host/sparse-exec-thread.cjs",
     "tests/sdk/linux-host/sparse-exec-host.cjs": "tests/sdk/linux-host/sparse-exec-host.cjs",
     "tests/sdk/linux-host/sparse-exec-kernel.cjs": "tests/sdk/linux-host/sparse-exec-kernel.cjs",
-    "tests/sdk/linux-host/sparse-exec.cjs": "tests/sdk/linux-host/sparse-exec.cjs"
+    "tests/sdk/linux-host/sparse-exec.cjs": "tests/sdk/linux-host/sparse-exec.cjs",
+    "Examples/FEXHost/SparseROT13Fixture.swift": "Examples/FEXHost/SparseROT13Fixture.swift",
+    "Examples/FEXHost/Guest/sparse-rot13.c": "Examples/FEXHost/Guest/sparse-rot13.c",
+    "Examples/FEXHost/Guest/sparse-rot13.json": "Examples/FEXHost/Guest/sparse-rot13.json",
+    "Examples/FEXHost/Guest/build-sparse-rot13.py": "Examples/FEXHost/Guest/build-sparse-rot13.py",
+    "Sources/BetterJITLinux/Resources/linux/web/sparse.html": "Sources/BetterJITLinux/Resources/linux/web/sparse.html",
+    "Sources/BetterJITLinux/Resources/linux/web/sparse_main.js": "Sources/BetterJITLinux/Resources/linux/web/sparse_main.js",
+    "Sources/BetterJITLinux/Resources/linux/web/sparse_kernel.js": "Sources/BetterJITLinux/Resources/linux/web/sparse_kernel.js",
+    "Sources/BetterJITLinux/Resources/linux/web/sparse_thread.js": "Sources/BetterJITLinux/Resources/linux/web/sparse_thread.js",
+    "Tests/BetterJITLinuxTests/SparseWebKitHostTests.swift": "Tests/BetterJITLinuxTests/SparseWebKitHostTests.swift",
+    "Tests/BetterJITLinuxTests/LinuxSparseTransportTests.swift": "Tests/BetterJITLinuxTests/LinuxSparseTransportTests.swift",
+    "tests/sdk/linux-sparse-output.test.mjs": "tests/sdk/linux-sparse-output.test.mjs",
+    "tests/sdk/sparse-browser.py": "tests/sdk/sparse-browser.py",
+    "tests/sdk/linux-host/sparse-compiled.cjs": "tests/sdk/linux-host/sparse-compiled.cjs",
+    "tests/sdk/linux-host/sparse-compiled-kernel.cjs": "tests/sdk/linux-host/sparse-compiled-kernel.cjs",
+    "tests/sdk/linux-host/sparse-alu.cjs": "tests/sdk/linux-host/sparse-alu.cjs",
+    "tests/sdk/linux-host/sparse-alu-oracle.c": "tests/sdk/linux-host/sparse-alu-oracle.c",
+    "tests/sdk/linux-host/sparse-alu-oracle.json": "tests/sdk/linux-host/sparse-alu-oracle.json",
+    "docs/sdk/sparse-compiled-command.md": "docs/sdk/sparse-compiled-command.md"
   }
 }

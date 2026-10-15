@@ -1,5 +1,16 @@
 # BetterJIT Device Session
 
+On the sparse experimental branch, Run All also includes **Compiled C: ROT13 text
+command**. It launches the bundled ordinary GCC-produced ELF through the sparse
+loader and live FEX, and checks `Uryyb, OrggreWVG 2026!` plus a newline, empty
+stderr and exit 0. This phase needs shared Wasm memory but does not need JSPI.
+Its first phone goal is normal single-process execution: backing is retained
+until session teardown and fork/exec/reaping remain unsupported on this browser
+route. See [the compiled-command contract](../../docs/sdk/sparse-compiled-command.md)
+for compiler provenance, host validation and the remaining lifecycle boundary.
+Cloud/Apple compilation does not establish that it works on a physical phone.
+
+
 Install **BetterJIT Session** once with your existing iPhone signing/install route.
 The GitHub artifact contains an **unsigned** device-arm64 IPA; it requires signing
 before iOS will install it. No signing credentials are collected by this workflow.
@@ -146,7 +157,8 @@ each full suite/matrix). SDK requests have their own limits. Native FEX compiler
 calls cannot be forcibly interrupted in the middle of a native function. Teardown
 must finish before a new session can start. Stress probes are off by default;
 enabling them may terminate WebContent and will be recorded as incomplete/failure.
-A single WebKit capability check is reused across Linux/Wine phases. Missing JSPI
+A single WebKit capability check is reused across the direct Linux/Wine phases.
+The separate sparse compiled-command phase checks its own shared-memory needs. Missing JSPI
 or shared Wasm memory produces UNSUPPORTED; actual guest traps stay FAIL.
 The aggregate says PARTIAL if any integration is unsupported, FAIL for failures,
 and PASS only when every phase passes. Transport timings are not game speed.

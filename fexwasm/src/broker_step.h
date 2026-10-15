@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 3;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 4;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
@@ -37,11 +37,26 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
   if (I >= Size) return {};
   const uint8_t Op = Bytes[I++];
   if (I == 1 && (Op == 0xeb || Op == 0xe9)) return {true, 7, 0, 1};
-  if (I == 1 && (Op == 0x74 || Op == 0x75 ||
-      (Op == 0x0f && I < Size && (Bytes[I] == 0x84 || Bytes[I] == 0x85)))) return {true, 7, 0, 2};
-  if (!Word && !Segment && !Lock && (Op == 0x85 || Op == 0x39 || Op == 0x3b) &&
-      I < Size && (Bytes[I] & 0xc0) == 0xc0) return {true, 6, 0}; // register TEST/CMP, 32/64-bit
+  if (I == 1 && ((Op >= 0x72 && Op <= 0x77) ||
+      (Op == 0x0f && I < Size && (Bytes[I] >= 0x82 && Bytes[I] <= 0x87)))) return {true, 7, 0, 2};
   const uint32_t Width = Rex & 8 ? 8 : Word ? 2 : 4;
+  if (!Word && !Segment && !Lock) {
+    // Flag-producing arithmetic stays register-only. CMP/TEST may perform one
+    // read; that distinct effect family can never reach a direct memory path.
+    if ((Op == 0x8d) && I < Size && (Bytes[I] & 0xc0) != 0xc0) return {true, 0, 0};
+    if (Op == 0x3c || Op == 0x3d || Op == 0xa8 || Op == 0xa9) return {true, 6, 0};
+    if (I < Size) {
+      const bool Register = (Bytes[I] & 0xc0) == 0xc0;
+      if (Op == 0x84 || Op == 0x85 || Op == 0x38 || Op == 0x39 || Op == 0x3a || Op == 0x3b)
+        return {true, Register ? 6u : 8u, Register ? 0u : ((Op & 1) ? Width : 1u)};
+      if ((Op == 0x80 || Op == 0x81 || Op == 0x83) && (Bytes[I] & 0x38) == 0x38)
+        return {true, Register ? 6u : 8u, Register ? 0u : (Op == 0x80 ? 1u : Width)};
+      if (Register && ((Op == 0x01 || Op == 0x03 || Op == 0x29 || Op == 0x2b || Op == 0x31 || Op == 0x33 || Op == 0x21 || Op == 0x23 || Op == 0x09 || Op == 0x0b) ||
+          ((Op == 0x81 || Op == 0x83) && ((Bytes[I] >> 3 & 7) == 0 || (Bytes[I] >> 3 & 7) == 5)))) return {true, 6, 0};
+      if (Op == 0x0f && Bytes[I] >= 0x42 && Bytes[I] <= 0x47 && I + 1 < Size && (Bytes[I+1] & 0xc0) == 0xc0)
+        return {true, 6, 0}; // unsigned/equality CMOV, 32/64-bit GPRs only
+    }
+  }
   if (Lock && Op != 0x0f) return {};
   if (Op == 0x90 && I == 1) return {true, 0, 0}; // plain NOP only
   if (Op >= 0xb0 && Op <= 0xbf) return {true, 0, 0}; // MOV register, immediate

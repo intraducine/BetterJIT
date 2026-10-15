@@ -29,7 +29,8 @@ import Darwin
         guard root.isFileURL else { throw LinuxRuntimeError.invalidConfiguration("Guest root must be a local directory.") }
         let cache=cacheDirectory ?? FileManager.default.urls(for:.cachesDirectory,in:.userDomainMask)[0]
             .appendingPathComponent("BetterJIT/FEX",isDirectory:true)
-        let native=try LinkedLinuxFEXBackend(cacheDirectory:cache,extraOptions:memoryTrace ? "memtrace=1" : "")
+        let native=try LinkedLinuxFEXBackend(cacheDirectory:cache,extraOptions:memoryTrace ? "memtrace=1" : "",
+                                                 executionProfile:configuration.executionProfile)
         var files=overlay
         if files["/etc/passwd"] == nil {
             files["/etc/passwd"]=Data("root:x:0:0:root:/root:/bin/sh\nuser:x:\(getuid()):\(getgid()):user:/home/user:/bin/sh\n".utf8)

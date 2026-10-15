@@ -2,7 +2,7 @@
 // Node reference host: exact worker/lease ownership and native request draining.
 const {Worker}=require('worker_threads'),path=require('path'),assert=require('node:assert/strict');
 class SparseHost {
- constructor({get,cfg,resources,units,scenario,onResult,onFailure}){Object.assign(this,{get,cfg,resources,units,scenario,onResult,onFailure});this.workers=new Map();this.history=[];this.drops=[];this.events=[];this.results=[];this.failures=[];}
+ constructor({get,cfg,resources,units,scenario,onResult,onFailure,maximumSteps=200,cacheUnits=0}){Object.assign(this,{get,cfg,resources,units,scenario,onResult,onFailure,maximumSteps,cacheUnits});this.unitCache=new Map();this.cacheBytes=0;this.workers=new Map();this.history=[];this.drops=[];this.events=[];this.results=[];this.failures=[];}
  track(r,p){r.pending.add(p);p.finally(()=>{r.pending.delete(p);this.ack(r);}).catch(this.onFailure);return p;}
  notify(d){const k=new Int32Array(d.ksab);Atomics.add(k,0,1);Atomics.notify(k,0);}
  ack(r){if(r.acked||!r.absent||r.pending.size)return;r.acked=true;const d=r.spec,k=new Int32Array(d.ksab);this.events.push({kind:'ack',slot:d.slot,lease:d.lease,space:d.space,pending:0});Atomics.store(k,((256+d.slot*128)>>2)+26,0);this.notify(d);}
@@ -12,13 +12,13 @@ class SparseHost {
     for(const p of d.codes){if(r.stopping)break;assert((await this.get('/xlat/code?space='+d.space+'&addr='+p.address.toString(16),{method:'POST',body:p.bytes})).ok);}
    }
    if(r.stopping)return;
-   const fail=!!d.codes&&this.scenario==='terminate-before-ready',w=new Worker(path.join(__dirname,'sparse-exec-thread.cjs'),{workerData:{...d,resources:this.resources,units:this.units,maximumSteps:200,startupHold:fail?new SharedArrayBuffer(4):undefined}});r.worker=w;r.absent=false;
+   const fail=!!d.codes&&this.scenario==='terminate-before-ready',w=new Worker(path.join(__dirname,'sparse-exec-thread.cjs'),{workerData:{...d,resources:this.resources,units:this.units,maximumSteps:this.maximumSteps,startupHold:fail?new SharedArrayBuffer(4):undefined}});r.worker=w;r.absent=false;
    w.on('error',this.onFailure);w.on('message',m=>{
     if(m.op==='unit-request'){
      if(r.stopping)return;
      if(d.codes&&this.scenario==='terminate-during-translation'&&!r.injected){r.injected=true;queueMicrotask(()=>this.stop(d));}
      if(m.space!==d.space||typeof m.rip!=='bigint')return this.onFailure(Error('Foreign native catalogue request'));
-     this.track(r,(async()=>{const b=new Uint8Array(await(await this.get('/xlat/step?space='+d.space+'&rip='+m.rip)).arrayBuffer()),u=FexLinuxThread.parseBrokerStep(b);if(u.status===0)u.module=await WebAssembly.compile(u.code);
+     this.track(r,(async()=>{const key=d.space+':'+m.rip;let unit=this.unitCache.get(key);if(!unit){unit=(async()=>{const b=new Uint8Array(await(await this.get('/xlat/step?space='+d.space+'&rip='+m.rip)).arrayBuffer()),u=FexLinuxThread.parseBrokerStep(b);if(this.cacheUnits){this.cacheBytes+=u.code.length;if(this.cacheBytes>1024*1024)throw Error('Sparse compiled translation bytes exceeded');}if(u.status===0)u.module=await WebAssembly.compile(u.code);return u;})();if(this.cacheUnits&&this.unitCache.size<this.cacheUnits)this.unitCache.set(key,unit);}const u=await unit;
       if(!r.stopping)w.postMessage({op:'unit-reply',id:m.id,unit:u});this.events.push({kind:'translated',slot:d.slot,space:d.space,rip:m.rip,discarded:r.stopping});
      })().catch(e=>{if(!r.stopping)w.postMessage({op:'unit-reply',id:m.id,error:String(e)});}));
     }else if(m.op==='thread-result'){this.results.push(m);this.onResult?.(m);}
@@ -29,7 +29,7 @@ class SparseHost {
   })().catch(error=>{if(d.startGate){Atomics.store(new Int32Array(d.startGate),0,4);this.notify(d);}else this.onFailure(error);}));
  }
  stop(d){const r=this.workers.get(d.slot);assert(r&&r.spec.lease===d.lease,'Stop requires exact owned lease');this.events.push({kind:'stop',slot:d.slot,lease:d.lease});r.stopping=true;r.worker?.terminate().catch(this.onFailure);this.ack(r);}
- drop(d){for(const r of this.history)if(r.spec.space===d.space)assert(r.acked,'Cannot drop a catalogue before native requests and workers drain');this.events.push({kind:'drop',space:d.space});this.drops.push(this.get('/xlat/drop?space='+d.space).then(r=>assert(r.ok)));}
+ drop(d){for(const r of this.history)if(r.spec.space===d.space)assert(r.acked,'Cannot drop a catalogue before native requests and workers drain');for(const key of this.unitCache.keys())if(key.startsWith(d.space+':'))this.unitCache.delete(key);this.events.push({kind:'drop',space:d.space});this.drops.push(this.get('/xlat/drop?space='+d.space).then(r=>assert(r.ok)));}
  async close(){for(const r of this.history){r.stopping=true;await r.worker?.terminate();await Promise.allSettled([...r.pending]);}await Promise.all(this.drops);}
 }
 module.exports={SparseHost};

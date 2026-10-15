@@ -1,5 +1,10 @@
 # Experimental finite guest continuations
 
+The [compiled C command profile](sparse-compiled-command.md) now extends this
+work with coverage4, bounded stdout/stderr and a separate single-process phone
+route. Its browser route still refuses fork/exec/retirement; host evidence is
+separate from physical-device validation.
+
 Step ABI and coverage revision 3 extend broker1 with register TEST/CMP (32/64-bit),
 direct JZ/JNZ (rel8/rel32) and direct JMP (rel8/rel32). Memory/checkpoint ABIs stay
 1/1. Unknown conditions, indirect control flow, calls/returns, stack effects and

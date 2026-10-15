@@ -144,6 +144,7 @@ struct DeviceSessionReport: Codable {
     var diagnostics: DiagnosticReport?
     static let plan: [SessionPhase] = [
         .init(id:"linux-smoke", title:"Linux ELF: stdout and exit", deadlineSeconds:40),
+        .init(id:"compiled-rot13",title:"Compiled C: ROT13 text command",deadlineSeconds:80),
         .init(id:"linux-services", title:"Linux files, GS base, mmap, clock, random, clone / futex", deadlineSeconds:50),
         .init(id:"linux-channels", title:"Linux workload with native channels requested", deadlineSeconds:50),
         .init(id:"linux-userspace", title:"Linux shell: files, pipes, signals and processes", deadlineSeconds:110),
@@ -193,7 +194,7 @@ struct DeviceSessionReport: Codable {
         let encoder=JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
         var object=try JSONSerialization.jsonObject(with:encoder.encode(self)) as! [String:Any]
         object["overall"]=overall
-        object["evidenceContract"]="Linux/Wine phases execute guest ELF through live native FEX and the Linux kernel. ABI suites use fresh x86 translation. Diagnostics identify host primitives and prototypes individually. Unsupported integration is never a complete PASS; timings are transport/call timings, not game speed."
+        object["evidenceContract"]="Linux/Wine phases execute guest ELF through live native FEX and the Linux kernel. ABI suites use fresh x86 translation. The compiled C phase uses the bounded single-process sparse profile, retaining storage until session teardown. Diagnostics identify host primitives and prototypes individually. Unsupported integration is never a complete PASS; timings are transport/call timings, not game speed."
         object["linuxFixtureSHA256"]=LinuxSessionFixture.elfSHA256
         object["linuxFixtureSourceSHA256"]=LinuxSessionFixture.sourceSHA256
         // Preserve each suite's computed summaries as well as its raw checked calls.

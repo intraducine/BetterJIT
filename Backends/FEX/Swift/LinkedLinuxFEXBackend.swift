@@ -5,19 +5,24 @@ import CFEXWasm
 
 public final class LinkedLinuxFEXBackend: LinuxTranslationBackend, @unchecked Sendable {
     private let lock=NSLock()
+    private var closed=false
     private var spaces:[UInt32:OpaquePointer]=[:]
     private let options:String
     private let maximumBytes=32*1024*1024
     private var counts:[String:Int]=[:]
 
-    public init(cacheDirectory: URL, extraOptions: String = "") throws {
+    public init(cacheDirectory: URL, extraOptions: String = "",
+                executionProfile: LinuxRuntimeConfiguration.ExecutionProfile = .direct) throws {
         try FileManager.default.createDirectory(at:cacheDirectory,withIntermediateDirectories:true)
         let suffix=extraOptions.trimmingCharacters(in:.whitespacesAndNewlines)
-        options="linux=1 depth=24 cache=\(cacheDirectory.path)" + (suffix.isEmpty ? "" : " " + suffix)
+        // Broker steps reject the legacy on-disk direct-unit cache.
+        let base=executionProfile == .sparseStatic ? "linux=1 guestmem=broker1" : "linux=1 depth=24 cache=\(cacheDirectory.path)"
+        options=base + (suffix.isEmpty ? "" : " " + suffix)
     }
 
     private func withTranslator<T>(space:UInt32,_ body:(OpaquePointer)throws->T) throws -> T {
         lock.lock(); defer { lock.unlock() }
+        guard !closed else { throw LinuxRuntimeError.closed }
         let t:OpaquePointer
         if let have=spaces[space] { t=have }
         else {
@@ -45,6 +50,14 @@ public final class LinkedLinuxFEXBackend: LinuxTranslationBackend, @unchecked Se
     }
     public func dispatcher(space:UInt32) throws -> Data { try withTranslator(space:space) { try copy(fexwasm_dispatcher($0)) } }
     public func initialState(space:UInt32) throws -> Data { try withTranslator(space:space) { try copy(fexwasm_state($0)) } }
+    public func step(space:UInt32,rip:UInt64) throws -> Data {
+        try withTranslator(space:space) { t in
+            counts["stepRequests",default:0] += 1
+            let data=try copy(fexwasm_step(t,rip))
+            counts["translationBytes",default:0] += data.count
+            return data
+        }
+    }
     public func unit(space:UInt32,rip:UInt32) throws -> Data {
         try withTranslator(space:space) { t in
             counts["unitRequests",default:0] += 1
@@ -87,6 +100,7 @@ public final class LinkedLinuxFEXBackend: LinuxTranslationBackend, @unchecked Se
     }
     public func close() {
         lock.lock(); defer { lock.unlock() }
+        closed=true
         for t in spaces.values { fexwasm_destroy(t) }
         spaces.removeAll()
     }

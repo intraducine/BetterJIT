@@ -28,3 +28,7 @@ test('staged image allocation failure frees every staged page and preserves old 
 test('guest strings never wrap oversized pointers or strip a filename BOM into another executable path',t=>{
  const {space}=old(t),copy={copyIn:(p,n)=>space.read(p,n),readU64:p=>new DataView(space.read(p,8).buffer).getBigUint64(0,true)};assert.throws(()=>I.readCString(copy,1n<<64n),TypeError);assert.throws(()=>I.readCString(copy,Number(F.DATA)),TypeError);space.write(F.DATA+256n,Uint8Array.from([0xef,0xbb,0xbf,...enc('/bin/second'),0]));assert.throws(()=>I.readArguments(copy,F.DATA+256n,F.DATA+64n,0n),I.ImageUnsupported);
 });
+test('ordinary compiler zero-file BSS loads may start within a distinct page without mapping file-prefix bytes',t=>{
+ const {space}=old(t),b=F.elf().bytes,v=new DataView(b.buffer),at=64+2*56;v.setBigUint64(at+8,64n,true);v.setBigUint64(at+16,F.ELFDATA+64n,true);v.setBigUint64(at+32,0n,true);const image=I.prepare(space,b,args,new Uint8Array(16));t.after(()=>image.space.close());assert.deepEqual(image.space.read(F.ELFDATA,128),new Uint8Array(128));assert.deepEqual(image.space.read(F.ELFDATA+64n,8192),new Uint8Array(8192));
+ v.setBigUint64(at+32,8n,true);assert.throws(()=>I.prepare(space,b,args,new Uint8Array(16)),I.ImageUnsupported);
+});

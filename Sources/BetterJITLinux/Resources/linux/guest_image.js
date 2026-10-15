@@ -63,11 +63,11 @@
    if(type!==1)unsupported('Unimplemented ELF segment type');
    if(filesz>memsz||off+filesz>fileSize||va+memsz>1n<<64n)bad('Invalid ELF segment span');if(!memsz)continue;
    if((flags&~7)||!(flags&4)||(flags&3)===3)unsupported('Load permissions are outside the RX/R/RW profile');
-   if(align!==P||off%P!==va%P||va%P)unsupported('Only distinct aligned load pages are admitted');
-   const end=(va+memsz+P-1n)/P*P;if(va<0x10000n||end>limit||end>stackBase-P)unsupported('ELF outside guest window or overlaps stack');
-   if(loads.some(p=>va<p.end&&end>p.va))unsupported('Overlapping load pages');mapped+=end-va;if(mapped>32n*1024n*1024n)unsupported('ELF backing exceeds 32MiB');
+   if(align!==P||off%P!==va%P||(filesz&&va%P))unsupported('Only aligned file loads and distinct zero-fill BSS pages are admitted');
+   const start=va/P*P,end=(va+memsz+P-1n)/P*P;if(start<0x10000n||end>limit||end>stackBase-P)unsupported('ELF outside guest window or overlaps stack');
+   if(loads.some(p=>start<p.end&&end>p.start))unsupported('Overlapping load pages');mapped+=end-start;if(mapped>32n*1024n*1024n)unsupported('ELF backing exceeds 32MiB');
    if(flags===4&&phoff>=off&&phoff+BigInt(phnum)*56n<=off+filesz)phdr=va+phoff-off;
-   loads.push({va,end,off,filesz,memsz,flags});
+   loads.push({start,va,end,off,filesz,memsz,flags});
   }
   if(!loads.some(p=>(p.flags&1)&&entry>=p.va&&entry<p.va+p.filesz))bad('Entry is not in file-backed executable bytes');
   if(phdr===undefined)unsupported('Program headers must be mapped read-only');
@@ -77,8 +77,8 @@
      [...args.argv,...args.envp].reduce((n,b)=>n+b.length+1,0)>128*1024)throw new ImageUnsupported('Arguments outside declared exec bounds');
   const space=oldSpace.createEmpty(),codes=[];
   try {
-   for(const p of loads){space.mapAnonymous(p.va,p.end-p.va,3);if(p.filesz)space.write(p.va,bytes.slice(Number(p.off),Number(p.off+p.filesz)));
-    const prot=(p.flags&4?1:0)|(p.flags&2?2:0)|(p.flags&1?4:0);space.protect(p.va,p.end-p.va,prot);if(p.flags&1)codes.push(Object.freeze({address:p.va,bytes:bytes.slice(Number(p.off),Number(p.off+p.filesz))}));}
+   for(const p of loads){space.mapAnonymous(p.start,p.end-p.start,3);if(p.filesz)space.write(p.va,bytes.slice(Number(p.off),Number(p.off+p.filesz)));
+    const prot=(p.flags&4?1:0)|(p.flags&2?2:0)|(p.flags&1?4:0);space.protect(p.start,p.end-p.start,prot);if(p.flags&1)codes.push(Object.freeze({address:p.va,bytes:bytes.slice(Number(p.off),Number(p.off+p.filesz))}));}
    space.mapAnonymous(stackBase,stackBytes,3);let sp=stackTop;
    function strings(values){const ptrs=[];for(let i=values.length-1;i>=0;i--){const b=values[i];sp-=BigInt(b.length+1);const out=new Uint8Array(b.length+1);out.set(b);space.write(sp,out);ptrs[i]=sp;}return ptrs;}
    const env=strings(args.envp),argv=strings(args.argv);sp=(sp-16n)&~15n;const randomAt=sp;space.write(sp,Uint8Array.from(random));

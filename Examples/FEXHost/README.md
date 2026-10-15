@@ -1,5 +1,9 @@
 # One iPhone device session
 
+The sparse experimental build also adds a [compiled C ROT13 command](../../docs/sdk/sparse-compiled-command.md)
+to Run All. It uses a separate bounded single-process sparse route and does not
+require JSPI; physical-phone behavior and browser fork/exec remain unproven.
+
 The FEX Host now opens as **BetterJIT Session**. Tap **Run All** for real Linux
 ELF execution, an attempted Wine command, both complete extended FEX suites and
 the safe diagnostic matrix, with one persisted/exportable report. See

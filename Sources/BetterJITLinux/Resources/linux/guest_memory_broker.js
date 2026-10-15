@@ -4,7 +4,7 @@
   'use strict';
   const storage=root.BetterJITGuestMemory;
   if(!storage||storage.STORAGE_VERSION!==1)throw new Error('Guest storage contract 1 required');
-  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:3,coverageVersion:3,stepHeaderBytes:96,
+  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:3,coverageVersion:4,stepHeaderBytes:96,
     magic:0x314d4a42,internalPages:33,threadBase:0x10000,threadBytes:0x200000,
     scratchOffset:0x1f0000,scratchBytes:128,memoryRequest:0x10003,instructionBoundary:0x10004,maximumThreads:8,parkedState:4,
     userCopyBytes:65536});
@@ -12,7 +12,7 @@
     address:32,rip:40,checkpoint:48,operand0:56,operand1:64,result0:72,result1:80,faultAddress:88,
     checkpointRip:96,nextRip:104,completedSequence:112,boundaryControl:116,lease:120});
   const STATUS=Object.freeze({OK:0,FAULT:1,UNSUPPORTED:2});
-  const OP=Object.freeze({READ:1,WRITE:2,CAS:3,FETCH_ADD:4,SYSCALL:5,FLAGS:6,BRANCH:7});
+  const OP=Object.freeze({READ:1,WRITE:2,CAS:3,FETCH_ADD:4,SYSCALL:5,FLAGS:6,BRANCH:7,READ_FLAGS:8});
   const STEP=Object.freeze({OK:0,FAULT:1,UNSUPPORTED:2,SYSCALL:3});
   // Host startup gate / spilled syscall completion, separate from native step exits.
   const LIFECYCLE=Object.freeze({version:1,PENDING:0,READY:1,RUN:2,CANCEL:3,FAILED:4,syscallExit:4});
@@ -31,9 +31,9 @@
       return Object.freeze([p.nextRip]);
     }
     const b=p.instruction,v=new DataView(b.buffer,b.byteOffset,b.byteLength);let flow,offset;
-    if(b.length===2&&[0x74,0x75,0xeb].includes(b[0])){flow=b[0]===0xeb?1:2;offset=BigInt(v.getInt8(1));}
+    if(b.length===2&&[0x72,0x73,0x74,0x75,0x76,0x77,0xeb].includes(b[0])){flow=b[0]===0xeb?1:2;offset=BigInt(v.getInt8(1));}
     else if(b.length===5&&b[0]===0xe9){flow=1;offset=BigInt(v.getInt32(1,true));}
-    else if(b.length===6&&b[0]===0x0f&&[0x84,0x85].includes(b[1])){flow=2;offset=BigInt(v.getInt32(2,true));}
+    else if(b.length===6&&b[0]===0x0f&&[0x82,0x83,0x84,0x85,0x86,0x87].includes(b[1])){flow=2;offset=BigInt(v.getInt32(2,true));}
     else throw new TypeError('Uncovered branch instruction');
     if(kind!==flow||typeof target!=='bigint'||target!==BigInt.asUintN(64,p.nextRip+offset))throw new TypeError('Invalid branch continuation');
     return Object.freeze(kind===1?[target]:[p.nextRip,target]);
@@ -48,7 +48,7 @@
       rip=v.getBigUint64(32,true),nextRip=v.getBigUint64(40,true),size=v.getUint32(56,true),length=v.getUint32(60,true);
     if(![0,2].includes(status)||
        (status===2&&(size||length))||(status===0&&(!size||length<1||length>15||nextRip!==rip+BigInt(length)||
-         !(([0,5,6,7].includes(operation)&&width===0)||([1,2].includes(operation)&&[1,2,4,8].includes(width))||
+         !(([0,5,6,7].includes(operation)&&width===0)||([1,2,8].includes(operation)&&[1,2,4,8].includes(width))||
            ([3,4].includes(operation)&&[4,8].includes(width))))))
       throw new Error('Invalid broker step metadata');
     if(v.getUint32(92,true)!==0)throw new Error('Invalid broker step reserved field');
@@ -173,7 +173,7 @@
       if(s.preparedCopies.size)throw new BrokerInvariantError('Prepared copyout must complete before BEGIN');
       if(s.active||s.waits.size)invariant(s,'Instruction already active or parked');
       s.spilledSyscall=false;s.syscallCheckpoint=null;
-      if(!(([0,OP.SYSCALL,OP.FLAGS,OP.BRANCH].includes(operation)&&width===0)||([OP.READ,OP.WRITE].includes(operation)&&[1,2,4,8].includes(width))||
+      if(!(([0,OP.SYSCALL,OP.FLAGS,OP.BRANCH].includes(operation)&&width===0)||([OP.READ,OP.WRITE,OP.READ_FLAGS].includes(operation)&&[1,2,4,8].includes(width))||
            ([OP.CAS,OP.FETCH_ADD].includes(operation)&&[4,8].includes(width))))
         throw new TypeError('Unsupported instruction admission');
       if(operation===OP.BRANCH) {
@@ -208,7 +208,7 @@
         return fail(REASON.ACCESS);
       const a=s.active;
       if(!a||q.getBigUint64(FIELD.rip,true)!==a.rip||q.getBigUint64(FIELD.checkpoint,true)!==a.generation||
-         operation!==a.operation||width!==a.width)return fail(REASON.CHECKPOINT);
+         operation!==(a.operation===OP.READ_FLAGS?OP.READ:a.operation)||width!==a.width)return fail(REASON.CHECKPOINT);
       const address=q.getBigUint64(FIELD.address,true);
       if([OP.CAS,OP.FETCH_ADD].includes(operation)&&address%BigInt(width))return fail(REASON.ALIGNMENT);
       try {
@@ -243,7 +243,7 @@
       if(status===STEP.OK) {
         nextRip=a.operation===OP.BRANCH?cpuRip(s):u64(nextRip);
         if((a.operation===OP.BRANCH&&!a.continuations.includes(nextRip))||
-           ([OP.READ,OP.WRITE,OP.CAS,OP.FETCH_ADD].includes(a.operation)&&a.result?.status!==STATUS.OK)||
+           ([OP.READ,OP.WRITE,OP.CAS,OP.FETCH_ADD,OP.READ_FLAGS].includes(a.operation)&&a.result?.status!==STATUS.OK)||
            ([0,OP.FLAGS,OP.BRANCH].includes(a.operation)&&a.result)||
            a.operation===OP.SYSCALL||cpuRip(s)!==nextRip)
           invariant(s,'Full successful post-state was not spilled');

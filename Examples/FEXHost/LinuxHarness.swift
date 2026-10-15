@@ -5,7 +5,7 @@ import BetterJITLinux
 import BetterJITFEXAdapter
 
 @MainActor final class LinuxHarness {
-    enum Mode: Equatable { case smoke, services, userspace, wineCommand, wineDirect, adaptedWine(AdaptedWinePhase) }
+    enum Mode: Equatable { case smoke, services, userspace, sparseROT13, wineCommand, wineDirect, adaptedWine(AdaptedWinePhase) }
     private(set) var session: LinuxRuntimeSession?
     private(set) var counters: [String:Int] = [:]
     private var process:FEXProcess?
@@ -35,7 +35,7 @@ import BetterJITFEXAdapter
         let wine = mode == .wineCommand || mode == .wineDirect || adapted != nil
         // Keep fault operands in the same phone report. The translator's
         // option fingerprint separates these units from ordinary cached code.
-        let overlay:[String:Data]=[
+        var overlay:[String:Data]=[
             "/test/hello-static":LinuxSmokeFixture.elf,
             "/test/session-static":LinuxSessionFixture.elf,
             "/test/session-input.txt":LinuxSessionFixture.input,
@@ -44,6 +44,12 @@ import BetterJITFEXAdapter
             "/etc/group":Data("root:x:0:\nuser:x:\(getgid()):user\n".utf8)]
         let cfg:LinuxRuntimeConfiguration
         switch mode {
+        case .sparseROT13:
+            let fixture=try SparseROT13Fixture.load()
+            overlay["/test/rot13"]=fixture.0
+            cfg=LinuxRuntimeConfiguration(arguments:["/test/rot13",SparseROT13Fixture.argument],
+                timeoutSeconds:60,regions:false,useNativeChannels:false,standardIO:.captured,
+                executionProfile:.sparseStatic)
         case .smoke:
             cfg=LinuxRuntimeConfiguration(arguments:["/test/hello-static"],timeoutSeconds:30,display:nil,
                                           regions:true,slowWaitMilliseconds:100,useNativeChannels:nativeChannels)
