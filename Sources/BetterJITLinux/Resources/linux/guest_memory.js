@@ -278,6 +278,10 @@
         return child;
       }catch(error){child.close();throw error;}
     }
+    createEmpty() {
+      const s=spaces.get(this);writeReady(s);range(s,s.minimum,0,'new-image');
+      return new GuestAddressSpace(s.budget,{virtualLimit:s.limit,minimumAddress:s.minimum});
+    }
     mappingInfo(at) {
       const s=spaces.get(this),r=range(s,at,1,'identity');covered(s,r,'identity');
       const page=r.start-r.start%P,e=s.pages.get(page);if(!e)return null;

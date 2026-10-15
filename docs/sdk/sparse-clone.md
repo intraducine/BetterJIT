@@ -1,5 +1,9 @@
 # Experimental guest-initiated clone and thread exit
 
+The separately selected [version-3 static ELF exec profile](sparse-exec.md)
+adds checked image loading and acknowledged replacement; the version described
+here keeps its original syscall scope.
+
 This opt-in host profile supports an actual Linux x86-64 guest `clone` syscall
 and per-thread `exit` through FEX-generated Wasm. It is the first guest-created
 thread increment. It creates no new process or image and enables neither fork,

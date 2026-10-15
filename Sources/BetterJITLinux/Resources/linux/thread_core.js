@@ -557,23 +557,9 @@ function runThread(env) {
 function parseBrokerStep(bytes) {
   const B=G.BetterJITGuestMemoryBroker;
   if(!B||!(bytes instanceof Uint8Array)||bytes.length<B.ABI.stepHeaderBytes)throw new Error('Broker step header required');
-  const v=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
-  if(v.getUint32(0,true)!==0x31534a42||v.getUint32(4,true)!==B.ABI.version||
-     v.getUint32(8,true)!==B.ABI.checkpointVersion||v.getUint32(12,true)!==B.ABI.stepVersion||
-     v.getUint32(16,true)!==B.ABI.coverageVersion)throw new Error('Incompatible broker step ABI');
-  const status=v.getUint32(20,true),operation=v.getUint32(24,true),width=v.getUint32(28,true),
-    rip=v.getBigUint64(32,true),nextRip=v.getBigUint64(40,true),size=v.getUint32(56,true),length=v.getUint32(60,true);
-  if(bytes.length!==B.ABI.stepHeaderBytes+size||![0,2].includes(status)||
-     (status===2&&(size||length))||(status===0&&(!size||length<1||length>15||nextRip!==rip+BigInt(length)||
-       !(([0,5,6,7].includes(operation)&&width===0)||([1,2].includes(operation)&&[1,2,4,8].includes(width))||
-         ([3,4].includes(operation)&&[4,8].includes(width))))))
-    throw new Error('Invalid broker step metadata');
-  if(v.getUint32(92,true)!==0)throw new Error('Invalid broker step reserved field');
-  const result={status,operation,width,rip,nextRip,length,hash:v.getBigUint64(48,true),
-    continuationKind:v.getUint32(88,true),branchTarget:v.getBigUint64(80,true),
-    instruction:bytes.slice(64,64+length),code:bytes.slice(B.ABI.stepHeaderBytes)};
-  if(status===0)try{result.continuations=B.instructionContinuations(result);}catch(error){throw new Error('Invalid broker continuation metadata: '+error.message);}
-  return result;
+  const header=bytes.slice(0,B.ABI.stepHeaderBytes),result=B.parseStepHeader(header);
+  if(bytes.length!==B.ABI.stepHeaderBytes+result.codeBytes)throw new Error('Invalid broker module size');
+  return {...result,header,code:bytes.slice(B.ABI.stepHeaderBytes)};
 }
 
 async function runSparseThread(env) {
@@ -642,11 +628,15 @@ async function executeSparseThread(env) {
     const rip=view.getBigUint64(ripAt,true);
     if(d.stopRip!==undefined&&rip===d.stopRip)break;
     const unit=await env.stepBroker(d.space,rip);
-    if(!unit||unit.status===B.STEP.UNSUPPORTED){if(start)throw new Error('Sparse startup continuation unavailable');status=B.STEP.UNSUPPORTED;break;}
+    if(!unit||unit.status===B.STEP.UNSUPPORTED){if(start){if(d.startupStatus instanceof SharedArrayBuffer&&d.startupStatus.byteLength===4)Atomics.store(new Int32Array(d.startupStatus),0,2);throw new Error('Sparse startup continuation unavailable');}status=B.STEP.UNSUPPORTED;break;}
     if(unit.status!==0||unit.rip!==rip||!(unit.module instanceof WebAssembly.Module))throw new Error('Wrong broker step unit');
     const imports=WebAssembly.Module.imports(unit.module);
     if(imports.some(i=>i.module!=='e'||!['mem','tb','memory'].includes(i.name)))throw new Error('Uncovered broker module import');
     const instance=await WebAssembly.instantiate(unit.module,{e:{mem:d.mem,tb:new WebAssembly.Global({value:'i32'},d.tb),memory}});
+    if(d.admission!==undefined){
+      if(!(d.admission instanceof SharedArrayBuffer)||d.admission.byteLength!==B.ABI.stepHeaderBytes||!(unit.header instanceof Uint8Array)||unit.header.length!==B.ABI.stepHeaderBytes)throw new Error('Dynamic step admission required');
+      new Uint8Array(d.admission).set(unit.header);
+    }
     if(start) {
       const c=new Int32Array(start),L=B.LIFECYCLE;
       if(Atomics.compareExchange(c,0,L.PENDING,L.READY)!==L.PENDING)throw new Error('Sparse startup cancelled');

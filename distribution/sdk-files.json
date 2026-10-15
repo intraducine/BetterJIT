@@ -209,6 +209,15 @@
     "tests/sdk/linux-host/sparse-fork-kernel.cjs": "tests/sdk/linux-host/sparse-fork-kernel.cjs",
     "tests/sdk/linux-host/sparse-fork.cjs": "tests/sdk/linux-host/sparse-fork.cjs",
     "tests/sdk/linux-host/sparse-fork-oracle.c": "tests/sdk/linux-host/sparse-fork-oracle.c",
-    "docs/sdk/sparse-fork.md": "docs/sdk/sparse-fork.md"
+    "docs/sdk/sparse-fork.md": "docs/sdk/sparse-fork.md",
+    "Sources/BetterJITLinux/Resources/linux/guest_image.js": "Sources/BetterJITLinux/Resources/linux/guest_image.js",
+    "tests/sdk/linux-guest-image.test.mjs": "tests/sdk/linux-guest-image.test.mjs",
+    "tests/sdk/linux-sparse-exec.test.mjs": "tests/sdk/linux-sparse-exec.test.mjs",
+    "docs/sdk/sparse-exec.md": "docs/sdk/sparse-exec.md",
+    "tests/sdk/linux-host/sparse-exec-fixture.cjs": "tests/sdk/linux-host/sparse-exec-fixture.cjs",
+    "tests/sdk/linux-host/sparse-exec-thread.cjs": "tests/sdk/linux-host/sparse-exec-thread.cjs",
+    "tests/sdk/linux-host/sparse-exec-host.cjs": "tests/sdk/linux-host/sparse-exec-host.cjs",
+    "tests/sdk/linux-host/sparse-exec-kernel.cjs": "tests/sdk/linux-host/sparse-exec-kernel.cjs",
+    "tests/sdk/linux-host/sparse-exec.cjs": "tests/sdk/linux-host/sparse-exec.cjs"
   }
 }

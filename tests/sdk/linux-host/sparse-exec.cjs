@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+const fs=require('fs'),path=require('path'),os=require('os'),{spawnSync}=require('child_process'),assert=require('node:assert/strict'),{Worker}=require('worker_threads'),{serve}=require('./native-step-contract.cjs'),{SparseHost}=require('./sparse-exec-host.cjs'),F=require('./sparse-exec-fixture.cjs');require('./sparse-clone.cjs');
+const resources=path.resolve(__dirname,'../../../Sources/BetterJITLinux/Resources');
+async function execute(get,cfg,state,units,scenario){let kernel,host,timer;try{
+ const result=await new Promise((resolve,reject)=>{
+ timer=setTimeout(()=>reject(Error('Actual guest exec fixture exceeded30seconds: '+scenario)),30000);
+ const ownedGet=(route,init)=>scenario==='terminate-during-translation'&&route.startsWith('/xlat/step?space=')?new Promise((resolve,reject)=>setTimeout(()=>get(route,init).then(resolve,reject),100)):get(route,init);
+ host=new SparseHost({get:ownedGet,cfg,resources,units,scenario,onFailure:reject});kernel=new Worker(path.join(__dirname,'sparse-exec-kernel.cjs'),{workerData:{cfg,state,resources,scenario,plans:units.map(({module,code,header,...p})=>p)}});kernel.on('error',reject);kernel.on('message',m=>{
+  if(m.op==='spawn')host.spawn(m);else if(m.op==='stop')host.stop(m);else if(m.op==='drop')host.drop(m);else if(m.op==='fatal')reject(Error(m.message));else if(m.op==='kernel-result')resolve(m);
+ });});
+ await host.close();for(const r of host.workers.values())assert(r.acked,'Every worker/translation owner has drained');
+ if(scenario==='success'){assert.equal(host.results.length,2);assert.equal(result.commits.length,1);assert(host.events.filter(e=>e.kind==='translated').length>20);const c=result.commits[0],stop=host.events.findIndex(e=>e.kind==='stop'&&e.slot===c.oldSlot),ack=host.events.findIndex(e=>e.kind==='ack'&&e.slot===c.oldSlot);assert(stop>=0&&ack>stop);assert(host.events.some(e=>e.kind==='drop'&&e.space===host.workers.get(c.slot).spec.space));}
+ if(scenario==='terminate-during-translation'){const exit=host.events.find(e=>e.kind==='worker-exit'&&e.slot===2);assert(exit.pending>0);const tr=host.events.findIndex(e=>e.kind==='translated'&&e.slot===2),ack=host.events.findIndex(e=>e.kind==='ack'&&e.slot===2);assert(tr>=0&&ack>tr,'ACK must wait for the terminated worker’s native request');}
+ return {...result,workers:host.results,failures:host.failures,hostEvents:host.events};
+ }finally{clearTimeout(timer);await host?.close();await kernel?.terminate();}}
+function oracle(){if(process.platform!=='linux'||process.arch!=='x64')return {supported:false,reason:'Independent ELF exec oracle requires Linux x86-64; actual FEX/Wasm still runs'};const dir=fs.mkdtempSync(path.join(os.tmpdir(),'betterjit-exec-oracle-'));try{const file=path.join(dir,'second');fs.writeFileSync(file,F.elf().bytes,{mode:0o700});const r=spawnSync(file,['abcDEFg'],{argv0:'/bin/second',env:{K:'VALUE'},timeout:10000});assert.equal(r.status,37,String(r.error??r.stderr));assert.equal(r.signal,null);return {supported:true,guestELF64ExitStatus:r.status,argv0:'/bin/second',argc:2,envp:['K=VALUE'],zeroBSS:true};}finally{fs.rmSync(dir,{recursive:true,force:true});}}
+async function main(){const nativeOracle=oracle();await serve('guestmem=broker1',async(get,log)=>{
+ const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer()),b=F.bootstrap();await get('/xlat/code?addr='+F.CODE.toString(16),{method:'POST',body:b.image});const units=[];
+ for(const p of b.program){const u=FexLinuxThread.parseBrokerStep(new Uint8Array(await(await get('/xlat/step?rip='+p.rip)).arrayBuffer()));assert.equal(u.status,0,p.name+': '+log());u.module=await WebAssembly.compile(u.code);units.push(u);}
+ const cases=[];for(const scenario of ['success','missing-file','malformed','terminate-before-ready','terminate-during-translation','unsupported-entry'])cases.push(await execute(get,cfg,state,units,scenario));
+ const result={evidence:'Actual guest fork57 -> execve59 of checked immutable static ELF64 -> new guest argc/argv/envp/BSS checks -> exit37 -> parent wait4 status0x2500. Runtime chooses image from guest path; new instructions translate on demand through host FEX/Wasm. Includes errno rollback, acknowledged startup cancellation and typed unsupported entry. Node host only; no stock/adapted Wine, WebKit, device or RAM compatibility claim.',cfg,nativeOracle,native:await(await get('/xlat/totals')).json(),cases};const text=JSON.stringify(result,(_k,x)=>typeof x==='bigint'?'0x'+x.toString(16):x,2);if(process.argv[3])fs.writeFileSync(process.argv[3],text+'\n');console.log(text);
+ });}
+module.exports={execute,oracle};if(require.main===module)main().catch(e=>{console.error(e);process.exitCode=1;});

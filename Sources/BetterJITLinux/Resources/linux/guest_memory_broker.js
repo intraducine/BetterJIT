@@ -38,6 +38,27 @@
     if(kind!==flow||typeof target!=='bigint'||target!==BigInt.asUintN(64,p.nextRip+offset))throw new TypeError('Invalid branch continuation');
     return Object.freeze(kind===1?[target]:[p.nextRip,target]);
   }
+  function parseStepHeader(bytes) {
+    if(!(bytes instanceof Uint8Array)||bytes.length!==ABI.stepHeaderBytes)throw new Error('Broker step header required');
+    const v=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
+    if(v.getUint32(0,true)!==0x31534a42||v.getUint32(4,true)!==ABI.version||
+       v.getUint32(8,true)!==ABI.checkpointVersion||v.getUint32(12,true)!==ABI.stepVersion||
+       v.getUint32(16,true)!==ABI.coverageVersion)throw new Error('Incompatible broker step ABI');
+    const status=v.getUint32(20,true),operation=v.getUint32(24,true),width=v.getUint32(28,true),
+      rip=v.getBigUint64(32,true),nextRip=v.getBigUint64(40,true),size=v.getUint32(56,true),length=v.getUint32(60,true);
+    if(![0,2].includes(status)||
+       (status===2&&(size||length))||(status===0&&(!size||length<1||length>15||nextRip!==rip+BigInt(length)||
+         !(([0,5,6,7].includes(operation)&&width===0)||([1,2].includes(operation)&&[1,2,4,8].includes(width))||
+           ([3,4].includes(operation)&&[4,8].includes(width))))))
+      throw new Error('Invalid broker step metadata');
+    if(v.getUint32(92,true)!==0)throw new Error('Invalid broker step reserved field');
+    const result={status,operation,width,rip,nextRip,length,hash:v.getBigUint64(48,true),
+      continuationKind:v.getUint32(88,true),branchTarget:v.getBigUint64(80,true),
+      instruction:bytes.slice(64,64+length),codeBytes:size};
+    if(status===0)try{result.continuations=instructionContinuations(result);}catch(error){throw new Error('Invalid broker continuation metadata: '+error.message);}
+    return result;
+  }
+
   function createInternalMemory() {
     const memory=new WebAssembly.Memory({initial:ABI.internalPages,maximum:ABI.internalPages,shared:true});
     memories.add(memory);return memory;
@@ -90,8 +111,8 @@
     return {spans,ripAddress:ABI.threadBase+spans[0].offset+layout.cpu.ripOffset};
   }
   function cpuRip(s){return s.view.getBigUint64(s.layout.ripAddress,true);}
-  function restore(s) {
-    for(const p of s.active.snapshot)new Uint8Array(s.memory.buffer,ABI.threadBase+p.offset,p.bytes.length).set(p.bytes);
+  function restore(s,snapshot=s.active.snapshot) {
+    for(const p of snapshot)new Uint8Array(s.memory.buffer,ABI.threadBase+p.offset,p.bytes.length).set(p.bytes);
   }
   function response(s,sequence,status,reason=REASON.NONE,data=0n,faultAddress=0n) {
     const v=s.scratch;
@@ -143,7 +164,7 @@
       const s=current(this,token);if(!s)return false;
       for(const rec of [...s.preparedCopies])rec.cancel();
       for(const rec of [...s.waits])finishWait(brokers.get(this),rec,-4n,false);
-      brokers.get(this).slots.delete(s.slot);owners.delete(token);s.closed=true;s.active=null;return true;
+      brokers.get(this).slots.delete(s.slot);owners.delete(token);s.closed=true;s.active=null;s.syscallCheckpoint=null;return true;
     }
     // Called at a safe boundary after native code has spilled the full CPU state.
     // operation/width must come from compile-time admission, never guest input.
@@ -151,7 +172,7 @@
       const s=requireOwner(this,token);rip=u64(rip);
       if(s.preparedCopies.size)throw new BrokerInvariantError('Prepared copyout must complete before BEGIN');
       if(s.active||s.waits.size)invariant(s,'Instruction already active or parked');
-      s.spilledSyscall=false;
+      s.spilledSyscall=false;s.syscallCheckpoint=null;
       if(!(([0,OP.SYSCALL,OP.FLAGS,OP.BRANCH].includes(operation)&&width===0)||([OP.READ,OP.WRITE].includes(operation)&&[1,2,4,8].includes(width))||
            ([OP.CAS,OP.FETCH_ADD].includes(operation)&&[4,8].includes(width))))
         throw new TypeError('Unsupported instruction admission');
@@ -237,7 +258,14 @@
         restore(s);nextRip=a.rip;
       } else invariant(s,'Unknown step result');
       const result=Object.freeze({status,rip:nextRip,memory:a.result});
-      s.active=null;s.spilledSyscall=status===STEP.SYSCALL;return result;
+      s.active=null;s.spilledSyscall=status===STEP.SYSCALL;s.syscallCheckpoint=s.spilledSyscall?a:null;return result;
+    }
+    // Refuse a prepared-but-unsupported exec before any irreversible effect.
+    abortSpilledSyscall(token) {
+      const s=userOwner(this,token);
+      if(s.preparedCopies.size||!s.syscallCheckpoint)throw new BrokerInvariantError('No abortable syscall checkpoint');
+      const a=s.syscallCheckpoint;restore(s,a.snapshot);s.spilledSyscall=false;s.syscallCheckpoint=null;
+      return Object.freeze({status:STEP.UNSUPPORTED,rip:a.rip,memory:null});
     }
     // Kernel copyin/copyout only, after Wasm has fully unwound. These never
     // return backing views and do not consume a memory-RPC sequence or call I/O.
@@ -320,6 +348,6 @@
         faults:b.faults,unsupported:b.unsupported,rejected:b.rejected});
     }
   }
-  root.BetterJITGuestMemoryBroker=Object.freeze({ABI,FIELD,STATUS,REASON,OP,STEP,LIFECYCLE,instructionContinuations,createInternalMemory,
+  root.BetterJITGuestMemoryBroker=Object.freeze({ABI,FIELD,STATUS,REASON,OP,STEP,LIFECYCLE,instructionContinuations,parseStepHeader,createInternalMemory,
     BrokerInvariantError,UserCopyUnsupported,GuestMemoryBroker});
 })(typeof globalThis!=='undefined'?globalThis:self);

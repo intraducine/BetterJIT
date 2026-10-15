@@ -1,5 +1,9 @@
 # Experimental guest fork, wait and exit
 
+The separately selected [version-3 static ELF exec profile](sparse-exec.md)
+adds checked image loading and acknowledged replacement; the version described
+here keeps its original syscall scope.
+
 Host capability `sparseLifecycleVersion: 2` extends the version-1
 [clone/exit profile](sparse-clone.md) with guest fork (57) and bounded wait4 (61).
 The startup/termination callbacks and exact-lease gate remain unchanged. Step and
