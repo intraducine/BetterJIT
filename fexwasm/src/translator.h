@@ -33,8 +33,9 @@ typedef struct {
 //                         register arguments or ABI state pruning. Still direct
 //                         guest memory and the legacy i32 RIP result ABI.
 //   guestmem=direct|broker1  broker1 requires Linux, uses only fexwasm_step,
-//                         immutable private code and admitted MOV/NOP steps;
-//                         no legacy dispatcher, syscalls, atomics or regions
+//                         immutable private code and admitted MOV/NOP steps,
+//                         aligned 32/64-bit locked CAS/XADD and spilled futex
+//                         syscall boundaries; no legacy dispatcher or regions
 //   x87=80|64             x87 in 80-bit soft float, or on doubles (FEX's reduced precision)
 //   depth=<n>             guest calls nested as wasm calls before they go through the dispatcher (256)
 //   cache=<dir>           keep translated units in files there, for later runs (and share

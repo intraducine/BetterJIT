@@ -3,7 +3,8 @@
 B1 introduced the memory request contract, checkpoint storage and native
 single-instruction diagnostic. [B2 scalar execution](sparse-execution.md) connects
 that contract to admitted FEX instructions and a dedicated kernel/worker route.
-The default runtime does not load
+[B3 synchronization](sparse-synchronization.md) adds aligned atomics and a
+spilled, bounded futex syscall boundary. The default runtime does not load
 `guest_memory.js` or `guest_memory_broker.js`.
 
 `guestmem=broker1` now selects the bounded experimental step profile. Its legacy
@@ -30,17 +31,18 @@ A stale token or mailbox lease is rejected before reading or writing scratch.
 Request sequences start at 1 and advance exactly once. Duplicates, skipped
 sequences and wraparound are rejected without replaying an operation or
 overwriting its previous response. Protocol errors with an otherwise valid
-sequence consume that sequence and return a typed unsupported result. No async
-operations or deferred replies are implemented yet.
+sequence consume that sequence and return a typed unsupported result. Memory
+requests remain synchronous. B3 futex waits use separate retained
+queue entries and complete only after a spilled syscall boundary.
 
 ## ABI 1
 
-The constants identify memory ABI 1, checkpoint format 1, step ABI 1 and
-coverage revision 1. Dedicated request numbers are MEMORY_REQUEST=0x10003 and
+The constants identify memory ABI 1, checkpoint format 1, step ABI 2 and
+coverage revision 2. Dedicated request numbers are MEMORY_REQUEST=0x10003 and
 INSTRUCTION_BOUNDARY=0x10004. The kernel routes them before syscall processing.
 
 Scratch is 128 bytes at thread base + 0x1f0000, physically 0x200000 in this
-one-thread profile. All fields are little-endian. Offsets are exported in
+one-thread-per-memory profile. All fields are little-endian. Offsets are exported in
 `FIELD`; status and values are always separate.
 
 | Offset | Type | Field |
@@ -51,13 +53,13 @@ one-thread profile. All fields are little-endian. Offsets are exported in
 | 12 | u32 | Status: OK=0, FAULT=1, UNSUPPORTED=2 |
 | 16 | u32 | Operation: READ=1, WRITE=2, CAS=3, FETCH_ADD=4 |
 | 20 | u32 | Width in bytes |
-| 24 | u32 | Required READ or WRITE access bit |
+| 24 | u32 | Required access: READ=1, WRITE=2, atomic READ|WRITE=3 |
 | 28 | u32 | Typed reason |
 | 32 | u64 | Complete effective guest VA |
 | 40 | u64 | Guest instruction RIP |
 | 48 | u64 | Checkpoint generation |
 | 56 | u64 | Operand 0 |
-| 64 | u64 | Operand 1, reserved |
+| 64 | u64 | Operand 1: CAS desired value |
 | 72 | u64 | Result 0 |
 | 80 | u64 | Result 1, reserved |
 | 88 | u64 | Fault VA |
@@ -69,15 +71,19 @@ one-thread profile. All fields are little-endian. Offsets are exported in
 
 Reasons 1 through 5 are RANGE, UNMAPPED, PROTECTION, ALIGNMENT and ALLOCATION.
 Unsupported/rejection reasons 16 through 22 are OPCODE, WIDTH, PROTOCOL,
-CHECKPOINT, STALE_LEASE, SEQUENCE and ACCESS. Zero means no error. A loaded zero,
+CHECKPOINT, STALE_LEASE, SEQUENCE and ACCESS. Reason 23 is ADDRESS_DOMAIN: an exact storage fault
+endpoint cannot be encoded in the u64 fault field. Zero means no error. A loaded zero,
 sign bit or all-one i64 is valid data with OK.
 
 The authority synchronously performs scalar READ/WRITE of 1/2/4/8 bytes. Slice A
 checks every touched page before writing, including copy-on-write allocation.
 Scalar reads gather bytes from potentially nonadjacent frames. Allocation and
 mapping/protection failures become typed faults; unexpected internal errors
-poison the registration and throw an invariant error. Atomic operation numbers
-are reserved but return UNSUPPORTED. They are not implemented atomics.
+poison the registration and throw an invariant error. B3 implements aligned
+4/8-byte CAS and FETCH_ADD through the same synchronous authority, returning
+the old value separately. CAS validates write intent even on comparison failure;
+unaligned atomics return explicit UNSUPPORTED before an effect. The generic
+storage layer also exposes synchronous atomic methods.
 
 There are no syscall, signal-delivery, redirect or scheduling callbacks in this
 dispatch. The mailbox integration publishes S_DONE only after dispatch
@@ -94,7 +100,8 @@ must be bounded, mutually disjoint and outside scratch.
 At a safe boundary after full state is spilled, `beginInstruction` copies those
 spans and records a fresh u64 generation and full RIP. Its operation/width are
 trusted compile-time admission metadata, not a guest request. Supported plans
-are register-only or exactly one scalar read/write. The broker checks request
+are register-only, exactly one scalar read/write or aligned atomic, or a spilled
+SYSCALL boundary (operation 5, width 0; never a memory RPC). The broker checks request
 RIP, generation, access, width and operation against that plan.
 
 After a step returns with no live guest Wasm locals, `finishInstruction`
@@ -106,11 +113,12 @@ step transition is a fatal compiler/runtime invariant failure. It is never
 reported as a successfully rolled-back instruction.
 
 The emitter classifies the complete instruction before executing any effect.
-B2 admits a narrow MOV/NOP family and validates a complete IR allowlist and
-effect counts before emission. Scalar IR node counts alone
+B2 admits a narrow MOV/NOP family. B3 adds aligned LOCK CMPXCHG/XADD and
+a spilled SYSCALL boundary. Both validate a complete IR allowlist and effect
+counts before emission. Scalar IR node counts alone
 are insufficient: CALL/PUSH, paired accesses and restart-sensitive instructions
 can have other effects. Unclassified accesses, SIMD/masked/gather operations,
-bulk REP/copy/fill, atomics and mutable executable aliases must remain explicit
+bulk REP/copy/fill, uncovered atomics and mutable executable aliases remain explicit
 unsupported cases until their complete semantics are implemented. Effective
 addresses must retain folded displacement and FS/GS before lookup; do not
 globally replace `Wrap`, which also handles non-memory narrowing.
@@ -149,11 +157,10 @@ one-instruction limit, checks native checkpoint metadata and rejected profiles,
 and verifies that failed profile creation leaves the server usable. It does not
 run sparse guest accesses, Linux processes, atomics, futexes or a device.
 
-Before B is complete, three actual FEX/Wasm guest processes must rendezvous at a
-barrier and verify full pointers, private high-page sentinels, shared aliases,
-typed fault RIP/GPR/flags, coherent atomic values, PRIVATE versus shared futex
-isolation, precise internal sizes and versioned cache identities. Compare and
-enqueue must be atomic; waiting must park only the requester, retain backing/key
-lifetime, and cancel replies safely across thread retirement. All reads, writes,
-file updates and atomics must share one authority, bypassing old worker-local
-futex/clock shortcuts. No host storage test establishes phone RAM savings.
+B2 verifies full pointers, private high-page sentinels, shared aliases and typed
+fault checkpoint restoration through actual FEX/Wasm execution. B3 extends the
+bounded fixture to three host-created guest processes and four threads with
+coherent atomics, PRIVATE/shared futex isolation, timeouts and cancellation; see
+[its exact evidence and limits](sparse-synchronization.md). Guest process creation,
+file lifecycle, general signal delivery and wider instruction coverage remain
+unsupported. No host test establishes phone RAM savings.

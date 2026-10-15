@@ -1165,10 +1165,21 @@ class Kernel {
     return did;
   }
 
-  // Experimental fixture entry: one actual kernel Process/Thread and one
-  // bounded internal memory per independent guest address space. No ELF boot,
-  // fork syscall or legacy Mm/thread-block allocator is implied by this API.
+  // Explicit host-created process/thread entries. Guest storage belongs to a
+  // process; every thread has its own fixed internal memory. No ELF/clone/exec
+  // or legacy Mm/thread-block allocator is implied by these bounded APIs.
   createSparseProcess({space,entryRip,plans,parentPid=0}) {
+    if([...this.procs.values()].some(p=>p.mm?.guest===space))throw new Error('Sparse process address spaces must be independent');
+    const pid=this.newTid(),proc=new Process(this,pid,parentPid);
+    proc.space=this.nextSpace++;proc.mm={guest:space,sparse:true};
+    const made=this.allocateSparseThread(proc,{entryRip,plans},pid);
+    this.procs.set(pid,proc);this.procs.get(parentPid)?.children.add(pid);return made;
+  }
+  createSparseThread(proc,{entryRip,plans}) {
+    if(this.procs.get(proc.pid)!==proc||!proc.mm?.sparse||proc.zombie)throw new Error('Live owned sparse process required');
+    return this.allocateSparseThread(proc,{entryRip,plans},this.newTid());
+  }
+  allocateSparseThread(proc,{entryRip,plans},tid) {
     const B=globalThis.BetterJITGuestMemoryBroker;
     if(this.cfg.guestMemory!=='broker1'||!B||this.cfg.memoryABI!==B.ABI.version||this.cfg.stepABI!==B.ABI.stepVersion||
        this.cfg.coverageVersion!==B.ABI.coverageVersion||this.cfg.memPages!==B.ABI.internalPages||
@@ -1178,14 +1189,16 @@ class Kernel {
        this.cfg.checkpoint?.cpu?.ripOffset!==this.cfg.ripOff)
       throw new Error('Incompatible broker step configuration');
     if(this.freezing)throw new Error('Sparse snapshots are unsupported');
+    if(this.threads.size>=B.ABI.maximumThreads)throw new Error('Sparse internal thread capacity exhausted');
+    const space=proc.mm.guest;
     if(space.stats().virtualLimit>(1n<<47n))throw new Error('Broker1 requires the low canonical x86 user address window');
-    if([...this.procs.values()].some(p=>p.mm?.guest===space))throw new Error('Sparse process address spaces must be independent');
     const approved=new Map();
     for(const p of plans) {
       if(p.status!==0||typeof p.rip!=='bigint'||p.rip<0n||p.rip>=(1n<<64n)||
          !Number.isInteger(p.length)||p.length<1||p.length>15||p.nextRip!==p.rip+BigInt(p.length)||
          !(p.instruction instanceof Uint8Array)||p.instruction.length!==p.length||approved.has(p.rip)||
-         !((p.operation===0&&p.width===0)||([1,2].includes(p.operation)&&[1,2,4,8].includes(p.width))))
+         !(([0,5].includes(p.operation)&&p.width===0)||([1,2].includes(p.operation)&&[1,2,4,8].includes(p.width))||
+           ([3,4].includes(p.operation)&&[4,8].includes(p.width))))
         throw new Error('Invalid admitted instruction metadata');
       const actual=space.executableSnapshot(p.rip,p.length);
       if(!actual.every((x,i)=>x===p.instruction[i]))throw new Error('Executable bytes differ from the compiled step');
@@ -1193,19 +1206,19 @@ class Kernel {
     }
     if(!approved.has(entryRip)||!(this.host.state instanceof Uint8Array)||this.host.state.length!==this.cfg.stateSize)
       throw new Error('Sparse entry/state is unavailable');
-    const memory=B.createInternalMemory(),slot=this.allocSlot(),pid=this.newTid();
-    const proc=new Process(this,pid,parentPid),t=new Thread(proc,pid,slot,B.ABI.threadBase);
-    proc.space=this.nextSpace++;proc.mm={mem:memory,dv:new DataView(memory.buffer),guest:space,sparse:true};
+    const memory=B.createInternalMemory(),view=new DataView(memory.buffer),slot=this.allocSlot(),t=new Thread(proc,tid,slot,B.ABI.threadBase);
     const state=new Uint8Array(memory.buffer,t.tb+this.cfg.ctx,this.cfg.stateSize);state.set(this.host.state);
-    proc.mm.dv.setBigUint64(t.tb+this.cfg.ctx+this.cfg.ripOff,entryRip,true);
+    view.setBigUint64(t.tb+this.cfg.ctx+this.cfg.ripOff,entryRip,true);
     this.sparseBroker??=new B.GuestMemoryBroker();
     const token=this.sparseBroker.register(slot,{space,memory,checkpointLayout:this.cfg.checkpoint});
-    t.sparse={token,plans:approved,boundarySequence:0,active:null,steps:0,last:null};
-    this.procs.set(pid,proc);this.threads.set(pid,t);this.slots[slot]=t;proc.threads.set(pid,t);
-    this.procs.get(parentPid)?.children.add(pid);
+    t.sparse={token,memory,view,plans:approved,boundarySequence:0,active:null,steps:0,last:null,parked:null,syscalls:0};
+    // Compatibility diagnostics may inspect the primary context; sparse paths
+    // always use the authenticated thread's own view, never this alias.
+    if(!proc.mm.mem){proc.mm.mem=memory;proc.mm.dv=view;}
+    this.threads.set(tid,t);this.slots[slot]=t;proc.threads.set(tid,t);
     new Int32Array(this.ksab,SLOT_BASE+slot*SLOT_SIZE,SLOT_SIZE>>2).fill(0);
     Atomics.store(this.k32,((SLOT_BASE+slot*SLOT_SIZE)>>2)+W_OCCUPIED,1);
-    return {proc,thread:t,worker:{pid,tid:pid,tb:t.tb,mem:memory,space:proc.space,slot,ksab:this.ksab,
+    return {proc,thread:t,worker:{pid:proc.pid,tid,tb:t.tb,mem:memory,space:proc.space,slot,ksab:this.ksab,
       lease:token.generation,cfg:this.cfg}};
   }
 
@@ -1213,7 +1226,7 @@ class Kernel {
     const B=globalThis.BetterJITGuestMemoryBroker,s=t.sparse;
     const b64=(SLOT_BASE+t.slot*SLOT_SIZE)>>3,b32=b64*2;
     const nr=Number(this.k64[b64+1]),lease=BigInt.asUintN(64,this.k64[b64+2]),seq=this.k64[b64+3];
-    const view=t.proc.mm.dv,scratch=t.tb+B.ABI.scratchOffset;
+    const view=s.view,scratch=t.tb+B.ABI.scratchOffset;
     // The slot supplies t/space/token. Check the mailbox lease before scratch.
     if(this.slots[t.slot]!==t||t.dead||lease!==s.token.generation)throw new Error('Stale sparse thread request');
     let result=0n;
@@ -1240,24 +1253,85 @@ class Kernel {
         view.setBigUint64(scratch+B.FIELD.checkpointRip,rip,true);
       } else if(phase===2) {
         if(!s.active)throw new Error('Sparse finish without an instruction');
-        const status=Number(this.k64[b64+5]);
+        let status=Number(this.k64[b64+5]);
+        if(status===B.STEP.SYSCALL&&!this.sparseFutexSupported(t))status=B.STEP.UNSUPPORTED;
         s.last=this.sparseBroker.finishInstruction(s.token,{status,nextRip:s.active.nextRip});
         s.active=null;s.steps++;
+        if(status===B.STEP.SYSCALL) {
+          s.syscalls++;
+          const completed=this.sparseFutex(t,lease,seq);
+          if(!completed.parked)this.completeSparseSyscall(t,lease,seq,completed.result);
+          return;
+        }
+        result=BigInt(status);
         this.host.sparseStep?.(t,s.last);
       } else if(phase===3) {
-        if(s.active)throw new Error('Sparse exit during an instruction');
+        if(s.active||s.parked)throw new Error('Sparse exit during an instruction or parked syscall');
         const status=Number(this.k64[b64+5]);
         if(![0,1,2].includes(status))throw new Error('Invalid sparse terminal status');
         s.terminalStatus=status;t.proc.exitStatus=status;
-        this.sparseBroker.unregister(s.token);t.dead=true;t.proc.zombie=true;
+        this.sparseBroker.unregister(s.token);t.dead=true;t.proc.zombie=[...t.proc.threads.values()].every(th=>th.dead);
         // Host worker termination must acknowledge W_OCCUPIED separately.
         this.host.sparseExit?.(t,s.last);
       } else throw new Error('Unsupported sparse instruction boundary');
     } else throw new Error('Unsupported sparse syscall/request '+nr);
     // Deliberately bypass reply(): it computes pending signals and redirect
     // flags. This route only completes transport after typed scratch output.
-    this.k64[b64+8]=result;this.k32[b32+1]=0;
-    Atomics.store(this.k32,b32,S_DONE);Atomics.notify(this.k32,b32);
+    this.completeSparseTransport(t,lease,seq,result,true);
+  }
+
+  ownsSparseTransport(t,lease,seq,allowDead=false) {
+    if(this.slots[t.slot]!==t||(!allowDead&&t.dead)||t.sparse.token.generation!==lease)return false;
+    const b=(SLOT_BASE+t.slot*SLOT_SIZE)>>3;
+    return Atomics.load(this.k32,b*2)===S_BUSY&&BigInt.asUintN(64,this.k64[b+2])===lease&&this.k64[b+3]===seq;
+  }
+  completeSparseTransport(t,lease,seq,result,allowDead=false) {
+    if(!this.ownsSparseTransport(t,lease,seq,allowDead))return false;
+    const b=(SLOT_BASE+t.slot*SLOT_SIZE)>>3;
+    this.k64[b+8]=result;this.k32[b*2+1]=0;Atomics.store(this.k32,b*2,S_DONE);Atomics.notify(this.k32,b*2);return true;
+  }
+  sparseFutexSupported(t) {
+    const v=t.sparse.view,g=t.tb+this.cfg.ctx+this.cfg.gregsOff;
+    const op=Number(v.getBigUint64(g+6*8,true)&0xffffffffn);
+    return v.getBigUint64(g,true)===202n&&[0,1,128,129].includes(op);
+  }
+  completeSparseSyscall(t,lease,seq,result) {
+    if(!this.ownsSparseTransport(t,lease,seq))return false;
+    const v=t.sparse.view,g=t.tb+this.cfg.ctx+this.cfg.gregsOff;
+    v.setBigUint64(g,BigInt.asUintN(64,result),true);
+    t.sparse.last=Object.freeze({...t.sparse.last,status:0,syscall:true,result});
+    this.host.sparseStep?.(t,t.sparse.last);
+    return this.completeSparseTransport(t,lease,seq,0n);
+  }
+  sparseFutex(t,lease,seq) {
+    const B=globalThis.BetterJITGuestMemoryBroker,s=t.sparse,v=s.view,g=t.tb+this.cfg.ctx+this.cfg.gregsOff,
+      reg=i=>v.getBigUint64(g+i*8,true),address=reg(7),opf=Number(reg(6)&0xffffffffn),priv=!!(opf&128),op=opf&0x7f;
+    const immediate=result=>({parked:false,result});
+    try {
+      if(op===1) {
+        const count=Number(BigInt.asIntN(32,reg(2)));if(count<0)return immediate(-22n);
+        return immediate(BigInt(this.sparseBroker.wakeFutex(s.token,{address,count,private:priv})));
+      }
+      if(t.pending)return immediate(-4n);
+      let timeout=Infinity;const pointer=reg(10);
+      if(pointer) {
+        const bytes=t.proc.mm.guest.read(pointer,16),time=new DataView(bytes.buffer,bytes.byteOffset,16),
+          sec=time.getBigInt64(0,true),ns=time.getBigInt64(8,true);
+        if(sec<0n||ns<0n||ns>=1000000000n)return immediate(-22n);
+        timeout=Number(sec)*1000+Number(ns)/1e6;
+      }
+      let timer;
+      const wait=this.sparseBroker.waitFutex(s.token,{address,expected:reg(2),private:priv},
+        result=>this.completeSparseSyscall(t,lease,seq,result),()=>{if(timer)timer.dead=true;s.parked=null;});
+      if(!wait.parked)return wait;
+      s.parked=wait.handle;
+      if(timeout!==Infinity)timer=this.addTimer(timeout,()=>this.sparseBroker.cancelFutex(wait.handle,-110n));
+      this.host.sparseFutexQueued?.(t,{address,private:priv});
+      return wait;
+    } catch(error) {
+      if(error instanceof globalThis.BetterJITGuestMemory.MemoryFault)return immediate(error.reason==='alignment'?-22n:-14n);
+      throw error;
+    }
   }
 
   // --- MAP_SHARED file mappings --------------------------------------------------
@@ -2136,6 +2210,7 @@ class Kernel {
       (t.sigInfo||(t.sigInfo=new Map())).set(sig,info||{code:0,pid:0});
       // No default kill/frame/redirect path while guest Wasm locals may live.
       // The next explicit BEGIN boundary refuses unsupported signal handling.
+      if(t.sparse.parked)this.sparseBroker.cancelFutex(t.sparse.parked,-4n);
       return;
     }
     if (proc.zombie || !sig || this.sigIgnored(proc, sig)) return;

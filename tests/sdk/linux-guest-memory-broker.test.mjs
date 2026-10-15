@@ -120,9 +120,9 @@ test('duplicate sequence cannot apply a write twice, including in the next instr
  assert.equal(f.space.read(AT,1)[0],2);assert.equal(f.scratch.getUint32(F.completedSequence,true),1);
  const r=f.request({operation:OP.WRITE,value:3n,checkpoint:2n});assert.equal(r.status,S.OK);complete(f);
 });
-test('protocol, width, access and uncovered atomic operations fail before storage effects',t=>{
+test('protocol, width, access and uncovered operations fail before storage effects',t=>{
  for(const [fields,reason]of [[{magic:0},R.PROTOCOL],[{version:2},R.PROTOCOL],[{lease:999n},R.PROTOCOL],
-  [{width:16},R.WIDTH],[{access:PROT.READ},R.ACCESS],[{operation:OP.CAS},R.OPCODE],[{operation:OP.FETCH_ADD},R.OPCODE]]) {
+  [{width:16},R.WIDTH],[{access:PROT.READ},R.ACCESS],[{operation:99},R.OPCODE],[{operation:OP.CAS,width:2},R.WIDTH]]) {
   const f=fixture(t);f.space.mapAnonymous(AT,P,RW);f.begin(OP.WRITE);
   const r=f.request({operation:OP.WRITE,value:0xffffffffffffffffn,...fields});
   assert.equal(r.status,S.UNSUPPORTED);assert.equal(r.reason,reason);assert.equal(r.data,0n);assert.equal(r.faultAddress,0n);
@@ -164,4 +164,73 @@ test('unexpected storage errors and unsupported exits after effects cannot becom
  const g=fixture(t);g.space.mapAnonymous(AT,P,RW);g.begin(OP.WRITE);g.request({operation:OP.WRITE,value:7n});
  assert.throws(()=>g.broker.finishInstruction(g.token,{status:STEP.UNSUPPORTED}),BrokerInvariantError);
  assert.equal(g.space.read(AT,1)[0],7); // Fatal invariant, never a claimed rolled-back instruction.
+});
+test('an endpoint outside the u64 fault ABI is unsupported rather than wrapped to zero',t=>{
+ const budget=new BackingBudget(),space=new GuestAddressSpace(budget,{virtualLimit:1n<<64n}),f=fixture(t,{budget,space});
+ f.begin();const r=f.request({address:(1n<<64n)-4n});assert.equal(r.status,S.UNSUPPORTED);assert.equal(r.reason,R.ADDRESS_DOMAIN);
+ assert.equal(f.scratch.getBigUint64(F.address,true),(1n<<64n)-4n);f.broker.finishInstruction(f.token,{status:STEP.UNSUPPORTED});
+});
+test('atomic compare/exchange and fetch-add preserve widths, old values and shared coherence',t=>{
+ const budget=new BackingBudget(),broker=new GuestMemoryBroker(),object=new SharedBacking(budget,P);t.after(()=>object.close());
+ const a=fixture(t,{budget,broker}),b=fixture(t,{budget,broker,slot:1});a.space.mapShared(AT,P,object);b.space.mapShared(AT+P,P,object);
+ for(const width of [4,8]) {
+  a.space.write(AT,new Uint8Array(8).fill(255));let checkpoint=a.begin(OP.FETCH_ADD,width);
+  let r=a.request({operation:OP.FETCH_ADD,width,value:1n,access:3,checkpoint});
+  assert.equal(r.data,(1n<<BigInt(width*8))-1n);complete(a);assert.deepEqual(a.space.read(AT,width),new Uint8Array(width));
+  checkpoint=b.begin(OP.CAS,width);r=b.request({operation:OP.CAS,width,address:AT+P,value:0n,operand1:17n,access:3,checkpoint});
+  assert.equal(r.status,S.OK);assert.equal(r.data,0n);complete(b);assert.equal(a.space.read(AT,1)[0],17);
+  checkpoint=a.begin(OP.CAS,width);r=a.request({operation:OP.CAS,width,value:0n,operand1:99n,access:3,checkpoint});
+  assert.equal(r.data,17n);complete(a);assert.equal(a.space.read(AT,1)[0],17);
+ }
+});
+test('failed compare still requires write permission and a failed COW transaction has no partial effect',t=>{
+ const f=fixture(t);f.space.mapAnonymous(AT,P,PROT.READ);f.begin(OP.CAS);
+ const r=f.request({operation:OP.CAS,value:1n,operand1:2n,access:3});assert.equal(r.status,S.FAULT);assert.equal(r.reason,R.PROTECTION);
+ f.broker.finishInstruction(f.token,{status:STEP.FAULT});
+ const budget=new BackingBudget({limitBytes:PAGE}),object=new SharedBacking(budget,P);t.after(()=>object.close());
+ const g=fixture(t,{budget});g.space.mapShared(AT,P,object,0n,{privateView:true});g.begin(OP.FETCH_ADD);
+ const x=g.request({operation:OP.FETCH_ADD,value:1n,access:3});assert.equal(x.reason,R.ALLOCATION);
+ assert.deepEqual(g.space.read(AT,8),new Uint8Array(8));assert.equal(budget.stats().ownedPayloadBytes,PAGE);
+ g.broker.finishInstruction(g.token,{status:STEP.FAULT});
+});
+test('unaligned atomics are explicitly unsupported before effects',t=>{
+ const f=fixture(t);f.space.mapAnonymous(AT,P,RW);f.begin(OP.FETCH_ADD);
+ const r=f.request({operation:OP.FETCH_ADD,address:AT+1n,value:1n,access:3});assert.equal(r.status,S.UNSUPPORTED);assert.equal(r.reason,R.ALIGNMENT);
+ assert.deepEqual(f.space.read(AT,16),new Uint8Array(16));f.broker.finishInstruction(f.token,{status:STEP.UNSUPPORTED});
+});
+test('futex compare/enqueue, private aliases and canonical shared keys use the same authority',t=>{
+ const budget=new BackingBudget(),broker=new GuestMemoryBroker(),object=new SharedBacking(budget,P);t.after(()=>object.close());
+ const a=fixture(t,{budget,broker}),b=fixture(t,{budget,broker,slot:1}),same=fixture(t,{budget,broker,slot:2,space:a.space});
+ a.space.mapShared(AT,P,object);a.space.mapShared(AT+P,P,object);b.space.mapShared(AT+2n*P,P,object);
+ const completed=[];
+ assert.deepEqual(broker.waitFutex(a.token,{address:AT,expected:1n},x=>completed.push(x)),{parked:false,result:-11n});
+ const waiter=broker.waitFutex(a.token,{address:AT,expected:0n,private:true},x=>completed.push(x));assert.equal(waiter.parked,true);
+ assert.equal(broker.wakeFutex(same.token,{address:AT+P,count:1,private:true}),0,'same-mm different VA is a different PRIVATE key');
+ assert.equal(broker.wakeFutex(b.token,{address:AT+2n*P,count:1,private:true}),0,'another mm is a different PRIVATE key');
+ assert.equal(broker.wakeFutex(same.token,{address:AT,count:1,private:true}),1);assert.deepEqual(completed,[0n]);
+ assert.equal(broker.cancelFutex(waiter.handle),false);
+ broker.waitFutex(a.token,{address:AT,expected:0n},x=>completed.push(x));
+ assert.equal(broker.wakeFutex(b.token,{address:AT+2n*P,count:1}),1);assert.deepEqual(completed,[0n,0n]);
+ assert.deepEqual(broker.futexStats(),{waiting:0,queued:2,completed:2});
+});
+test('parked futex keys retain backing across unmap/close and retirement cancels once without stale reply',t=>{
+ const budget=new BackingBudget(),broker=new GuestMemoryBroker(),object=new SharedBacking(budget,P),a=fixture(t,{budget,broker});
+ a.space.mapShared(AT,P,object);let replies=0,closed=0;
+ const waiter=broker.waitFutex(a.token,{address:AT,expected:0n},()=>replies++,()=>closed++);
+ object.close();a.space.unmap(AT,P);assert.equal(budget.stats().references,1);assert.equal(budget.stats().ownedPayloadBytes,PAGE);
+ assert.throws(()=>a.begin(0,0),BrokerInvariantError); // cannot execute while parked
+ broker.unregister(a.token);assert.equal(closed,1);assert.equal(replies,0);assert.equal(budget.stats().ownedPayloadBytes,0);
+ const fresh=fixture(t,{budget,broker});assert.equal(broker.cancelFutex(waiter.handle),false);assert.equal(replies,0);
+ assert.equal(broker.unregister(a.token),false);assert.equal(broker.stats().threads,1);assert.ok(fresh.token.generation>a.token.generation);
+});
+test('futex timeout/cancellation completion is single-shot and a batch wake detaches before callbacks',t=>{
+ const budget=new BackingBudget(),broker=new GuestMemoryBroker(),object=new SharedBacking(budget,P);t.after(()=>object.close());
+ const ff=[0,1,2].map(slot=>fixture(t,{budget,broker,slot}));for(const f of ff)f.space.mapShared(AT,P,object);
+ const results=[];const first=broker.waitFutex(ff[0].token,{address:AT,expected:0n},x=>results.push(x));
+ assert.equal(broker.cancelFutex(first.handle,-110n),true);assert.equal(broker.cancelFutex(first.handle,-4n),false);assert.deepEqual(results,[-110n]);
+ let second;
+ broker.waitFutex(ff[0].token,{address:AT,expected:0n},x=>{results.push(x);assert.equal(broker.cancelFutex(second.handle,-4n),false);});
+ second=broker.waitFutex(ff[1].token,{address:AT,expected:0n},x=>results.push(x));
+ assert.equal(broker.wakeFutex(ff[2].token,{address:AT,count:2}),2);assert.deepEqual(results,[-110n,0n,0n]);
+ assert.equal(broker.futexStats().waiting,0);
 });

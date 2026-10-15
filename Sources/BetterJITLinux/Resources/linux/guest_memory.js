@@ -135,6 +135,20 @@
       return staged;
     }catch(error){for(const [,p]of staged)release(p.frame);throw error;}
   }
+  function atomicScalar(space,at,width,kind,operand,desired=0n) {
+    if(![4,8].includes(width))throw new TypeError('Atomic width must be 4 or 8');
+    const s=spaces.get(space),r=range(s,at,width,'atomic');
+    segments(s,r,'atomic',PROT.READ|PROT.WRITE); // includes failed compare/exchange write intent
+    const before=space.read(r.start,width);let old=0n;
+    for(let i=width-1;i>=0;i--)old=old<<8n|BigInt(before[i]);
+    operand=BigInt.asUintN(width*8,integer(operand,'Atomic operand'));
+    let value=kind==='add'?BigInt.asUintN(width*8,old+operand):old===operand?
+      BigInt.asUintN(width*8,integer(desired,'Atomic desired value')):old;
+    const bytes=new Uint8Array(width);for(let i=0;i<width;i++){bytes[i]=Number(value&255n);value>>=8n;}
+    // The entire operation is synchronous on the authority. Always perform
+    // the compare/exchange write, even on mismatch, including COW validation.
+    space.write(r.start,bytes);return old;
+  }
   class GuestAddressSpace {
     constructor(budget,{virtualLimit=0xffff0000n,minimumAddress=0x10000n}={}) {
       if(!budgets.has(budget))throw new TypeError('BackingBudget required');
@@ -203,6 +217,8 @@
       const s=spaces.get(this),r=range(s,destination,length,'write');segments(s,r,'write',PROT.WRITE);
       const bytes=this.read(source,length);this.write(destination,bytes); // Explicit memmove snapshot semantics.
     }
+    compareExchange(at,width,expected,desired){return atomicScalar(this,at,width,'cas',expected,desired);}
+    fetchAdd(at,width,operand){return atomicScalar(this,at,width,'add',operand);}
     fork() {
       const s=spaces.get(this);range(s,s.minimum,0,'fork');
       const child=new GuestAddressSpace(s.budget,{virtualLimit:s.limit,minimumAddress:s.minimum}),c=spaces.get(child);
@@ -226,6 +242,15 @@
       if(!priv&&e.objectId!==undefined)return Object.freeze({kind:'shared',objectId:e.objectId,
         page:e.objectOffset/P,byteOffset:p.offset});
       return Object.freeze({kind:'private',spaceId:s.id,guestAddress:r.start});
+    }
+    pinFutex(at,options) {
+      const identity=this.futexIdentity(at,options),s=spaces.get(this),r=range(s,at,4,'futex');
+      const p=segments(s,r,'futex',PROT.READ)[0];let frame=retain(p.pte.frame);
+      return Object.freeze({identity,
+        value(){if(!frame)throw new Error('Futex key lease is closed');
+          return new DataView(frame.data.buffer,frame.data.byteOffset+p.offset,4).getUint32(0,true);},
+        close(){if(frame){release(frame);frame=null;}}
+      });
     }
     stats() {
       const s=spaces.get(this),unique=new Set([...s.pages.values()].map(e=>e.frame.id));

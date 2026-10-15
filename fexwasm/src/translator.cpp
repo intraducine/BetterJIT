@@ -309,8 +309,8 @@ fexwasm_translator* fexwasm_create(const uint8_t* Image, size_t Size, uint64_t B
   };
   Cfg.FlagsDeadAt = [FH](uint64_t RIP) { return FH->FlagsDeadAtEntry(RIP); };
   if (T->SingleInstruction) {
-    // Diagnostic precursor only: one IR instruction with full state at exits.
-    // This does not introduce the future broker memory/step result ABI.
+    // Both the direct diagnostic and broker step require one instruction with
+    // preserved architectural state; broker emission has its own result ABI.
     Cfg.RegArgs = 0;
     Cfg.CallsViaDispatcher = false;
     Cfg.FetchIR = nullptr;

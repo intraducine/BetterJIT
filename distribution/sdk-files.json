@@ -182,6 +182,13 @@
     "tests/sdk/linux-host/sparse-thread.cjs": "tests/sdk/linux-host/sparse-thread.cjs",
     "tests/sdk/linux-host/sparse-kernel.cjs": "tests/sdk/linux-host/sparse-kernel.cjs",
     "tests/sdk/linux-host/sparse-live.cjs": "tests/sdk/linux-host/sparse-live.cjs",
-    "tests/sdk/linux-host/sparse-scalars.cjs": "tests/sdk/linux-host/sparse-scalars.cjs"
+    "tests/sdk/linux-host/sparse-scalars.cjs": "tests/sdk/linux-host/sparse-scalars.cjs",
+    "docs/sdk/sparse-synchronization.md": "docs/sdk/sparse-synchronization.md",
+    "tests/sdk/linux-host/sparse-atomic-oracle.c": "tests/sdk/linux-host/sparse-atomic-oracle.c",
+    "tests/sdk/linux-host/sparse-atomics.cjs": "tests/sdk/linux-host/sparse-atomics.cjs",
+    "tests/sdk/linux-host/sparse-sync-fixture.cjs": "tests/sdk/linux-host/sparse-sync-fixture.cjs",
+    "tests/sdk/linux-host/sparse-sync-kernel.cjs": "tests/sdk/linux-host/sparse-sync-kernel.cjs",
+    "tests/sdk/linux-host/sparse-sync.cjs": "tests/sdk/linux-host/sparse-sync.cjs",
+    "tests/sdk/linux-sparse-futex.test.mjs": "tests/sdk/linux-sparse-futex.test.mjs"
   }
 }

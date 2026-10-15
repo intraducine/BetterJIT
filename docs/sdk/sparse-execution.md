@@ -1,7 +1,9 @@
 # Experimental sparse scalar execution: B2
 
 B2 connects actual FEX-generated Wasm to Slice A storage through the B1 broker.
-It is an explicitly selected, bounded host execution path. Default execution
+It is an explicitly selected, bounded host execution path. [B3 synchronization](sparse-synchronization.md) extends this scalar baseline
+with aligned atomics, bounded futex syscalls and multiple internal thread contexts.
+The current step/coverage versions are 2/2. Default execution
 keeps its existing memory model. The fixture creates kernel Process/Thread
 records with independent address spaces and separate workers; it does not load
 ELF, implement Linux fork/exec or run Wine.
@@ -10,10 +12,11 @@ ELF, implement Linux fork/exec or run Wine.
 
 `linux=1 guestmem=broker1` requires shared internal memory with physical thread
 base 0x10000. Both the imported Wasm memory's initial and declared maximum sizes
-are 33 pages. The kernel constructs a separate fixed-maximum memory per process;
+are 33 pages. The kernel constructs a separate fixed-maximum memory per thread;
 the 2 MiB thread block is internal and never a guest VMA. Guest virtual limits
-and backing payload are independent of that memory. One thread per process is
-supported by this bounded entry point.
+and backing payload are independent of that memory. B2 originally used one thread per process; B3 permits host-created threads
+sharing one process address space, each with separate CPU/scratch memory. A
+Kernel retains at most eight internal contexts, including retired thread records.
 Its guest address-space limit must be at most 2^47, the low canonical x86 user
 window. The generic storage layer can represent wider ranges; this process
 profile does not admit noncanonical or upper/kernel mappings.
@@ -39,9 +42,11 @@ families are:
 - MOVZX, MOVSX and 64-bit MOVSXD around one scalar source, subject to the same
   complete lowering checks.
 
-PUSH/POP/CALL/RET, branches, SYSCALL, locked atomics, SIMD/masked/gather, REP and
-address-size override are explicit unsupported results before execution. This
-is not a general x86 opcode implementation. Expanding admission requires
+The B2 baseline rejected SYSCALL and locked atomics. B3 admits only LOCK
+CMPXCHG/XADD with 4/8-byte memory operands and a spilled SYSCALL boundary whose
+only implemented syscall is bounded futex WAIT/WAKE. PUSH/POP/CALL/RET, branches,
+other atomics, SIMD/masked/gather, REP and address-size override remain explicit
+unsupported results before execution. This is not a general x86 opcode implementation. Expanding admission requires
 complete effect, flag, fault and restart semantics.
 
 `fexwasm_step(T, uint64_t RIP)` returns an 80-byte little-endian BJS1 header:
@@ -112,7 +117,8 @@ and after shared writes. Their barriers are host test control, not guest futexes
 The test verifies cross-page stores/loads, FS/GS, exact register values, a typed
 cross-page protection fault with no partial store, full checkpoint restoration,
 zero syscall dispatch, actual/declared 33-page limits, and backing release.
-It also rejects 11 uncovered instruction cases with no executable module.
+The current fixture also rejects 11 uncovered instruction cases with no executable
+module; its atomic and syscall negatives use uncovered CMPXCHG16B and int 0x80.
 
 The separate 28-case emitter matrix executes actual translated byte/word/dword/
 qword, partial/high-byte, sign/zero extension, immediate and register moves,
@@ -123,8 +129,8 @@ inaccessible byte. It uses one host process
 and the actual broker directly; it does not substitute for kernel routing.
 
 This is host FEX frontend/Wasm evidence, not native FEX JIT, Apple WebKit,
-physical-device compatibility or measured RAM savings. The complete B gate
-still requires coherent broker atomics and nonblocking futex compare/enqueue,
-wake, timeout, cancellation and retained key/backing lifetime, including PRIVATE
-versus canonical shared isolation. Guest process creation, bounded syscalls,
-signals, file lifecycle and wider instruction coverage remain unsupported.
+physical-device compatibility or measured RAM savings. The
+[B3 synchronization fixture](sparse-synchronization.md) now supplies aligned
+atomics, nonblocking futex compare/enqueue, wake, timeout, cancellation and
+retained backing/key lifetime. Guest process creation, general syscalls and
+signal delivery, file lifecycle and wider instruction coverage remain unsupported.

@@ -565,7 +565,8 @@ function parseBrokerStep(bytes) {
     rip=v.getBigUint64(32,true),nextRip=v.getBigUint64(40,true),size=v.getUint32(56,true),length=v.getUint32(60,true);
   if(bytes.length!==80+size||![0,2].includes(status)||
      (status===2&&(size||length))||(status===0&&(!size||length<1||length>15||nextRip!==rip+BigInt(length)||
-       !((operation===0&&width===0)||([1,2].includes(operation)&&[1,2,4,8].includes(width))))))
+       !(([0,5].includes(operation)&&width===0)||([1,2].includes(operation)&&[1,2,4,8].includes(width))||
+         ([3,4].includes(operation)&&[4,8].includes(width))))))
     throw new Error('Invalid broker step metadata');
   return {status,operation,width,rip,nextRip,length,hash:v.getBigUint64(48,true),
     instruction:bytes.slice(64,64+length),code:bytes.slice(80)};
@@ -617,8 +618,12 @@ async function runSparseThread(env) {
     const instance=await WebAssembly.instantiate(unit.module,{e:{mem:d.mem,tb:new WebAssembly.Global({value:'i32'},d.tb),memory}});
     exchange(B.ABI.instructionBoundary,++boundarySequence,1);
     status=instance.exports.run();executed++;
-    if(![0,1,2].includes(status))throw new Error('Invalid typed step exit');
-    exchange(B.ABI.instructionBoundary,++boundarySequence,2,status);
+    if(![0,1,2,3].includes(status))throw new Error('Invalid typed step exit');
+    const completion=exchange(B.ABI.instructionBoundary,++boundarySequence,2,status);
+    if(status===B.STEP.SYSCALL) {
+      if(![0,2].includes(completion))throw new Error('Invalid spilled syscall completion');
+      status=completion;
+    }
     env.onStep?.({status,rip:view.getBigUint64(ripAt,true),executed});
     if(status!==B.STEP.OK)break;
   }

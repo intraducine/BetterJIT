@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 1, Coverage = 1;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 2, Coverage = 2;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 80;
 struct Admission {
@@ -17,11 +17,14 @@ struct Admission {
 inline Admission Admit(const uint8_t* Bytes, size_t Size) {
   if (!Bytes || !Size) return {};
   size_t I = 0;
-  bool Word = false, Segment = false;
-  while (I < Size && (Bytes[I] == 0x66 || Bytes[I] == 0x64 || Bytes[I] == 0x65)) {
+  bool Word = false, Segment = false, Lock = false;
+  while (I < Size && (Bytes[I] == 0x66 || Bytes[I] == 0x64 || Bytes[I] == 0x65 || Bytes[I] == 0xf0)) {
     if (Bytes[I] == 0x66) {
       if (Word) return {};
       Word = true;
+    } else if (Bytes[I] == 0xf0) {
+      if (Lock) return {};
+      Lock = true;
     } else {
       if (Segment) return {};
       Segment = true;
@@ -33,6 +36,7 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
   if (I >= Size) return {};
   const uint8_t Op = Bytes[I++];
   const uint32_t Width = Rex & 8 ? 8 : Word ? 2 : 4;
+  if (Lock && Op != 0x0f) return {};
   if (Op == 0x90 && I == 1) return {true, 0, 0}; // plain NOP only
   if (Op >= 0xb0 && Op <= 0xbf) return {true, 0, 0}; // MOV register, immediate
   bool Write = false, Extension = false;
@@ -50,10 +54,17 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
     break;
   case 0x0f:
     if (I >= Size) return {};
-    switch (Bytes[I++]) {
+    {const auto Second = Bytes[I++];
+    if (Lock) {
+      if ((Second != 0xb1 && Second != 0xc1) || I >= Size || (Bytes[I] & 0xc0) == 0xc0 || Width == 2) return {};
+      return {true, Second == 0xb1 ? 3u : 4u, Width};
+    }
+    if (Second == 0x05 && I == 2) return {true, 5, 0};
+    switch (Second) {
     case 0xb6: case 0xbe: AccessWidth = 1; break;
     case 0xb7: case 0xbf: AccessWidth = 2; break;
     default: return {};
+    }
     }
     break;
   default: return {};

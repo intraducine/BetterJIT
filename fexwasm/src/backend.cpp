@@ -1534,7 +1534,7 @@ private:
       SysBase(); B.i32c(int32_t(Value)); B.mem(op::i32_store, 2, At + Offset);
     };
     Word(0, 0x314d4a42); Word(4, broker::MemoryABI);
-    Word(16, Operation); Word(20, Width); Word(24, Operation == 1 ? 1 : 2);
+    Word(16, Operation); Word(20, Width); Word(24, Operation == 1 ? 1 : Operation == 2 ? 2 : 3);
     SysBase(); B.i64c(int64_t(Entry)); B.mem(op::i64_store, 3, At + 40);
     Call(FUNC_MEMORY);
     B.set(TC);
@@ -4066,6 +4066,12 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
   case OP_ATOMICFETCHXOR:
   case OP_ATOMICSWAP: {
     auto Op = IROp->C<IROp_AtomicFetchAdd>();
+    if (Cfg.BrokerMemory) {
+      SysBase(); GPR(Op->Addr); B.mem(op::i64_store, 3, broker::Scratch + 32);
+      SysBase(); GPR(Op->Value); B.mem(op::i64_store, 3, broker::Scratch + 56);
+      BrokerRequest(4, uint32_t(Size));
+      SysBase(); B.mem(op::i64_load, 3, broker::Scratch + 72); SetNode(Node); break;
+    }
     const uint32_t S = uint32_t(Size);
     // Sub-opcode of the i64 form for this width: base + {8: 4, 16: 5, 32: 6, 64: 1}.
     const uint32_t Base = IROp->Op == OP_ATOMICFETCHADD ? 0x1e
@@ -4164,6 +4170,13 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
   }
   case OP_CAS: {
     auto Op = IROp->C<IROp_CAS>();
+    if (Cfg.BrokerMemory) {
+      SysBase(); GPR(Op->Addr); B.mem(op::i64_store, 3, broker::Scratch + 32);
+      SysBase(); GPR(Op->Expected); B.mem(op::i64_store, 3, broker::Scratch + 56);
+      SysBase(); GPR(Op->Desired); B.mem(op::i64_store, 3, broker::Scratch + 64);
+      BrokerRequest(3, uint32_t(Size));
+      SysBase(); B.mem(op::i64_load, 3, broker::Scratch + 72); SetNode(Node); break;
+    }
     const uint32_t S = uint32_t(Size);
     const uint32_t Width = S == 1 ? 4 : S == 2 ? 5 : S == 4 ? 6 : 1;
     const uint32_t Align = S == 1 ? 0 : S == 2 ? 1 : S == 4 ? 2 : 3;
@@ -4540,6 +4553,11 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
     // memory directly; registers only through the arguments, unless
     // SyscallFullState.
     auto Op = IROp->C<IROp_Syscall>();
+    if (Cfg.BrokerMemory) {
+      // Preserve the syscall number until the typed step has fully unwound.
+      // The kernel then handles only its admitted bounded syscall subset.
+      GPR(Op->SyscallID); SetNode(Node); break;
+    }
     if (Cfg.SyscallFullState) {
       // Everything this unit may have changed so far goes back to CPUState:
       // the lazy flags, XMM and GPRs held in locals, and the GPRs passed as
@@ -5052,7 +5070,7 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
       Epilogue();
       SysBase(); B.i64c(int64_t(Cfg.BrokerNextRIP)); B.mem(op::i64_store, 3, Cfg.CtxAddr + offsetof(CPUState, rip));
       SysBase(); B.i64c(int64_t(Cfg.BrokerNextRIP)); B.mem(op::i64_store, 3, broker::Scratch + 104);
-      B.i32c(0); Return();
+      B.i32c(Cfg.BrokerOperation == 5 ? 3 : 0); Return();
       break;
     }
     if (auto It = InlineAt.find(ID(Node)); It != InlineAt.end()) {
@@ -11077,7 +11095,7 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
     // Admission of raw MOV/NOP semantics and this complete IR allowlist both
     // precede execution. No unknown memory or architectural side-effect path
     // can reach a legacy direct-access emitter.
-    uint32_t Reads = 0, Writes = 0, Exits = 0, Blocks = 0;
+    uint32_t Reads = 0, Writes = 0, Atomics = 0, Syscalls = 0, Exits = 0, Blocks = 0;
     auto Reject = [](const IROp_Header* H) {
       CompileResult R; R.Error = "broker unsupported IR " + std::string(GetName(H->Op)); return R;
     };
@@ -11089,22 +11107,45 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
       case OP_ADD: case OP_SUB: case OP_AND: case OP_OR: case OP_XOR:
       case OP_LSHL: case OP_LSHR: case OP_ASHR: case OP_ADDSHIFT:
       case OP_BFE: case OP_SBFE: case OP_BFI: case OP_ORLSHL: break;
+      case OP_LOADPF: case OP_LOADAF: case OP_STOREPF: case OP_STOREAF:
+      case OP_LOADNZCV: case OP_STORENZCV: case OP_SUBWITHFLAGS: case OP_ADDWITHFLAGS:
+      case OP_NZCVSELECT: case OP_LOADDF:
+        if (Cfg.BrokerOperation < 3) return Reject(H);
+        break;
+      case OP_PARITY: case OP_ORNROR: case OP_ORLSHR: case OP_ANDSHIFT: case OP_ROR: case OP_EXTR:
+        if (Cfg.BrokerOperation != 5) return Reject(H);
+        break;
       case OP_LOADREGISTER: {
         auto O = H->C<IROp_LoadRegister>();
-        if (O->Class != RegClass::GPR || O->Reg >= 16) return Reject(H);
+        if (O->Class != RegClass::GPR || O->Reg >= (Cfg.BrokerOperation >= 3 ? NUM_STATIC : 16)) return Reject(H);
         break;
       }
       case OP_STOREREGISTER: {
         auto R = PhysicalRegister(Node);
-        if (R.AsRegClass() != RegClass::GPRFixed || R.Reg >= 16) return Reject(H);
+        if (R.AsRegClass() != RegClass::GPRFixed || R.Reg >= (Cfg.BrokerOperation >= 3 ? NUM_STATIC : 16)) return Reject(H);
         break;
       }
       case OP_LOADCONTEXT: {
         auto O = H->C<IROp_LoadContext>();
-        if (O->Class != RegClass::GPR || uint32_t(H->Size) != 8 ||
-            (O->Offset != offsetof(CPUState, fs_cached) && O->Offset != offsetof(CPUState, gs_cached))) return Reject(H);
+        if (O->Class != RegClass::GPR ||
+            !((uint32_t(H->Size) == 8 && (O->Offset == offsetof(CPUState, fs_cached) || O->Offset == offsetof(CPUState, gs_cached))) ||
+              (Cfg.BrokerOperation == 5 && (O->Offset == offsetof(CPUState, rip) ||
+                (O->Offset >= offsetof(CPUState, flags) && O->Offset + uint32_t(H->Size) <= offsetof(CPUState, flags) + sizeof(CPUState::flags))))))
+          return Reject(H);
         break;
       }
+      case OP_STORECONTEXT: {
+        auto O = H->C<IROp_StoreContext>();
+        if (Cfg.BrokerOperation != 5 || O->Class != RegClass::GPR || O->Offset != offsetof(CPUState, rip) || uint32_t(H->Size) != 8)
+          return Reject(H);
+        break;
+      }
+      case OP_CAS: case OP_ATOMICFETCHADD:
+        if (Cfg.BrokerOperation != (H->Op == OP_CAS ? 3u : 4u) || uint32_t(H->Size) != Cfg.BrokerWidth) return Reject(H);
+        Atomics++; break;
+      case OP_SYSCALL:
+        if (Cfg.BrokerOperation != 5) return Reject(H);
+        Syscalls++; break;
       case OP_LOADMEM: case OP_LOADMEMTSO:
         if (H->C<IROp_LoadMem>()->Class != RegClass::GPR || Cfg.BrokerOperation != 1 || uint32_t(H->Size) != Cfg.BrokerWidth)
           return Reject(H);
@@ -11117,6 +11158,8 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
         auto O = H->C<IROp_ExitFunction>();
         if (O->Hint == BranchHint::Call || O->Hint == BranchHint::Return) return Reject(H);
         const auto* Target = IR.GetOp<IROp_Header>(O->NewRIP);
+        if (Cfg.BrokerOperation == 5 && Target->Op == OP_LOADCONTEXT &&
+            Target->C<IROp_LoadContext>()->Offset == offsetof(CPUState, rip)) { Exits++; break; }
         uint64_t Next;
         switch (Target->Op) {
         case OP_INLINEENTRYPOINTOFFSET: Next = EntryRIP + Target->C<IROp_InlineEntrypointOffset>()->Offset; break;
@@ -11131,7 +11174,8 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
       default: return Reject(H);
       }
     }}
-    if (Blocks != 1 || Exits != 1 || Reads != (Cfg.BrokerOperation == 1) || Writes != (Cfg.BrokerOperation == 2)) {
+    if (Blocks != 1 || Exits != 1 || Reads != (Cfg.BrokerOperation == 1) || Writes != (Cfg.BrokerOperation == 2) ||
+        Atomics != (Cfg.BrokerOperation == 3 || Cfg.BrokerOperation == 4) || Syscalls != (Cfg.BrokerOperation == 5)) {
       CompileResult R; R.Error = "broker instruction effect count mismatch"; return R;
     }
   }

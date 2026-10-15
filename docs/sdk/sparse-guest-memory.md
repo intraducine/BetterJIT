@@ -2,14 +2,16 @@
 
 `Sources/BetterJITLinux/Resources/linux/guest_memory.js` exports
 `BetterJITGuestMemory` with storage-contract version 1. This module is not loaded
-by the default runtime. The existing kernel, translator, thread workers and
-public execution configuration are unchanged.
+by the default runtime. The default kernel, translator, thread workers and public execution
+configuration retain their existing behavior.
 
 [B1 broker and native diagnostic](sparse-memory-broker.md) defines the next
 executable contract and its remaining integration gates. The default execution
 path remains unchanged.
 The [B2 scalar execution slice](sparse-execution.md) now connects that contract
 to admitted native FEX instructions in an explicitly selected host fixture.
+[B3 synchronization](sparse-synchronization.md) adds aligned atomic instructions
+and bounded futex syscalls through the same authority.
 
 The module stores real 4 KiB byte pages behind guest virtual mappings. Address
 arguments and returned virtual addresses use BigInt; signed Wasm i64 inputs
@@ -59,8 +61,8 @@ The budget must be shared by spaces and objects that alias each other's frames.
 PRIVATE keys contain address-space identity plus the full guest VA: different
 VAs in one space remain different PRIVATE futexes even if they alias one frame.
 Canonical shared keys contain backing-object identity, object page and byte
-offset. Actual compare-and-enqueue, wait, wake and atomic operations remain
-future broker work.
+offset. B3 implements atomic compare/enqueue, wait/wake, timeout and cancellation
+through the broker. The tests below remain storage-only evidence.
 
 ## Deterministic evidence
 
@@ -73,9 +75,9 @@ coherence and lifetime, fork copies, private-view detachment, allocation rollbac
 and futex key distinctions. It does not run FEX, Wasm guest instructions or a
 phone and supplies no RAM-saving claim.
 
-## Required gates for the bounded FEX integration
+## Integration constraints and remaining gates
 
-The reviewed next slice must use a dedicated non-signalling memory dispatch.
+The B2/B3 integration uses a dedicated non-signalling memory dispatch.
 The existing syscall `kcall`/`attempt` path may redirect workers or deliver
 signals while guest registers remain Wasm locals; reusing those semantics is
 unsafe. Infer address space from the authenticated thread slot. Return separate
@@ -92,9 +94,9 @@ Validate effective VA, folded displacement, FS/GS and every touched page before
 effects; `Wrap` also handles branch targets and lengths and cannot be globally
 replaced. Bypass old `syncShared` copies and worker-local futex/clock shortcuts.
 
-`translator.cpp` currently fixes Linux `Cfg.MemMaxPages` at 65536. The next mode
-must agree on a genuinely small internal Wasm maximum and move the 2 MiB thread
-block out of guest VMAs (`allocTb`). Guest limits remain independent of this
+The default translator uses its existing Linux memory maximum. The explicit
+`broker1` profile instead fixes both actual/imported internal memory limits to
+33 pages per thread and bypasses guest `allocTb`. Guest limits remain independent of this
 internal memory. Native `FexHost` already keeps copied code in guest-keyed sparse
 vectors; preserve that design, full uint64_t RIP/VA and copied code payloads.
 Never reinterpret a guest VA as a native pointer.
@@ -104,6 +106,6 @@ must be atomic and waits must not block the kernel worker. Mutable executable
 aliases and concurrent code remapping may remain explicit unsupported cases in
 the initial bounded fixture; later invalidation follows canonical backing across
 all aliases. A versioned memory ABI/cache identity and actual translated
-parent/child/grandchild execution with barriers, exact pointers/sentinels,
-register/fault state, atomics and futex isolation are required before claiming
-that later milestone. The stock-preloader investigation remains paused.
+execution with barriers, exact pointers/sentinels, register/fault state, atomics
+and futex isolation are required. B2/B3 provide a bounded host-created process
+fixture; guest-created parent/child/grandchild lifecycle remains unimplemented. The stock-preloader investigation remains paused.
