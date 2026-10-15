@@ -103,6 +103,10 @@ this mode so Wine handles them as redirected streams. The nested fixture checks
 the Win32 output handle type and absence of console mode before its spawn tests.
 This does not change Wine bootstrap services or guest memory limits.
 
+The separate [Linux interpreter bootstrap](sparse-linux-bootstrap.md) is an
+internal adapted-Wine integration probe. The public static profiles still reject
+dynamic ELF images; the bootstrap does not yet run a complete Wine command.
+
 `LinuxRuntimeResult.stdout` and `.stderr` contain separate UTF-8 text streams.
 Decoding continues across guest writes, with no inserted newlines; malformed or
 incomplete UTF-8 becomes U+FFFD. This is text capture, not a lossless binary API.

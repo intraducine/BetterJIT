@@ -259,6 +259,12 @@
     "tests/sdk/linux-host/sparse-pipeline-kernel.cjs": "tests/sdk/linux-host/sparse-pipeline-kernel.cjs",
     "tests/sdk/linux-host/sparse-pipeline.cjs": "tests/sdk/linux-host/sparse-pipeline.cjs",
     "tests/sdk/linux-sparse-process-host.test.mjs": "tests/sdk/linux-sparse-process-host.test.mjs",
-    "tests/sdk/sparse-process-browser.py": "tests/sdk/sparse-process-browser.py"
+    "tests/sdk/sparse-process-browser.py": "tests/sdk/sparse-process-browser.py",
+    "Sources/BetterJITLinux/Resources/linux/guest_linux_image.js": "Sources/BetterJITLinux/Resources/linux/guest_linux_image.js",
+    "tests/sdk/linux-guest-linux-image.test.mjs": "tests/sdk/linux-guest-linux-image.test.mjs",
+    "tests/sdk/linux-host/sparse-linux-image-fixture.cjs": "tests/sdk/linux-host/sparse-linux-image-fixture.cjs",
+    "tests/sdk/linux-host/sparse-linux-bootstrap.cjs": "tests/sdk/linux-host/sparse-linux-bootstrap.cjs",
+    "tests/sdk/linux-host/sparse-linux-bootstrap-kernel.cjs": "tests/sdk/linux-host/sparse-linux-bootstrap-kernel.cjs",
+    "docs/sdk/sparse-linux-bootstrap.md": "docs/sdk/sparse-linux-bootstrap.md"
   }
 }

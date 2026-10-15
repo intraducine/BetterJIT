@@ -234,6 +234,10 @@ jobs:
           node tests/sdk/linux-host/sparse-cat.cjs .build/host-fex/fexserve .build/sparse-cat-fresh-results.json .build/sparse-compiled-input/sparse-cat-fresh.json
           node tests/sdk/linux-host/sparse-pipeline.cjs .build/host-fex/fexserve .build/sparse-pipeline-results.json
           node tests/sdk/linux-host/sparse-pipeline.cjs .build/host-fex/fexserve .build/sparse-pipeline-fresh-results.json .build/sparse-compiled-input/sparse-pipeline-fresh.json
+      - name: Probe the actual adapted Wine interpreter through sparse FEX/Wasm
+        if: github.ref == 'refs/heads/experimental/sparse-guest-backing'
+        run: |
+          node tests/sdk/linux-host/sparse-linux-bootstrap.cjs .build/host-fex/fexserve .build/sparse-wine-bootstrap-results.json .build/device-linuxroot
       - name: Execute the compiled command in real macOS WebKit
         if: github.ref == 'refs/heads/experimental/sparse-guest-backing'
         run: |
@@ -259,6 +263,7 @@ jobs:
             .build/sparse-cat-fresh-results.json
             .build/sparse-pipeline-results.json
             .build/sparse-pipeline-fresh-results.json
+            .build/sparse-wine-bootstrap-results.json
             .build/sparse-webkit-results.log
           include-hidden-files: true
           if-no-files-found: error
