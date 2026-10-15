@@ -33,7 +33,11 @@ operations return UNSUPPORTED and restore the pre-instruction checkpoint.
 
 The dedicated route compares and enqueues synchronously, with no await/reply gap.
 A wait parks only the requesting mailbox; the kernel continues servicing other
-threads. PRIVATE keys contain address-space identity and the complete guest VA.
+threads. After compare/enqueue, the kernel publishes mailbox PARKED=4. Only a
+spilled syscall FINISH may accept that acknowledgement. The worker's RPC deadline
+still detects stalled admission/completion, but does not expire an acknowledged
+guest wait; a NULL timeout remains indefinite and a finite timeout belongs to
+the kernel's futex timer. PRIVATE keys contain address-space identity and the complete guest VA.
 Shared keys contain canonical backing-object identity, page and byte offset.
 Each queued wait retains backing/key lifetime across unmapping and object close.
 Wake detaches all selected entries before invoking completion callbacks.
@@ -45,6 +49,13 @@ and removes waits without replying to stale leases or reused slots. A completion
 checks the exact current thread, lease, sequence and busy mailbox before writing
 RAX or transport state. General signal frames, handlers and restart semantics
 remain unsupported; pending signals stop execution at the next BEGIN boundary.
+
+The host clears W_OCCUPIED only after a worker has terminated, including failure.
+The kernel then unregisters the broker, cancels any wait/timer, marks the thread
+retired and releases its slot. Completion also checks W_OCCUPIED, preventing a
+timer/wake race from writing abandoned state before the retirement scan. A live
+worker cannot be retired by this acknowledgement API. CPU helpers require the
+authenticated live sparse thread and select its own internal view.
 
 ## Ownership and capacity
 
@@ -97,3 +108,10 @@ These are Linux host FEX frontend-to-Wasm tests. They establish neither guest
 process creation nor native FEX JIT, Apple WebKit/device compatibility or measured
 resident-memory savings. The ordinary runtime and its packaged Wine evidence
 remain separate from this experimental profile.
+
+Worker transport regressions use a real worker and a synthetic spilled-SYSCALL
+producer. They keep NULL and long finite waits parked beyond a shortened RPC
+deadline, then wake successfully; stalled FINISH still times out. Forced worker
+termination cancels the retained key/timer, and late callbacks cannot mutate
+abandoned CPU state or a reused slot. These regressions are separate from the
+actual translated 172-step fixture above.

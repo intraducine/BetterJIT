@@ -6,7 +6,7 @@
   if(!storage||storage.STORAGE_VERSION!==1)throw new Error('Guest storage contract 1 required');
   const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:2,coverageVersion:2,
     magic:0x314d4a42,internalPages:33,threadBase:0x10000,threadBytes:0x200000,
-    scratchOffset:0x1f0000,scratchBytes:128,memoryRequest:0x10003,instructionBoundary:0x10004,maximumThreads:8});
+    scratchOffset:0x1f0000,scratchBytes:128,memoryRequest:0x10003,instructionBoundary:0x10004,maximumThreads:8,parkedState:4});
   const FIELD=Object.freeze({magic:0,version:4,sequence:8,status:12,operation:16,width:20,access:24,reason:28,
     address:32,rip:40,checkpoint:48,operand0:56,operand1:64,result0:72,result1:80,faultAddress:88,
     checkpointRip:96,nextRip:104,completedSequence:112,boundaryControl:116,lease:120});

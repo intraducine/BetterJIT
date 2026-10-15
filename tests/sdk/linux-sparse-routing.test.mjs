@@ -11,7 +11,7 @@ const {Kernel,SLOT_BASE,SLOT_SIZE,S_REQ,S_DONE}=LinuxBundle.require('./kernel.js
 const M=BetterJITGuestMemory,B=BetterJITGuestMemoryBroker,RIP=0x123400004000n,AT=0x123456780000n;
 const cfg={guestMemory:'broker1',memoryABI:1,stepABI:2,coverageVersion:2,memPages:33,memMaxPages:33,threadBase:65536,
  regArgs:0,callsViaDispatcher:false,maxInstructions:1,shared:true,
- ctx:256,stateSize:1024,ripOff:24,checkpoint:{version:1,cpu:{offset:256,size:1024,ripOffset:24},
+ ctx:256,stateSize:1024,ripOff:24,gregsOff:32,checkpoint:{version:1,cpu:{offset:256,size:1024,ripOffset:24},
  lazyFlags:{offset:64,size:24},roundMode:{offset:112,size:4}}};
 function setup(t) {
  const budget=new M.BackingBudget(),space=new M.GuestAddressSpace(budget,{virtualLimit:1n<<47n});t.after(()=>space.close());
@@ -89,9 +89,13 @@ test('threads share guest storage but own separate fixed internal contexts under
  for(const [i,x]of all.entries()) {
   x.thread.sparse.view.setBigUint64(at,BigInt(i+1),true);assert.equal(x.worker.mem.buffer.byteLength,33*65536);
   assert.throws(()=>x.worker.mem.grow(1),RangeError);t.after(()=>f.k.sparseBroker.unregister(x.thread.sparse.token));
+  f.k.cpu(x.thread).set(0,BigInt(i+100));
  }
  assert.equal(f.proc.mm.dv.getBigUint64(at,true),1n);
  assert.equal(all[1].thread.sparse.view.getBigUint64(at,true),2n);
+ for(const [i,x]of all.entries())assert.equal(f.k.cpu(x.thread).get(0),BigInt(i+100));
+ assert.throws(()=>f.k.cpu({proc:f.proc,tb:f.thread.tb}),/Authenticated/);
  assert.throws(()=>f.k.createSparseThread(f.proc,{entryRip:RIP,plans:[f.plan]}),/capacity/);
  f.phase(3);assert.equal(f.proc.zombie,false,'other live threads keep the process live');
+ assert.throws(()=>f.k.cpu(f.thread),/Authenticated/);
 });

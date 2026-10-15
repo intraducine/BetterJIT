@@ -593,8 +593,16 @@ async function runSparseThread(env) {
     const deadline=performance.now()+(d.requestTimeoutMs??30000);
     while(Atomics.load(k32,base)!==2) {
       const seen=Atomics.load(k32,base);if(seen===2)break;
-      Atomics.wait(k32,base,seen,Math.max(1,Math.min(100,deadline-performance.now())));
-      if(performance.now()>=deadline&&Atomics.load(k32,base)!==2)throw new Error('Sparse mailbox deadline exceeded');
+      // Only the kernel may publish PARKED after compare/enqueue. A spilled
+      // futex wait has its own guest deadline (possibly none), not the RPC
+      // admission deadline. Keep checking for host completion/termination.
+      const parked=seen===B.ABI.parkedState;
+      if(parked&&!(nr===B.ABI.instructionBoundary&&phase===2&&stepStatus===B.STEP.SYSCALL))
+        throw new Error('Unexpected sparse parked transport');
+      Atomics.wait(k32,base,seen,parked?100:Math.max(1,Math.min(100,deadline-performance.now())));
+      const current=Atomics.load(k32,base);
+      if(performance.now()>=deadline&&current!==2&&current!==B.ABI.parkedState)
+        throw new Error('Sparse mailbox deadline exceeded');
     }
     const flags=k32[base+1],result=k64[b64+8];Atomics.store(k32,base,0);
     if(flags!==0)throw new Error('Sparse memory/boundary transport cannot redirect or deliver signals');

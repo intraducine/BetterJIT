@@ -1156,6 +1156,12 @@ class Kernel {
     for(let i=0;i<MAX_SLOTS;i++) {
       const t=this.slots[i];if(!t)continue;
       const base=(SLOT_BASE+i*SLOT_SIZE)>>2;
+      // W_OCCUPIED is cleared only by the host after worker termination. A
+      // failed worker cannot send an EXIT exchange; cancel its broker state
+      // here before allowing slot reuse, without touching abandoned CPU state.
+      if(t.sparse&&!Atomics.load(this.k32,base+W_OCCUPIED)) {
+        this.retireSparseWorker(t,t.sparse.token.generation);did=true;continue;
+      }
       if(Atomics.compareExchange(this.k32,base,S_REQ,S_BUSY)!==S_REQ)continue;
       // Before syscall counters, freeze hooks, syncShared, attempt or signals.
       if(t.sparse) this.sparseRequest(t);
@@ -1283,7 +1289,20 @@ class Kernel {
   ownsSparseTransport(t,lease,seq,allowDead=false) {
     if(this.slots[t.slot]!==t||(!allowDead&&t.dead)||t.sparse.token.generation!==lease)return false;
     const b=(SLOT_BASE+t.slot*SLOT_SIZE)>>3;
-    return Atomics.load(this.k32,b*2)===S_BUSY&&BigInt.asUintN(64,this.k64[b+2])===lease&&this.k64[b+3]===seq;
+    const state=Atomics.load(this.k32,b*2);
+    return Atomics.load(this.k32,b*2+W_OCCUPIED)!==0&&[S_BUSY,globalThis.BetterJITGuestMemoryBroker.ABI.parkedState].includes(state)&&
+      BigInt.asUintN(64,this.k64[b+2])===lease&&this.k64[b+3]===seq;
+  }
+  retireSparseWorker(t,lease) {
+    if(this.slots[t.slot]!==t||!t.sparse||t.sparse.token.generation!==lease)return false;
+    const base=(SLOT_BASE+t.slot*SLOT_SIZE)>>2;
+    if(Atomics.load(this.k32,base+W_OCCUPIED))return false;
+    const failed=!t.dead;
+    this.sparseBroker.unregister(t.sparse.token);t.sparse.active=null;t.sparse.parked=null;t.sparse.retired=true;t.dead=true;
+    if(failed){t.sparse.terminalStatus=2;t.proc.exitStatus=2;}
+    t.proc.zombie=[...t.proc.threads.values()].every(th=>th.dead);
+    this.slots[t.slot]=null;Atomics.store(this.k32,base,S_IDLE);
+    this.host.sparseWorkerRetired?.(t,{failed});return true;
   }
   completeSparseTransport(t,lease,seq,result,allowDead=false) {
     if(!this.ownsSparseTransport(t,lease,seq,allowDead))return false;
@@ -1326,6 +1345,8 @@ class Kernel {
       if(!wait.parked)return wait;
       s.parked=wait.handle;
       if(timeout!==Infinity)timer=this.addTimer(timeout,()=>this.sparseBroker.cancelFutex(wait.handle,-110n));
+      const base=(SLOT_BASE+t.slot*SLOT_SIZE)>>2;
+      Atomics.store(this.k32,base,B.ABI.parkedState);Atomics.notify(this.k32,base);
       this.host.sparseFutexQueued?.(t,{address,private:priv});
       return wait;
     } catch(error) {
@@ -1720,7 +1741,9 @@ class Kernel {
 
   // --- CPU state -----------------------------------------------------------------
   cpu(t) {
-    const dv = t.proc.mm.dv, c = t.tb + this.cfg.ctx, g = c + this.cfg.gregsOff;
+    if(t.proc.mm?.sparse&&(!t.sparse||this.threads.get(t.tid)!==t||this.slots[t.slot]!==t||t.dead))
+      throw new Error('Authenticated live sparse thread CPU required');
+    const dv = t.sparse?t.sparse.view:t.proc.mm.dv, c = t.tb + this.cfg.ctx, g = c + this.cfg.gregsOff;
     return {
       get: (r) => dv.getBigUint64(g + 8 * r, true),
       set: (r, v) => dv.setBigUint64(g + 8 * r, BigInt.asUintN(64, BigInt(v)), true),
