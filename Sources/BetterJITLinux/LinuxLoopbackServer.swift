@@ -34,6 +34,7 @@ final class LinuxLoopbackServer: @unchecked Sendable {
     private let onWindow: @Sendable ([String:String]) -> Void
     private let onShot: @Sendable (String,Data) -> Void
     private let gpuHandler: LinuxGPUChannelHandler?
+    private let standardInput: Data
 
     init(token: String,
          assets: [String:(Data,String)],
@@ -42,10 +43,12 @@ final class LinuxLoopbackServer: @unchecked Sendable {
          onEvents: @escaping @Sendable ([LinuxRuntimeEvent]) async -> Void,
          onWindow: @escaping @Sendable ([String:String])->Void = { _ in },
          onShot: @escaping @Sendable (String,Data)->Void = { _,_ in },
-         gpuHandler: LinuxGPUChannelHandler? = nil) {
+         gpuHandler: LinuxGPUChannelHandler? = nil,
+         standardInput: Data = Data()) {
         self.token=token; self.assets=assets; self.backend=backend; self.fileSystem=fileSystem
         self.onEvents=onEvents; self.onWindow=onWindow; self.onShot=onShot
         self.gpuHandler=gpuHandler
+        self.standardInput=standardInput
     }
 
     func start(timeout: Double) async throws -> UInt16 {
@@ -143,6 +146,9 @@ final class LinuxLoopbackServer: @unchecked Sendable {
                 return n
             }
             switch (req.method,req.path) {
+            case ("GET","/stdin"):
+                guard standardInput.count <= 1024*1024 else { throw LinuxRuntimeError.invalidConfiguration("Captured stdin exceeds 1 MiB.") }
+                return Response(status:200,type:"application/octet-stream",body:standardInput)
             case ("GET","/xlat/config"):
                 return Response(status:200,type:"application/json",body:try backend.configuration(space:space()))
             case ("GET","/xlat/dispatcher"):

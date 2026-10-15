@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 5;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 6;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
@@ -42,8 +42,8 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
   if (I >= Size) return {};
   const uint8_t Op = Bytes[I++];
   if (I == 1 && (Op == 0xeb || Op == 0xe9)) return {true, 7, 0, 1};
-  if (I == 1 && ((Op >= 0x72 && Op <= 0x77) ||
-      (Op == 0x0f && I < Size && (Bytes[I] >= 0x82 && Bytes[I] <= 0x87)))) return {true, 7, 0, 2};
+  if (I == 1 && ((Op >= 0x72 && Op <= 0x79) ||
+      (Op == 0x0f && I < Size && (Bytes[I] >= 0x82 && Bytes[I] <= 0x89)))) return {true, 7, 0, 2};
   const uint32_t Width = Rex & 8 ? 8 : Word ? 2 : 4;
   if (!Word && !Segment && !Lock) {
     // Flag-producing arithmetic stays register-only. CMP/TEST may perform one

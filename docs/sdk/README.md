@@ -115,3 +115,6 @@ replay tests and C-shim ownership tests are not substitutes for running it.
 
 Use the [packaged FEX backend](packaged-fex.md) for the device translator and
 Linux process facade, with a real interchangeable document-digest consumer.
+
+The experimental [finite captured-stdin command](sparse-stdin.md) demonstrates
+ordinary compiler output, public process input and the integrated test app.

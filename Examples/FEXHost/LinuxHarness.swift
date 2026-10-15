@@ -5,7 +5,7 @@ import BetterJITLinux
 import BetterJITFEXAdapter
 
 @MainActor final class LinuxHarness {
-    enum Mode: Equatable { case smoke, services, userspace, sparseROT13, wineCommand, wineDirect, adaptedWine(AdaptedWinePhase) }
+    enum Mode: Equatable { case smoke, services, userspace, sparseROT13, sparseCat, wineCommand, wineDirect, adaptedWine(AdaptedWinePhase) }
     private(set) var session: LinuxRuntimeSession?
     private(set) var counters: [String:Int] = [:]
     private var process:FEXProcess?
@@ -50,6 +50,12 @@ import BetterJITFEXAdapter
             cfg=LinuxRuntimeConfiguration(arguments:["/test/rot13",SparseROT13Fixture.argument],
                 timeoutSeconds:60,regions:false,useNativeChannels:false,standardIO:.captured,
                 executionProfile:.sparseStatic)
+        case .sparseCat:
+            let fixture=try SparseCatFixture.load()
+            overlay["/test/cat"]=fixture.0
+            cfg=LinuxRuntimeConfiguration(arguments:["/test/cat"],timeoutSeconds:60,
+                regions:false,useNativeChannels:false,standardIO:.captured,
+                executionProfile:.sparseStatic,standardInput:SparseCatFixture.input)
         case .smoke:
             cfg=LinuxRuntimeConfiguration(arguments:["/test/hello-static"],timeoutSeconds:30,display:nil,
                                           regions:true,slowWaitMilliseconds:100,useNativeChannels:nativeChannels)

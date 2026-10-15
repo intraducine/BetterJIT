@@ -612,6 +612,16 @@ const POLLIN = 1, POLLPRI = 2, POLLOUT = 4, POLLERR = 8, POLLHUP = 16, POLLNVAL 
 class SparseOutputFile extends File {
   constructor(kernel,stream){super('sparse-output');this.kernel=kernel;this.stream=stream;this.flags=O.WRONLY;}
 }
+const sparseInputBytes=new WeakMap();
+class SparseInputFile extends File {
+  constructor(kernel,bytes){
+    super('sparse-input');
+    if(!(bytes instanceof Uint8Array)||!(bytes.buffer instanceof ArrayBuffer)||bytes.buffer.resizable||bytes.byteLength>1024*1024)
+      throw new TypeError('Owned finite sparse stdin (at most 1 MiB) required');
+    this.kernel=kernel;this.flags=O.RDONLY;sparseInputBytes.set(this,Uint8Array.from(bytes));
+  }
+  release(){sparseInputBytes.delete(this);}
+}
 
 class HostFile extends File {
   constructor(vfs, fd, path, flags, isDir) {
@@ -1181,13 +1191,19 @@ class Kernel {
   // Explicit host-created process/thread entries. Guest storage belongs to a
   // process; every thread has its own fixed internal memory. No ELF/clone/exec
   // or legacy Mm/thread-block allocator is implied by these bounded APIs.
-  createSparseProcess({space,entryRip,plans=[],parentPid=0,dynamic=false,standardIO=false}) {
-    if(standardIO&&(this.host.sparseLifecycleVersion!==4||typeof this.host.writeSparseOutput!=='function'))throw new Error('Bounded sparse output host required');
+  createSparseProcess({space,entryRip,plans=[],parentPid=0,dynamic=false,standardIO=false,standardInput}) {
+    const version=this.host.sparseLifecycleVersion;
+    if(standardIO&&(![4,5].includes(version)||typeof this.host.writeSparseOutput!=='function'))throw new Error('Bounded sparse output host required');
+    if(standardInput!==undefined&&(!standardIO||version!==5))throw new Error('Finite stdin requires sparse host capability 5 and standard IO');
+    // Copy host input before publishing a process/lease. Fork shares the open
+    // description and cursor; exec preserves it, never a new copy of input.
+    const input=standardIO&&version===5?new SparseInputFile(this,standardInput??new Uint8Array(0)):null;
     if([...this.procs.values()].some(p=>p.mm?.guest===space))throw new Error('Sparse process address spaces must be independent');
     const pid=this.newTid(),proc=new Process(this,pid,parentPid);
     proc.space=this.nextSpace++;proc.mm={guest:space,sparse:true};
     const made=this.allocateSparseThread(proc,{entryRip,plans,dynamic},pid);
     if(standardIO){for(const fd of [1,2])proc.fds.set(fd,{file:new SparseOutputFile(this,fd).ref(),cloexec:false});}
+    if(input)proc.fds.set(0,{file:input.ref(),cloexec:false});
     this.procs.set(pid,proc);this.procs.get(parentPid)?.children.add(pid);return made;
   }
   createSparseThread(proc,{entryRip,plans}) {
@@ -1270,7 +1286,10 @@ class Kernel {
         if(!s.active)throw new Error('Sparse finish without an instruction');
         let status=Number(this.k64[b64+5]);
         const syscallRip=s.active.rip;
-        if(status===B.STEP.SYSCALL&&!this.sparseSyscallSupported(t))status=B.STEP.UNSUPPORTED;
+        if(status===B.STEP.SYSCALL&&!this.sparseSyscallSupported(t)){
+          status=B.STEP.UNSUPPORTED;
+          s.unsupported={syscall:s.view.getBigUint64(t.tb+this.cfg.ctx+this.cfg.gregsOff,true),rip:s.active.rip,reason:s.unsupportedReason??'Outside the bounded sparse syscall contract'};
+        }
         s.last=this.sparseBroker.finishInstruction(s.token,{status,nextRip:s.active.nextRip});
         s.active=null;s.steps++;
         if(status===B.STEP.SYSCALL) {
@@ -1353,11 +1372,11 @@ class Kernel {
   sparseSyscallSupported(t) {
     if(this.sparseFutexSupported(t))return true;
     const s=t.sparse,v=s.view,g=t.tb+this.cfg.ctx+this.cfg.gregsOff,reg=i=>v.getBigUint64(g+i*8,true),nr=reg(0);
-    const outputHost=this.host.sparseLifecycleVersion===4&&typeof this.host.writeSparseOutput==='function';
-    if(outputHost&&this.sparseOutputDescriptorsSupported(t.proc)&&[1n,60n].includes(nr)&&!t.pending&&!t.proc.pending&&this.threads.get(t.tid)===t&&this.procs.get(t.proc.pid)===t.proc&&t.proc.mm.guest===s.space&&t.proc.actions.every(a=>!a.handler&&!a.flags&&!a.restorer&&!a.mask))
-      return nr===60n?t.proc.children.size===0:reg(2)<=BigInt(globalThis.BetterJITGuestMemoryBroker.ABI.userCopyBytes);
+    const outputHost=[4,5].includes(this.host.sparseLifecycleVersion)&&typeof this.host.writeSparseOutput==='function';
+    if(outputHost&&this.sparseOutputDescriptorsSupported(t.proc)&&([1n,60n].includes(nr)||(nr===0n&&this.host.sparseLifecycleVersion===5))&&!t.pending&&!t.proc.pending&&this.threads.get(t.tid)===t&&this.procs.get(t.proc.pid)===t.proc&&t.proc.mm.guest===s.space&&t.proc.actions.every(a=>!a.handler&&!a.flags&&!a.restorer&&!a.mask))
+      return nr===60n?t.proc.children.size===0:reg(2)<=BigInt(globalThis.BetterJITGuestMemoryBroker.ABI.userCopyBytes)&&(nr!==0n||this.sparseReadSupported(t));
     if(this.host.sparseProcessLifecycle===false)return false;
-    if(![1,2,3,4].includes(this.host.sparseLifecycleVersion)||typeof this.host.spawnSparseThread!=='function'||
+    if(![1,2,3,4,5].includes(this.host.sparseLifecycleVersion)||typeof this.host.spawnSparseThread!=='function'||
        typeof this.host.stopSparseThread!=='function'||t.pending||t.proc.pending||
        this.threads.get(t.tid)!==t||this.procs.get(t.proc.pid)!==t.proc||t.proc.mm.guest!==s.space||
        t.proc.actions.some(a=>a.handler!==0n))return false;
@@ -1386,6 +1405,7 @@ class Kernel {
   sparseSyscall(t,lease,seq,rip) {
     const B=globalThis.BetterJITGuestMemoryBroker,s=t.sparse,g=t.tb+this.cfg.ctx+this.cfg.gregsOff,nr=s.view.getBigUint64(g,true);
     if(nr===202n)return this.sparseFutex(t,lease,seq);
+    if(nr===0n)return this.sparseRead(t);
     if(nr===1n)return this.sparseWrite(t);
     if(nr===59n)return this.sparseExec(t,lease,seq,rip);
     if(nr===61n)return this.sparseWait(t,lease,seq);
@@ -1403,7 +1423,7 @@ class Kernel {
         forkSpace=mm.guest.fork();proc=new Process(this,this.newTid(),t.proc.pid);
         forkMM={guest:forkSpace,sparse:true,catalog:mm.catalog};proc.mm=forkMM;if(mm.catalog)mm.catalog.refs++;proc.space=t.proc.space; // inherited immutable code catalogue, distinct guest storage
         for(const name of ['pgid','sid','cwd','umask','exe'])proc[name]=t.proc[name];
-        if(this.host.sparseLifecycleVersion===4)for(const [fd,e]of t.proc.fds)proc.fds.set(fd,{file:e.file.ref(),cloexec:false});
+        if([4,5].includes(this.host.sparseLifecycleVersion))for(const [fd,e]of t.proc.fds)proc.fds.set(fd,{file:e.file.ref(),cloexec:false});
         proc.argv=t.proc.argv.slice();proc.rlimits=new Map(t.proc.rlimits);proc.actions=t.proc.actions.map(a=>({...a}));
         proc.sparseForkOrigin={parentPid:t.proc.pid,parentTid:t.tid,rip};
       }
@@ -1466,10 +1486,47 @@ class Kernel {
     return did;
   }
   sparseOutputDescriptorsSupported(proc) {
-    return !proc.fds.size||(this.host.sparseLifecycleVersion===4&&[...proc.fds].every(([fd,e])=>[1,2].includes(fd)&&!e.cloexec&&e.file instanceof SparseOutputFile&&e.file.kernel===this&&e.file.stream===fd&&e.file.refs>0));
+    return !proc.fds.size||([4,5].includes(this.host.sparseLifecycleVersion)&&[...proc.fds].every(([fd,e])=>!e.cloexec&&e.file.kernel===this&&e.file.refs>0&&
+      (([1,2].includes(fd)&&e.file instanceof SparseOutputFile&&e.file.stream===fd)||
+       (fd===0&&this.host.sparseLifecycleVersion===5&&e.file instanceof SparseInputFile&&sparseInputBytes.has(e.file)))));
   }
   closeSparseOutputs(proc) {
-    for(const [fd,e]of proc.fds)if(e.file instanceof SparseOutputFile&&e.file.kernel===this){proc.fds.delete(fd);e.file.unref(this);}
+    for(const [fd,e]of proc.fds)if((e.file instanceof SparseOutputFile||e.file instanceof SparseInputFile)&&e.file.kernel===this){proc.fds.delete(fd);e.file.unref(this);}
+  }
+  sparseReadSupported(t) {
+    const M=globalThis.BetterJITGuestMemory,s=t.sparse,g=t.tb+this.cfg.ctx+this.cfg.gregsOff,v=s.view,fd=v.getBigUint64(g+56,true),pointer=v.getBigUint64(g+48,true),count=v.getBigUint64(g+16,true),entry=t.proc.fds.get(0);
+    if(fd!==0n||!entry||!(entry.file instanceof SparseInputFile)||pointer+count>s.space.stats().virtualLimit)return true;
+    const bytes=sparseInputBytes.get(entry.file),offset=entry.file.pos;
+    if(!bytes||!Number.isSafeInteger(offset)||offset<0||offset>bytes.length)throw new Error('Invalid finite stdin owner/cursor');
+    const n=Math.min(Number(count),bytes.length-offset);if(!n)return true;
+    try{s.space.validateWrite(pointer,n);return true;}catch(error){
+      if(!(error instanceof M.MemoryFault))throw error;
+      // Native pipe/file copy primitives can fault after different prefixes.
+      // Admit first-byte EFAULT, but refuse partially faulting destinations
+      // before SYSCALL effects rather than inventing a Linux short result.
+      if(error.faultAddress===pointer)return true;
+      s.unsupportedReason='read(0): partially faulting destinations require unsupported native partial-copy semantics';return false;
+    }
+  }
+  sparseRead(t) {
+    const M=globalThis.BetterJITGuestMemory,s=t.sparse,g=t.tb+this.cfg.ctx+this.cfg.gregsOff,reg=i=>s.view.getBigUint64(g+i*8,true),fd=reg(7),pointer=reg(6),count=reg(2),entry=t.proc.fds.get(Number(fd));
+    if(fd!==0n||!entry||entry.cloexec||!(entry.file instanceof SparseInputFile)||entry.file.kernel!==this)return {parked:false,result:-9n};
+    const file=entry.file,bytes=sparseInputBytes.get(file),offset=file.pos;
+    if(!bytes||!Number.isSafeInteger(offset)||offset<0||offset>bytes.length)throw new Error('Invalid finite stdin owner/cursor');
+    // Linux access_ok checks the requested address domain even at EOF. Within
+    // that domain, EOF/zero-length reads need no writable mapping.
+    if(pointer+count>s.space.stats().virtualLimit)return {parked:false,result:-14n};
+    let n=Math.min(Number(count),bytes.length-offset);if(!n)return {parked:false,result:0n};
+    const copy=this.sparseUserMemory(t);let tx;
+    try {
+      tx=copy.prepareCopyOut(pointer,n);
+      tx.bytes.set(bytes.subarray(offset,offset+n));tx.validate();
+      if(t.proc.fds.get(0)!==entry||sparseInputBytes.get(file)!==bytes||file.pos!==offset||file.refs<1)throw new Error('Finite stdin changed during copyout preparation');
+      // No await, callback, guest allocation or input acquisition after this
+      // point. Publish the prepared bytes, then consume the shared cursor.
+    }catch(error){tx?.cancel();if(error instanceof M.MemoryFault)return {parked:false,result:-14n};if(error instanceof M.AllocationFailure)return {parked:false,result:-12n};throw error;}
+    tx.commit(n);file.pos=offset+n;s.inputBytesRead=(s.inputBytesRead??0)+n;s.inputReadCalls=(s.inputReadCalls??0)+1;
+    return {parked:false,result:BigInt(n)};
   }
   sparseWrite(t) {
     const s=t.sparse,g=t.tb+this.cfg.ctx+this.cfg.gregsOff,reg=i=>s.view.getBigUint64(g+i*8,true),fd=reg(7),count=reg(2),entry=t.proc.fds.get(Number(fd));
@@ -1549,7 +1606,7 @@ class Kernel {
         this.sparseBroker.unregister(n.sparse.token);n.dead=true;n.sparse.retired=true;this.closeSparseImage(r.mm);
         this.sparseExecs.delete(slot);r.timer.dead=true;if(t.sparse.execPending===r)t.sparse.execPending=null;
         if(r.state==='fatal'){
-          this.closeSparseImage(r.oldMM);proc.exitStatus=2;proc.zombie=true;t.sparse.execFatal=true;
+          this.closeSparseImage(r.oldMM);this.closeSparseOutputs(proc);proc.exitStatus=2;proc.zombie=true;t.sparse.execFatal=true;
           this.host.sparseExecFailed?.(t,{rip:r.rip,committed:true});
         }else if(owner){
           if(Atomics.load(new Int32Array(r.startupStatus),0)===2)this.refuseSparseExec(t,r.lease,r.seq);

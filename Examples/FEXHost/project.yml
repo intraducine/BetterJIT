@@ -39,6 +39,8 @@ targets:
       - path: LinuxHarness.swift
       - path: SparseROT13Fixture.swift
       - path: Guest/sparse-rot13.json
+      - path: SparseCatFixture.swift
+      - path: Guest/sparse-cat.json
         buildPhase: resources
     dependencies:
       - package: BetterJIT

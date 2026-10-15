@@ -4,7 +4,7 @@
   'use strict';
   const storage=root.BetterJITGuestMemory;
   if(!storage||storage.STORAGE_VERSION!==1)throw new Error('Guest storage contract 1 required');
-  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:3,coverageVersion:5,stepHeaderBytes:96,
+  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:3,coverageVersion:6,stepHeaderBytes:96,
     magic:0x314d4a42,internalPages:33,threadBase:0x10000,threadBytes:0x200000,
     scratchOffset:0x1f0000,scratchBytes:128,memoryRequest:0x10003,instructionBoundary:0x10004,maximumThreads:8,parkedState:4,
     userCopyBytes:65536});
@@ -31,9 +31,9 @@
       return Object.freeze([p.nextRip]);
     }
     const b=p.instruction,v=new DataView(b.buffer,b.byteOffset,b.byteLength);let flow,offset;
-    if(b.length===2&&[0x72,0x73,0x74,0x75,0x76,0x77,0xeb].includes(b[0])){flow=b[0]===0xeb?1:2;offset=BigInt(v.getInt8(1));}
+    if(b.length===2&&[0x72,0x73,0x74,0x75,0x76,0x77,0x78,0x79,0xeb].includes(b[0])){flow=b[0]===0xeb?1:2;offset=BigInt(v.getInt8(1));}
     else if(b.length===5&&b[0]===0xe9){flow=1;offset=BigInt(v.getInt32(1,true));}
-    else if(b.length===6&&b[0]===0x0f&&[0x82,0x83,0x84,0x85,0x86,0x87].includes(b[1])){flow=2;offset=BigInt(v.getInt32(2,true));}
+    else if(b.length===6&&b[0]===0x0f&&[0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89].includes(b[1])){flow=2;offset=BigInt(v.getInt32(2,true));}
     else throw new TypeError('Uncovered branch instruction');
     if(kind!==flow||typeof target!=='bigint'||target!==BigInt.asUintN(64,p.nextRip+offset))throw new TypeError('Invalid branch continuation');
     return Object.freeze(kind===1?[target]:[p.nextRip,target]);

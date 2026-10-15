@@ -288,6 +288,11 @@
       return Object.freeze({guestPage:page,kind:e.kind,frameId:e.frame.id,
         objectId:e.objectId??null,objectOffset:e.objectOffset??null});
     }
+    validateWrite(at,length) {
+      // Permission/commitment probe only: no private-view detachment, guest
+      // allocation, mutation or borrowed backing escapes this check.
+      const s=spaces.get(this),r=range(s,at,length,'write');segments(s,r,'write',PROT.WRITE);return true;
+    }
     futexIdentity(at,{private:priv=false}={}) {
       const s=spaces.get(this),r=range(s,at,4,'futex');
       if(r.start%4n)throw new MemoryFault('alignment',r.start,r.len,'futex');

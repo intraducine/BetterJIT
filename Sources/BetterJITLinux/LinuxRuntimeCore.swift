@@ -59,9 +59,12 @@ public struct LinuxRuntimeConfiguration: Sendable, Equatable {
     public var threadSpinMilliseconds: Double
     public var useNativeChannels: Bool
     public var sharedAddressSpace: Bool
-    /// Captured streams provide EOF on stdin and no terminal ioctls.
+    /// Captured streams have no terminal ioctls; stdin is EOF unless finite sparse input is configured.
     /// Results expose separate UTF-8 text streams, not lossless binary output.
     public var standardIO: StandardIO
+    /// Finite captured stdin for sparse static commands, at most 1 MiB.
+    /// Nil supplies EOF. Interactive stdin and direct-profile input are unsupported.
+    public var standardInput: Data?
 
     public init(arguments: [String],
                 environment: [String:String] = [:],
@@ -79,7 +82,8 @@ public struct LinuxRuntimeConfiguration: Sendable, Equatable {
                 useNativeChannels: Bool = true,
                 sharedAddressSpace: Bool = true,
                 standardIO: StandardIO = .terminal,
-                executionProfile: ExecutionProfile = .direct) {
+                executionProfile: ExecutionProfile = .direct,
+                standardInput: Data? = nil) {
         self.executionProfile=executionProfile
         self.arguments = arguments
         self.environment = environment
@@ -97,6 +101,7 @@ public struct LinuxRuntimeConfiguration: Sendable, Equatable {
         self.useNativeChannels = useNativeChannels
         self.sharedAddressSpace = sharedAddressSpace
         self.standardIO = standardIO
+        self.standardInput = standardInput
     }
 }
 

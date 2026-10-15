@@ -24,7 +24,8 @@ new permissions to relicense dependencies or make unsupported App Store claims.
 Use a clean reviewed source snapshot for an initial public SDK repository rather
 than exposing this research repository and all archived branches. Publishing a
 source package, distributing native backend binaries and submitting an app are
-separate decisions. None is automated here. The current repository stays private.
+separate decisions. None is automated here. The exporter does not change repository
+visibility or authorize publishing a repository, package or native binary.
 
 Version protocol/backend capabilities explicitly. Native execution, OPFS fast-path
 transport, multithreaded guest process support, OS compatibility and renderers are

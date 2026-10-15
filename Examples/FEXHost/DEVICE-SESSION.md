@@ -10,6 +10,19 @@ route. See [the compiled-command contract](../../docs/sdk/sparse-compiled-comman
 for compiler provenance, host validation and the remaining lifecycle boundary.
 Cloud/Apple compilation does not establish that it works on a physical phone.
 
+`dbef9e78` remains the identifiable first compiled-command phone-test baseline.
+On subsequent stdin-capable builds, the next phase is **Compiled C: captured
+stdin and stdout**. It copies a bundled UTF-8 input through real guest reads and
+writes, including a character split across reads. The report adds input byte
+counts/digests, consumed bytes, positive reads and guest Wasm steps, separately
+from native translation requests. See [the finite stdin contract](../../docs/sdk/sparse-stdin.md).
+
+To share just an early compiled-command check, wait for that phase to finish,
+tap **Stop**, wait until teardown finishes, then **Share session report**.
+Completed phases remain recorded; later phases are explicitly skipped. No new
+button or separate app is needed, and the report does not turn a partial session
+into a passing full suite.
+
 
 Install **BetterJIT Session** once with your existing iPhone signing/install route.
 The GitHub artifact contains an **unsigned** device-arm64 IPA; it requires signing

@@ -187,3 +187,7 @@ it. Stock Wine retains its existing launch path. The candidate records this
 policy and runs a real spawn contract before Wine in the same device phase.
 Actual Windows output and exit 0 remain required. Native contract, guest contract,
 Wine host execution and phone execution are separate evidence levels.
+
+Finite captured input is available through `LinuxRuntimeConfiguration.standardInput`
+for the explicit sparse static profile; see [the compiled stdin contract](sparse-stdin.md).
+It does not add interactive input or change the default direct profile.

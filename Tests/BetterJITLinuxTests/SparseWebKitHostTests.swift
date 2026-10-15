@@ -64,6 +64,34 @@ private final class SparseNativeHost: LinuxTranslationBackend, @unchecked Sendab
     deinit {close()}
 }
 final class SparseWebKitHostTests:XCTestCase {
+    @MainActor func testCompiledStdinThroughProductionSparsePage() async throws {
+        guard let native=ProcessInfo.processInfo.environment["BETTERJIT_SPARSE_FEXSERVE"] else {
+            throw XCTSkip("Opt-in real native FEX/WebKit test; run after building the host translator.")
+        }
+        _=NSApplication.shared
+        let root=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let object=try JSONSerialization.jsonObject(with:Data(contentsOf:root.appendingPathComponent("Examples/FEXHost/Guest/sparse-cat.json"))) as! [String:Any]
+        let elf=try XCTUnwrap(Data(base64Encoded:try XCTUnwrap(object["elf"] as? String)))
+        let inputs:[(String,String,Bool)]=[("empty","",false),("text","Hello, BetterJIT stdin!\né🙂\n",false),("split-utf8",String(repeating:"x",count:4095)+"é🙂\n",false),("large",String(repeating:"line: BetterJIT stdin 0123456789\n",count:1024),false),("argument","unconsumed",true)]
+        for (id,input,badArgument) in inputs {
+            let backend=try SparseNativeHost(binary:native);defer{backend.close()};try await backend.ready()
+            let files=try DirectoryLinuxFileSystem(root:root.appendingPathComponent(".build/sparse-input-empty-root"),overlay:["/test/cat":elf])
+            let bytes=Data(input.utf8)
+            let session=try LinuxRuntimeSession(backend:backend,fileSystem:files,configuration:.init(arguments:["/test/cat"]+(badArgument ? ["unexpected"] : []),timeoutSeconds:60,regions:false,useNativeChannels:false,standardIO:.captured,executionProfile:.sparseStatic,standardInput:bytes))
+            let window=NSWindow(contentRect:NSRect(x:0,y:0,width:480,height:320),styleMask:[.titled],backing:.buffered,defer:false)
+            window.isReleasedWhenClosed=false;window.contentView=session.webView;window.orderFrontRegardless();defer{session.close();window.close()}
+            let value:LinuxRuntimeResult
+            do{value=try await session.run()}
+            catch LinuxRuntimeError.unsupported(let reason){if reason.contains("engine")&&reason.contains("memory"){throw XCTSkip(reason)};throw LinuxRuntimeError.unsupported(reason)}
+            XCTAssertEqual(value.exitCode,badArgument ? 64 : 0);XCTAssertEqual(value.stdout,badArgument ? "" : input);XCTAssertEqual(value.stderr,"");XCTAssertFalse(value.outputTruncated)
+            let line=try XCTUnwrap(value.log.split(separator:"\n").last(where:{$0.hasPrefix("[sparse-command] ")}))
+            let report=try JSONSerialization.jsonObject(with:Data(line.dropFirst("[sparse-command] ".count).utf8)) as! [String:Any]
+            let stdin=try XCTUnwrap(report["stdin"] as? [String:Int]);XCTAssertEqual(stdin["providedBytes"],bytes.count);XCTAssertEqual(stdin["consumedBytes"],badArgument ? 0 : bytes.count)
+            XCTAssertEqual(report["retainedUntilSessionTeardown"] as? Bool,true);XCTAssertEqual(report["workerRetirementAcknowledged"] as? Bool,false)
+            XCTAssertGreaterThan(backend.statistics()["steps"] ?? 0,0);XCTAssertGreaterThan(backend.statistics()["maps"] ?? 0,0)
+            print("[sparse-stdin-webkit] \(try String(data:JSONSerialization.data(withJSONObject:["id":id,"elfSHA256":object["elfSHA256"] ?? "","exitCode":value.exitCode,"stdoutBytes":value.stdout.utf8.count,"stderr":value.stderr,"native":backend.statistics(),"runtimeLog":value.log],options:[.sortedKeys]),encoding:.utf8)!)")
+        }
+    }
     @MainActor func testOrdinaryCompiledCThroughProductionSparsePage() async throws {
         guard let native=ProcessInfo.processInfo.environment["BETTERJIT_SPARSE_FEXSERVE"] else {
             throw XCTSkip("Opt-in real native FEX/WebKit test; run after building the host translator.")

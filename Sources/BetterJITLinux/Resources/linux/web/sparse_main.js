@@ -11,10 +11,10 @@
  globalThis.betterjitClose=stop;addEventListener('pagehide',stop,{once:true});
  async function fail(kind,message){if(closed||settling)return;settling=true;try{await send([{kind,text:String(message).slice(0,2048)}]);}catch{}stop();}
  async function settle(){if(settling||!kernelResult||!threadResult)return;settling=true;const k=kernelResult,t=threadResult;
-  try{if(k.terminal.status===2||t.status===2){await send([{kind:'unsupported',text:'The compiled command reached an instruction or syscall outside the sparse profile.'}]);return;}
+  try{if(k.terminal.status===2||t.status===2){const u=k.terminal.unsupported;await send([{kind:'unsupported',text:u?'Syscall '+u.syscall+' at 0x'+u.rip.toString(16)+': '+u.reason:'The compiled command reached an instruction or syscall outside the sparse profile.'}]);return;}
    if(k.terminal.status!==0||t.status!==0||k.terminal.guestExitCode===undefined||t.guestExitCode!==k.terminal.guestExitCode||k.broker.threads!==0||k.internalBytes!==33*65536||!k.retainedUntilSessionTeardown||k.workerRetirementAcknowledged)throw Error('Incomplete sparse command termination');
    for(const fd of [1,2])text(fd===1?'stdout':'stderr',decoders[fd].decode());
-   text('log','[sparse-command] '+serial({steps:k.steps,internalBytes:k.internalBytes,broker:k.broker,backing:k.backing,retainedUntilSessionTeardown:true,workerRetirementAcknowledged:false,jspiRequired:false})+'\n');
+   text('log','[sparse-command] '+serial({steps:k.steps,internalBytes:k.internalBytes,broker:k.broker,backing:k.backing,stdin:k.stdin,retainedUntilSessionTeardown:true,workerRetirementAcknowledged:false,jspiRequired:false})+'\n');
    await send([{kind:'exit',code:t.guestExitCode}]);
   }catch(error){await send([{kind:'failure',text:String(error)}]);}
   // Keep the workers, backing and native catalogue retained until session close.
@@ -23,7 +23,8 @@
   if(!crossOriginIsolated||typeof SharedArrayBuffer==='undefined')return fail('unsupported','This engine lacks isolated shared memory required by the compiled C command.');
   try{new WebAssembly.Memory({initial:33,maximum:33,shared:true});}catch{return fail('unsupported','This engine cannot create the bounded shared WebAssembly memory.');}
   const argv=JSON.parse(q.get('argv')||'[]'),env=JSON.parse(q.get('env')||'{}');if(!Array.isArray(argv)||!argv.length||argv.some(x=>typeof x!=='string'||x.includes('\0'))||!env||Array.isArray(env)||typeof env!=='object')throw Error('Invalid sparse command arguments');
-  const [cfg,state,elf]=await Promise.all([get('/xlat/config?space=1').then(r=>r.json()),get('/xlat/state?space=1').then(r=>r.arrayBuffer()).then(b=>new Uint8Array(b)),get('/fs/file?p='+encodeURIComponent(argv[0])).then(r=>r.arrayBuffer()).then(b=>new Uint8Array(b))]);
+  const [cfg,state,elf,input]=await Promise.all([get('/xlat/config?space=1').then(r=>r.json()),get('/xlat/state?space=1').then(r=>r.arrayBuffer()).then(b=>new Uint8Array(b)),get('/fs/file?p='+encodeURIComponent(argv[0])).then(r=>r.arrayBuffer()).then(b=>new Uint8Array(b)),q.has('stdin')?get('/stdin').then(r=>r.arrayBuffer()).then(b=>new Uint8Array(b)):Promise.resolve(new Uint8Array(0))]);
+  if(input.length>1024*1024)throw Error('Captured stdin exceeds 1 MiB');
   const B=BetterJITGuestMemoryBroker;if(cfg.guestMemory!=='broker1'||cfg.memoryABI!==B.ABI.version||cfg.stepABI!==B.ABI.stepVersion||cfg.coverageVersion!==B.ABI.coverageVersion)throw Error('Sparse native backend profile mismatch');
   let issued=false;const kernel=new Worker('sparse_kernel.js');workers.push(kernel);kernel.onerror=e=>fail('failure',e.message||'Sparse kernel worker failed');kernel.onmessage=async({data:m})=>{
    if(closed)return;try{
@@ -42,7 +43,7 @@
      };worker.postMessage({op:'start',spec:m.spec});
     }
    }catch(error){fail('failure',error);}
-  };kernel.postMessage({cfg,state,elf,argv,env});
+  };kernel.postMessage({cfg,state,elf,argv,env,input});
  }
  start().catch(error=>fail('failure',error));
 })();

@@ -11159,7 +11159,7 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
       case OP_CONDJUMP: {
         auto O = H->C<IROp_CondJump>();
         if (Cfg.BrokerFlow != 2 || Cfg.BrokerOperation != 7 ||
-            (O->Cond != CondClass::EQ && O->Cond != CondClass::NEQ && O->Cond != CondClass::ULT && O->Cond != CondClass::UGE && O->Cond != CondClass::UGT && O->Cond != CondClass::ULE)) return Reject(H);
+            (O->Cond != CondClass::EQ && O->Cond != CondClass::NEQ && O->Cond != CondClass::ULT && O->Cond != CondClass::UGE && O->Cond != CondClass::UGT && O->Cond != CondClass::ULE && O->Cond != CondClass::MI && O->Cond != CondClass::PL)) return Reject(H);
         if (!O->FromNZCV) {
           const auto* C = IR.GetOp<IROp_Header>(O->Cmp2);
           if (!((C->Op == OP_INLINECONSTANT && C->C<IROp_InlineConstant>()->Constant == 0) ||

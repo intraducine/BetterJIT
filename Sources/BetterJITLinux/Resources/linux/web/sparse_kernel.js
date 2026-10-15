@@ -10,14 +10,15 @@ onmessage=({data:d})=>{onmessage=null;
   ownedBudget=new M.BackingBudget({limitBytes:32*1024*1024});const empty=new M.GuestAddressSpace(ownedBudget,{virtualLimit:1n<<47n}),encoder=new TextEncoder(),args={path:d.argv[0],argv:d.argv.map(x=>encoder.encode(x)),envp:Object.entries(d.env).map(([k,v])=>encoder.encode(k+'='+v))};
   try{ownedImage=I.prepare(empty,d.elf,args,crypto.getRandomValues(new Uint8Array(16)));}finally{empty.close();}
   let terminal;
-  ownedKernel=new Kernel({state:d.state,vfs:{},log:()=>{},sparseLifecycleVersion:4,sparseProcessLifecycle:false,
+  ownedKernel=new Kernel({state:d.state,vfs:{},log:()=>{},sparseLifecycleVersion:5,sparseProcessLifecycle:false,
    writeSparseOutput:({fd,bytes})=>{postMessage({op:'output',fd,bytes});return bytes.length;},
-   sparseExit:t=>{terminal={status:t.sparse.terminalStatus,guestExitCode:t.sparse.guestExitCode};ownedKernel.done=true;}
+   sparseExit:t=>{terminal={status:t.sparse.terminalStatus,guestExitCode:t.sparse.guestExitCode,unsupported:t.sparse.unsupported};ownedKernel.done=true;}
   },d.cfg);
-  const a=ownedKernel.createSparseProcess({space:ownedImage.space,entryRip:ownedImage.entry,dynamic:true,standardIO:true});
+  const a=ownedKernel.createSparseProcess({space:ownedImage.space,entryRip:ownedImage.entry,dynamic:true,standardIO:true,standardInput:d.input});
+  const inputFile=a.proc.fds.get(0).file;
   a.thread.sparse.view.setBigUint64(a.thread.tb+d.cfg.ctx+d.cfg.gregsOff+32,ownedImage.stackPointer,true);
   postMessage({op:'spawn',spec:{...a.worker,maximumSteps:20000},codes:ownedImage.codes});ownedKernel.run();
-  postMessage({op:'kernel-result',terminal,steps:a.thread.sparse.steps,internalBytes:a.worker.mem.buffer.byteLength,broker:ownedKernel.sparseBroker.stats(),backing:ownedBudget.stats(),workerRetirementAcknowledged:false,retainedUntilSessionTeardown:true});
+  postMessage({op:'kernel-result',terminal,steps:a.thread.sparse.steps,internalBytes:a.worker.mem.buffer.byteLength,broker:ownedKernel.sparseBroker.stats(),backing:ownedBudget.stats(),stdin:{providedBytes:d.input?.length??0,consumedBytes:inputFile.pos,positiveReads:a.thread.sparse.inputReadCalls??0},workerRetirementAcknowledged:false,retainedUntilSessionTeardown:true});
   // Keep storage and internal context alive; no fake W_OCCUPIED ACK, reaping,
   // namespace drop, backing reuse or browser termination-completion claim.
  }catch(error){postMessage({op:error instanceof I.ImageUnsupported?'unsupported':'failure',message:String(error)});}

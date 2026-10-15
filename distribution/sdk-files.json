@@ -236,6 +236,16 @@
     "tests/sdk/linux-host/sparse-alu.cjs": "tests/sdk/linux-host/sparse-alu.cjs",
     "tests/sdk/linux-host/sparse-alu-oracle.c": "tests/sdk/linux-host/sparse-alu-oracle.c",
     "tests/sdk/linux-host/sparse-alu-oracle.json": "tests/sdk/linux-host/sparse-alu-oracle.json",
-    "docs/sdk/sparse-compiled-command.md": "docs/sdk/sparse-compiled-command.md"
+    "docs/sdk/sparse-compiled-command.md": "docs/sdk/sparse-compiled-command.md",
+    "Examples/FEXHost/Guest/build-sparse-cat.py": "Examples/FEXHost/Guest/build-sparse-cat.py",
+    "Examples/FEXHost/Guest/sparse-cat.c": "Examples/FEXHost/Guest/sparse-cat.c",
+    "Examples/FEXHost/Guest/sparse-cat.json": "Examples/FEXHost/Guest/sparse-cat.json",
+    "Examples/FEXHost/SparseCatFixture.swift": "Examples/FEXHost/SparseCatFixture.swift",
+    "docs/sdk/sparse-stdin.md": "docs/sdk/sparse-stdin.md",
+    "tests/sdk/linux-host/sparse-cat-fixture.cjs": "tests/sdk/linux-host/sparse-cat-fixture.cjs",
+    "tests/sdk/linux-host/sparse-cat-kernel.cjs": "tests/sdk/linux-host/sparse-cat-kernel.cjs",
+    "tests/sdk/linux-host/sparse-cat.cjs": "tests/sdk/linux-host/sparse-cat.cjs",
+    "tests/sdk/linux-host/sparse-stdin-oracle.c": "tests/sdk/linux-host/sparse-stdin-oracle.c",
+    "tests/sdk/linux-sparse-input.test.mjs": "tests/sdk/linux-sparse-input.test.mjs"
   }
 }

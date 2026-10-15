@@ -25,14 +25,16 @@ zero-fill BSS case while retaining alignment restrictions for file-backed loads;
 readable distinct R/RW/RX pages, W+X refusal and rollback bounds still apply.
 
 Native memory/checkpoint versions remain 1/1, step remains 3 with a 96-byte header,
-and **coverage becomes 5**. The added family `READ_FLAGS=8` accepts exactly one
+and **coverage is now 6**, including the later finite-stdin/sign-branch increment.
+The added family `READ_FLAGS=8` accepts exactly one
 READ RPC and flag updates; it cannot write, perform RMW, branch or call a syscall.
 The complete IR effect checks still precede emission. Arithmetic remains
-register-only; stack PUSH/POP, CALL/RET, indirect control flow, signed/parity/
+register-only; stack PUSH/POP, CALL/RET, indirect control flow, signed relational/parity/
 overflow branches, SIMD, 16-bit flag arithmetic and general ISA coverage remain
 unsupported. New register arithmetic/byte flags/memory comparisons and all six
-unsigned/equality branch conditions are checked against 104 independently
-executed native x86 rows, producing 624 FEX/Wasm branch/flag comparisons.
+unsigned/equality branch conditions, plus short/near JS/JNS sign branches, are
+checked against 104 independently executed native x86 rows, producing 1,040
+FEX/Wasm branch/flag comparisons.
 The previous 64 branch comparisons, memory faults and lifecycle fixtures remain
 separate regressions.
 
@@ -68,7 +70,9 @@ Pointer faults and EBADF occur before sink effects; zero-length and short writes
 have explicit results. Oversized requests restore pre-SYSCALL state with typed
 UNSUPPORTED. A broken host acceptance contract is fatal, never a fabricated
 successful write or errno rollback after an output effect. There is no open,
-read/stdin, seek, ioctl, general FD inheritance or terminal model.
+seek, ioctl, general FD inheritance or terminal model. The subsequent
+[finite captured-stdin profile](sparse-stdin.md) adds owned descriptor 0 and
+bounded read(0) without changing the dbef9e78 phone-test baseline artifact.
 
 ## Completed host use case
 

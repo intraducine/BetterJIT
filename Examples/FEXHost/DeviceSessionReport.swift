@@ -145,6 +145,7 @@ struct DeviceSessionReport: Codable {
     static let plan: [SessionPhase] = [
         .init(id:"linux-smoke", title:"Linux ELF: stdout and exit", deadlineSeconds:40),
         .init(id:"compiled-rot13",title:"Compiled C: ROT13 text command",deadlineSeconds:80),
+        .init(id:"compiled-cat",title:"Compiled C: captured stdin and stdout",deadlineSeconds:80),
         .init(id:"linux-services", title:"Linux files, GS base, mmap, clock, random, clone / futex", deadlineSeconds:50),
         .init(id:"linux-channels", title:"Linux workload with native channels requested", deadlineSeconds:50),
         .init(id:"linux-userspace", title:"Linux shell: files, pipes, signals and processes", deadlineSeconds:110),

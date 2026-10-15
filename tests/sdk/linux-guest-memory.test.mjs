@@ -275,3 +275,7 @@ test('shared-data-block allocator wrappers are rejected before touching their by
  assert.throws(()=>space.mapAnonymous(LOW,P,RW),AllocationFailure);
  assert.equal(view[0],75);assert.equal(budget.stats().ownedPayloadBytes,0);space.close();
 });
+
+test('write permission probing never allocates or detaches private views and reports the first inaccessible page',t=>{
+ const b=new BackingBudget(),object=new SharedBacking(b,2n*P);t.after(()=>object.close());const s=own(t,b);s.mapShared(HIGH,2n*P,object,0n,{privateView:true});const ids=[s.mappingInfo(HIGH).frameId,s.mappingInfo(HIGH+P).frameId],attempts=b.stats().allocationAttempts;assert.equal(s.validateWrite(HIGH+P-4n,8),true);assert.equal(b.stats().allocationAttempts,attempts);assert.deepEqual([s.mappingInfo(HIGH).frameId,s.mappingInfo(HIGH+P).frameId],ids);s.protect(HIGH+P,P,PROT.READ);assert.throws(()=>s.validateWrite(HIGH+P-4n,8),e=>e instanceof MemoryFault&&e.faultAddress===HIGH+P);assert.equal(b.stats().allocationAttempts,attempts);
+});

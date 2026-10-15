@@ -13,11 +13,10 @@ def load(path):
  d=json.loads(path.read_text());b=base64.b64decode(d['elf'],validate=True)
  if d['schema']!=1 or d['sourceSHA256']!=digest((HERE/'sparse-rot13.c').read_bytes())or d['elfSHA256']!=digest(b)or d['flags']!=FLAGS:raise ValueError('Compiled fixture source/recipe/payload mismatch')
  return d,b
-def build(cc):
- source=HERE/'sparse-rot13.c'
+def build(cc,source=HERE/'sparse-rot13.c'):
  with tempfile.TemporaryDirectory(prefix='betterjit-rot13-')as td:
   out=pathlib.Path(td)/'rot13';subprocess.run([*cc,*FLAGS,str(source),'-o',str(out)],check=True);b=out.read_bytes()
- return {'schema':1,'source':'sparse-rot13.c','sourceSHA256':digest(source.read_bytes()),'compiler':subprocess.check_output([*cc,'--version'],text=True).splitlines()[0],'flags':FLAGS,'elfSHA256':digest(b),'elf':base64.b64encode(b).decode()}
+ return {'schema':1,'source':source.name,'sourceSHA256':digest(source.read_bytes()),'compiler':subprocess.check_output([*cc,'--version'],text=True).splitlines()[0],'flags':FLAGS,'elfSHA256':digest(b),'elf':base64.b64encode(b).decode()}
 def native(d):
  if platform.system()!='Linux'or platform.machine()not in ['x86_64','AMD64']:raise RuntimeError('Native compiled oracle requires Linux x86-64')
  records=[]

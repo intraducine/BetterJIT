@@ -52,6 +52,12 @@ import WebKit
             configuration.trace || configuration.traceCode || configuration.traceMaps) {
             throw LinuxRuntimeError.unsupported("The sparse command profile requires captured single-process execution without regions, native channels, display, tracing or a different cwd.")
         }
+        if let input=configuration.standardInput {
+            guard input.count <= 1024*1024 else { throw LinuxRuntimeError.invalidConfiguration("Captured stdin exceeds 1 MiB.") }
+            guard configuration.executionProfile == .sparseStatic, configuration.standardIO == .captured else {
+                throw LinuxRuntimeError.unsupported("Finite captured stdin requires the sparse static profile.")
+            }
+        }
         self.backend=backend; self.fileSystem=fileSystem; self.configuration=configuration
         self.gpuHandler=gpuHandler
         let c=WKWebViewConfiguration()
@@ -80,7 +86,7 @@ import WebKit
                 onEvents:{ [weak self] events in await self?.receiveEvents(events) },
                 onWindow:{ [weak self] event in Task { @MainActor in self?.onWindow?(event) } },
                 onShot:{ [weak self] name,data in Task { @MainActor in self?.onScreenshot?(name,data) } },
-                gpuHandler:gpuHandler)
+                gpuHandler:gpuHandler,standardInput:configuration.standardInput ?? Data())
             self.server=server
             let port=try await server.start(timeout:10)
             guard state == .starting else { throw failure ?? LinuxRuntimeError.closed }
@@ -212,6 +218,7 @@ import WebKit
             URLQueryItem(name:"tspin",value:String(configuration.threadSpinMilliseconds))
         ]
         q.append(URLQueryItem(name:"display",value:configuration.display ?? "0"))
+        if configuration.executionProfile == .sparseStatic { q.append(URLQueryItem(name:"stdin",value:"1")) }
         if configuration.screenOnly { q.append(URLQueryItem(name:"ui",value:"screen")) }
         c.queryItems=q
         // URLSearchParams uses form decoding: a literal '+' becomes a space.

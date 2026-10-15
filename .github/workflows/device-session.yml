@@ -35,13 +35,15 @@ jobs:
         run: python3 tests/fexhost/linux-session-native.py
       - name: Compile the experimental C command with the ordinary Linux toolchain
         if: github.ref == 'refs/heads/experimental/sparse-guest-backing'
-        run: python3 Examples/FEXHost/Guest/build-sparse-rot13.py --output .build/sparse-compiled-input/sparse-rot13-fresh.json --native-check
+        run: |
+          python3 Examples/FEXHost/Guest/build-sparse-rot13.py --output .build/sparse-compiled-input/sparse-rot13-fresh.json --native-check
+          python3 Examples/FEXHost/Guest/build-sparse-cat.py --output .build/sparse-compiled-input/sparse-cat-fresh.json --native-check
       - name: Transfer the fresh compiler output to Apple validation
         if: github.ref == 'refs/heads/experimental/sparse-guest-backing'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: Sparse-compiled-input-${{ github.sha }}
-          path: .build/sparse-compiled-input/sparse-rot13-fresh.json
+          path: .build/sparse-compiled-input/*.json
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
@@ -227,6 +229,8 @@ jobs:
           node tests/sdk/linux-host/sparse-alu.cjs .build/host-fex/fexserve .build/sparse-alu-results.json
           node tests/sdk/linux-host/sparse-compiled.cjs .build/host-fex/fexserve .build/sparse-compiled-results.json
           node tests/sdk/linux-host/sparse-compiled.cjs .build/host-fex/fexserve .build/sparse-compiled-fresh-results.json .build/sparse-compiled-input/sparse-rot13-fresh.json
+          node tests/sdk/linux-host/sparse-cat.cjs .build/host-fex/fexserve .build/sparse-cat-results.json
+          node tests/sdk/linux-host/sparse-cat.cjs .build/host-fex/fexserve .build/sparse-cat-fresh-results.json .build/sparse-compiled-input/sparse-cat-fresh.json
       - name: Execute the compiled command in real macOS WebKit
         if: github.ref == 'refs/heads/experimental/sparse-guest-backing'
         run: |
@@ -248,6 +252,8 @@ jobs:
             .build/sparse-alu-results.json
             .build/sparse-compiled-results.json
             .build/sparse-compiled-fresh-results.json
+            .build/sparse-cat-results.json
+            .build/sparse-cat-fresh-results.json
             .build/sparse-webkit-results.log
           include-hidden-files: true
           if-no-files-found: error
