@@ -5,6 +5,10 @@
 by the default runtime. The existing kernel, translator, thread workers and
 public execution configuration are unchanged.
 
+[B1 broker and native diagnostic](sparse-memory-broker.md) defines the next
+executable contract and its remaining integration gates. The default execution
+path remains unchanged.
+
 The module stores real 4 KiB byte pages behind guest virtual mappings. Address
 arguments and returned virtual addresses use BigInt; signed Wasm i64 inputs
 retain their unsigned 64-bit bit pattern. A separate configurable virtual limit

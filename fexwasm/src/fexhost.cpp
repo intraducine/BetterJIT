@@ -165,6 +165,8 @@ extern "C" const char* fexwasm_coverage() {
 
 struct FexHost::Impl {
   bool DebugGuestInstructions = false;
+  uint64_t MaxInstructions = 0;
+  bool CrossUnitFlags = false;
   std::map<uint64_t, std::unique_ptr<OwnedIR>> Cache;
   NullSignalDelegator Signals;
   NullSyscallHandler Syscalls;
@@ -177,6 +179,8 @@ struct FexHost::Impl {
 FexHost::FexHost(const Options& Opts)
   : P(std::make_unique<Impl>()) {
   P->DebugGuestInstructions = Opts.DebugGuestInstructions;
+  P->MaxInstructions = Opts.MaxInstructions;
+  P->CrossUnitFlags = Opts.CrossUnitFlags;
 #if defined(__APPLE__) && !TARGET_OS_IPHONE
   FEXCore::Allocator::mmap = JitAwareMmap;
   pthread_jit_write_protect_np(0);
@@ -191,14 +195,14 @@ FexHost::FexHost(const Options& Opts)
   FEXCore::Config::Set(FEXCore::Config::CONFIG_TSOENABLED, Opts.TSO ? "1" : "0");
   FEXCore::Config::Set(FEXCore::Config::CONFIG_X87REDUCEDPRECISION, Opts.X87ReducedPrecision ? "1" : "0");
   FEXCore::IR::ABILocalFlags = Opts.ABILocalFlags;
-  if (Opts.CrossUnitFlags) {
-    FEXCore::IR::NoteEntryFlags = [](uint64_t RIP, uint32_t Flags) {
-      if (Current) {
-        Current->EntryFlags[RIP] = Flags;
-      }
-    };
-    FEXCore::IR::FlagsDeadAtEntry = [](uint64_t RIP) { return Current && Current->FlagsDeadAtEntry(RIP); };
-  }
+  // The hooks are process-global; eligibility belongs to the current host,
+  // including when differently configured translators are interleaved.
+  FEXCore::IR::NoteEntryFlags = [](uint64_t RIP, uint32_t Flags) {
+    if (Current && Current->P->CrossUnitFlags) Current->EntryFlags[RIP] = Flags;
+  };
+  FEXCore::IR::FlagsDeadAtEntry = [](uint64_t RIP) {
+    return Current && Current->P->CrossUnitFlags && Current->FlagsDeadAtEntry(RIP);
+  };
 
   // Host features chosen for the wasm target: no SVE/AVX/flag-manipulation
   // extensions, so the IR stays as plain as FEX allows.
@@ -387,10 +391,10 @@ const FEXCore::IR::IRListView* FexHost::GenerateIR(uint64_t RIP, uint64_t* Guest
     Recording = &Mine;
     // Mapping changes can invalidate the frontend's last executable range.
     P->Thread->FrontendDecoder->ResetExecutableRangeCache();
-    auto R = CI->GenerateIR(P->Thread, RIP, P->DebugGuestInstructions, 0);
+    auto R = CI->GenerateIR(P->Thread, RIP, P->DebugGuestInstructions, P->MaxInstructions);
     Recording = Outer;
     std::unique_ptr<OwnedIR> O;
-    if (R.IRView) {
+    if (R.IRView && (!P->MaxInstructions || (R.TotalInstructions && R.TotalInstructions <= P->MaxInstructions))) {
       O = std::make_unique<OwnedIR>();
       auto* D = reinterpret_cast<const uint8_t*>(R.IRView->GetData());
       auto* L = reinterpret_cast<const uint8_t*>(R.IRView->GetListData());

@@ -171,6 +171,10 @@
     "docs/sdk/build-assets.md": "docs/sdk/build-assets.md",
     "Sources/BetterJITLinux/Resources/linux/guest_memory.js": "Sources/BetterJITLinux/Resources/linux/guest_memory.js",
     "tests/sdk/linux-guest-memory.test.mjs": "tests/sdk/linux-guest-memory.test.mjs",
-    "docs/sdk/sparse-guest-memory.md": "docs/sdk/sparse-guest-memory.md"
+    "docs/sdk/sparse-guest-memory.md": "docs/sdk/sparse-guest-memory.md",
+    "Sources/BetterJITLinux/Resources/linux/guest_memory_broker.js": "Sources/BetterJITLinux/Resources/linux/guest_memory_broker.js",
+    "tests/sdk/linux-guest-memory-broker.test.mjs": "tests/sdk/linux-guest-memory-broker.test.mjs",
+    "tests/sdk/linux-host/native-step-contract.cjs": "tests/sdk/linux-host/native-step-contract.cjs",
+    "docs/sdk/sparse-memory-broker.md": "docs/sdk/sparse-memory-broker.md"
   }
 }

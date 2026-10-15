@@ -167,6 +167,8 @@ struct fexwasm_translator {
   uint64_t Window = 0;
   uint32_t ImageLow = 0;
   bool Linux = false;
+  bool SingleInstruction = false;
+  bool DebugGuestInstructions = false;
   uint32_t ThreadBase = 0;
   std::string Abi = "sysv";
   // The defaults (options abi=, localflags=), and what the code being
@@ -177,8 +179,9 @@ struct fexwasm_translator {
   bool RegionAbiOnly = false;
   void UseAbi(uint8_t A) {
     CurAbi = A;
-    Cfg.ABI = A == 1 ? fexwasm::BackendConfig::GuestABI::Win64 : BaseAbi;
-    Cfg.ABILocalFlags = A == 1 || BaseLocalFlags;
+    Cfg.ABI = SingleInstruction ? fexwasm::BackendConfig::GuestABI::None
+                               : A == 1 ? fexwasm::BackendConfig::GuestABI::Win64 : BaseAbi;
+    Cfg.ABILocalFlags = !SingleInstruction && (A == 1 || BaseLocalFlags);
     Host->SetLocalFlags(Cfg.ABILocalFlags);
   }
   std::unordered_set<uint64_t> ReturnAddrs, ExitReturnAddrs, CallTargetSet;
@@ -212,6 +215,12 @@ fexwasm_translator* fexwasm_create(const uint8_t* Image, size_t Size, uint64_t B
     }
   }
   auto Get = [&](const char* K, const char* Def) { return Opt.count(K) ? Opt[K] : std::string(Def); };
+  // Broker execution is not connected yet. Never silently fall back to direct
+  // guest accesses when a caller explicitly asks for another memory contract.
+  if (Get("guestmem", "direct") != "direct") return nullptr;
+  const auto MaxInst = Get("maxinst", "0");
+  if (MaxInst != "0" && MaxInst != "1") return nullptr;
+  T->SingleInstruction = MaxInst == "1";
   auto& Cfg = T->Cfg;
   T->Linux = Get("linux", "0") == "1";
   if (T->Linux) {
@@ -229,7 +238,7 @@ fexwasm_translator* fexwasm_create(const uint8_t* Image, size_t Size, uint64_t B
     // worker's stack (set by the engine) doesn't take 256 of them.
     Opt.emplace("depth", "64");
   }
-  T->Abi = Get("abi", "sysv");
+  T->Abi = T->SingleInstruction ? "none" : Get("abi", "sysv");
   Cfg.ABI = T->Abi == "win64" ? fexwasm::BackendConfig::GuestABI::Win64
             : T->Abi == "none" ? fexwasm::BackendConfig::GuestABI::None : fexwasm::BackendConfig::GuestABI::SysV;
   Cfg.TSOMode = uint32_t(std::stoul(Get("tso", "0")));
@@ -244,17 +253,19 @@ fexwasm_translator* fexwasm_create(const uint8_t* Image, size_t Size, uint64_t B
   Cfg.MaxCallDepth = uint32_t(std::stoul(Get("depth", "256")));
   Cfg.TrackRIP = Get("trackrip", "0") == "1";
   Cfg.MemoryTraceAddr = Get("memtrace", "0") == "1" ? 0x80 : 0;
+  T->DebugGuestInstructions = T->SingleInstruction || Get("instmeta", "0") == "1" || Cfg.MemoryTraceAddr != 0;
 
   // localflags: flags dead across calls and returns, as the ABI has them; off
   // by default, since code written by hand needn't be (UPX's decompressor, in
   // packed DLLs, returns a bit in CF). (multiblock=0, xflags=0, localflags=1:
   // for finding a miscompile, or measuring)
   T->Host = std::make_unique<fexwasm::FexHost>(fexwasm::FexHost::Options {.TSO = Cfg.TSOMode != 0,
-                                                                          .Multiblock = Get("multiblock", "1") != "0",
+                                                                          .Multiblock = !T->SingleInstruction && Get("multiblock", "1") != "0",
                                                                           .X87ReducedPrecision = Get("x87", "80") == "64",
-                                                                          .ABILocalFlags = Get("localflags", "0") != "0",
-                                                                          .CrossUnitFlags = Get("xflags", "1") != "0",
-                                                                          .DebugGuestInstructions = Cfg.MemoryTraceAddr != 0});
+                                                                          .ABILocalFlags = !T->SingleInstruction && Get("localflags", "0") != "0",
+                                                                          .CrossUnitFlags = !T->SingleInstruction && Get("xflags", "1") != "0",
+                                                                          .DebugGuestInstructions = T->DebugGuestInstructions,
+                                                                          .MaxInstructions = T->SingleInstruction ? 1u : 0u});
   auto* FH = T->Host.get();
   if (Image && !FH->MapGuest(Base, Image, Size)) {
     return nullptr;
@@ -270,7 +281,8 @@ fexwasm_translator* fexwasm_create(const uint8_t* Image, size_t Size, uint64_t B
   Cfg.FlagSpillAddr = 0x40;
   Cfg.NamedConstants = FH->NamedConstants();
   Cfg.IndexedConstantPointers = FH->IndexedConstantPointers();
-  Cfg.ABILocalFlags = Get("localflags", "0") != "0";
+  if (T->SingleInstruction) Cfg.ABI = fexwasm::BackendConfig::GuestABI::None;
+  Cfg.ABILocalFlags = !T->SingleInstruction && Get("localflags", "0") != "0";
   T->BaseAbi = Cfg.ABI;
   T->RegionAbiOnly = Get("regionabi", T->Linux ? "1" : "0") != "0";
   T->BaseLocalFlags = Cfg.ABILocalFlags;
@@ -293,6 +305,15 @@ fexwasm_translator* fexwasm_create(const uint8_t* Image, size_t Size, uint64_t B
     return FH->GenerateIR(RIP);
   };
   Cfg.FlagsDeadAt = [FH](uint64_t RIP) { return FH->FlagsDeadAtEntry(RIP); };
+  if (T->SingleInstruction) {
+    // Diagnostic precursor only: one IR instruction with full state at exits.
+    // This does not introduce the future broker memory/step result ABI.
+    Cfg.RegArgs = 0;
+    Cfg.CallsViaDispatcher = false;
+    Cfg.FetchIR = nullptr;
+    Cfg.FlagsDeadAt = nullptr;
+    Cfg.HotThreshold = 0;
+  }
   auto* TP = T.get();
   const uint64_t Window = T->Window;
   {
@@ -377,14 +398,20 @@ const char* fexwasm_config_json(fexwasm_translator* T) {
            "\"slotTagCount\":%u,\"unitCounterBase\":%u,\"unitCounterBits\":%u,\"threadBase\":%d,\"shared\":%s,\"guestAbi\":\"%s\","
            "\"tso\":%u,\"callSiteBase\":%u,\"callSiteBits\":%u,\"linux\":%s,\"memMaxPages\":%u,\"cpuidAddr\":%u,\"cpuidCount\":%u,"
            "\"flagSpillAddr\":%u,\"stopAddr\":%u,\"depthAddr\":%u,\"faultAddr\":%u,\"missAddr\":%u,\"profAddr\":%u,\"xmmOff\":%zu,\"ripOff\":%zu,"
-           "\"fsOff\":%zu,\"gsOff\":%zu,\"mxcsrOff\":%zu,\"nzcvAddr\":%u,\"memoryTraceAddr\":%u,\"memoryTraceVersion\":2}",
+           "\"fsOff\":%zu,\"gsOff\":%zu,\"mxcsrOff\":%zu,\"nzcvAddr\":%u,\"memoryTraceAddr\":%u,\"memoryTraceVersion\":2,"
+           "\"guestMemory\":\"direct\",\"maxInstructions\":%u,\"debugGuestInstructions\":%s,"
+           "\"regArgs\":%u,\"callsViaDispatcher\":%s,"
+           "\"checkpoint\":{\"version\":1,\"cpu\":{\"offset\":%u,\"size\":%zu,\"ripOffset\":%zu},"
+           "\"lazyFlags\":{\"offset\":%u,\"size\":24},\"roundMode\":{\"offset\":%u,\"size\":4}}}",
            Cfg.MemPages, CTX, sizeof(CPUState), T->ImageLow, STACK_TOP, HALT, uint32_t(T->Window >> 32), offsetof(CPUState, gregs),
            Cfg.DispatchBase, Cfg.DispatchBits, Cfg.HotAddr, Cfg.HotThreshold, Cfg.SlotTagBase, Cfg.SlotTagCount, Cfg.UnitCounterBase,
            Cfg.UnitCounterBits, Cfg.ThreadBaseGlobal ? int(T->ThreadBase) : -1, Cfg.SharedMemory ? "true" : "false", T->Abi.c_str(),
            Cfg.TSOMode, Cfg.CallSiteBase, Cfg.CallSiteBits, T->Linux ? "true" : "false", Cfg.MemMaxPages, Cfg.CPUIDAddr,
            Cfg.CPUIDCount, Cfg.FlagSpillAddr, Cfg.StopAddr, Cfg.DepthAddr, Cfg.FaultAddr, Cfg.MissAddr, Cfg.ProfAddr, offsetof(CPUState, xmm),
            offsetof(CPUState, rip), offsetof(CPUState, fs_cached), offsetof(CPUState, gs_cached), offsetof(CPUState, mxcsr),
-           Cfg.NZCVAddr, Cfg.MemoryTraceAddr);
+           Cfg.NZCVAddr, Cfg.MemoryTraceAddr, T->SingleInstruction ? 1u : 0u, T->DebugGuestInstructions ? "true" : "false",
+           Cfg.RegArgs, Cfg.CallsViaDispatcher ? "true" : "false",
+           Cfg.CtxAddr, sizeof(CPUState), offsetof(CPUState, rip), Cfg.FlagSpillAddr, Cfg.RoundModeAddr);
   T->Json = B;
   return T->Json.c_str();
 }
@@ -516,6 +543,7 @@ fexwasm_bytes fexwasm_unit(fexwasm_translator* T, uint32_t Rip32) {
 
 fexwasm_bytes fexwasm_region(fexwasm_translator* T, const uint8_t* Req, size_t Size) {
   T->Out.clear();
+  if (T->SingleInstruction) return T->Give(T->Out);
   size_t Pos = 0;
   bool Ok = true;
   auto U32 = [&]() -> uint32_t {

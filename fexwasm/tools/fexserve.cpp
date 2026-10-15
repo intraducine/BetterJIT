@@ -134,7 +134,9 @@ int main(int argc, char** argv) {
     if (!Linux || !Make) {
       return nullptr;
     }
-    return Spaces[Id] = fexwasm_create(nullptr, 0, 0, Options.c_str());
+    auto* T = fexwasm_create(nullptr, 0, 0, Options.c_str());
+    if (T) Spaces.emplace(Id, T);
+    return T;
   };
 
   const int L = socket(AF_INET, SOCK_STREAM, 0);

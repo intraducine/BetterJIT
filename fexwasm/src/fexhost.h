@@ -32,6 +32,8 @@ public:
     bool CrossUnitFlags = false;
     // Opt-in postmortem metadata; retain a marker for every guest instruction.
     bool DebugGuestInstructions = false;
+    // Explicit frontend limit (0: FEX's normal limit). Independent of tracing.
+    uint64_t MaxInstructions = 0;
   };
   explicit FexHost(const Options& Opts);
   ~FexHost();
