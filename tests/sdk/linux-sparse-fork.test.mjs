@@ -11,8 +11,8 @@ function fixture(t,{limitBytes=32*M.PAGE}={}){
  const k=new Kernel({vfs:{},state:new Uint8Array(cfg.stateSize),log:()=>{},sparseLifecycleVersion:2,spawnSparseThread:d=>spawned.push(d),stopSparseThread:d=>stopped.push(d)},cfg),plans=[{status:0,rip:RIP,nextRip:RIP+2n,length:2,operation:5,width:0,instruction:Uint8Array.of(15,5)},{status:0,rip:RIP+2n,nextRip:RIP+3n,length:1,operation:0,width:0,instruction:Uint8Array.of(144)}],a=k.createSparseProcess({space,entryRip:RIP,plans}),seq=new Map();
  const base=th=>(SLOT_BASE+th.slot*SLOT_SIZE)>>2,g=th=>th.tb+cfg.ctx+cfg.gregsOff,reg=(th,i,x)=>x===undefined?th.sparse.view.getBigUint64(g(th)+i*8,true):th.sparse.view.setBigUint64(g(th)+i*8,BigInt.asUintN(64,x),true);
  function phase(th,p,status=0){const b=base(th),n=(seq.get(th)||0)+1;seq.set(th,n);for(const [i,x]of [[1,B.ABI.instructionBoundary],[2,th.sparse.token.generation],[3,n],[4,p],[5,status]])k.k64[(b>>1)+i]=BigInt(x);Atomics.store(k.k32,b,S_REQ);k.serviceRequests();return Atomics.load(k.k32,b);}
- function syscall(th,nr,{pid=0n,pointer=0n,options=0n,rusage=0n}={}){Atomics.store(k.k32,base(th),0);th.sparse.view.setBigUint64(th.tb+cfg.ctx+cfg.ripOff,RIP,true);for(const [i,x]of [[0,nr],[4,STACK],[7,pid],[6,pointer],[2,options],[10,rusage]])reg(th,i,x);assert.equal(phase(th,1),S_DONE);Atomics.store(k.k32,base(th),0);th.sparse.view.setBigUint64(th.tb+cfg.ctx+cfg.ripOff,RIP+2n,true);return phase(th,2,B.STEP.SYSCALL);}
- const fork=()=>syscall(a.thread,57n),ack=d=>{Atomics.store(k.k32,((SLOT_BASE+d.slot*SLOT_SIZE)>>2)+W_OCCUPIED,0);k.serviceRequests();};
+ function syscall(th,nr,{pid=0n,pointer=0n,options=0n,rusage=0n,stack=STACK}={}){Atomics.store(k.k32,base(th),0);th.sparse.view.setBigUint64(th.tb+cfg.ctx+cfg.ripOff,RIP,true);for(const [i,x]of [[0,nr],[4,stack],[7,pid],[6,pointer],[2,options],[10,rusage]])reg(th,i,x);assert.equal(phase(th,1),S_DONE);Atomics.store(k.k32,base(th),0);th.sparse.view.setBigUint64(th.tb+cfg.ctx+cfg.ripOff,RIP+2n,true);return phase(th,2,B.STEP.SYSCALL);}
+ const fork=options=>syscall(a.thread,57n,options),ack=d=>{Atomics.store(k.k32,((SLOT_BASE+d.slot*SLOT_SIZE)>>2)+W_OCCUPIED,0);k.serviceRequests();};
  function ready(){const d=spawned.at(-1);Atomics.store(new Int32Array(d.startGate),0,L.READY);k.serviceRequests();return k.slots[d.slot];}
  function exit(th,code=23n){assert.equal(syscall(th,60n,{pid:code}),S_DONE);Atomics.store(k.k32,base(th),0);assert.equal(phase(th,3),S_DONE);}
  t.after(()=>{for(const r of k.sparseClones?.values()??[]){k.sparseBroker.unregister(r.made.thread.sparse.token);r.forkSpace?.close();}for(const th of k.threads.values())k.sparseBroker.unregister(th.sparse.token);for(const p of k.procs.values())p.mm.guest.close();space.close();});
@@ -25,6 +25,10 @@ test('fork preparation publishes no child process or relationship until READY an
  child.proc.mm.guest.write(STACK-16n,Uint8Array.of(9));assert.equal(f.space.read(STACK-16n,1)[0],7);assert.notEqual(child.sparse.memory,f.a.worker.mem);
  f.syscall(f.a.thread,60n);assert.equal(f.k.k64[(f.base(f.a.thread)>>1)+8],2n,'parent must reap before exit in this profile');
  f.syscall(child,56n,{pid:0x10f00n,pointer:STACK});assert.equal(f.k.k64[(f.base(child)>>1)+8],2n,'fork child remains single-threaded');
+});
+test('fork preserves an eight-byte-aligned C call frame but refuses a misaligned stack before allocation',t=>{
+ for(const stack of [STACK,STACK-8n]){const f=fixture(t);assert.equal(f.fork({stack}),B.ABI.parkedState);const child=f.ready();assert.equal(f.reg(child,4),stack);}
+ const f=fixture(t),before=f.budget.stats().ownedPayloadBytes;assert.equal(f.fork({stack:STACK-4n}),S_DONE);assert.equal(f.k.k64[(f.base(f.a.thread)>>1)+8],2n);assert.equal(f.spawned.length,0);assert.equal(f.budget.stats().ownedPayloadBytes,before);
 });
 test('fork backing allocation failure returns ENOMEM without process, frame or byte changes',t=>{
  const f=fixture(t,{limitBytes:3*M.PAGE}),id=f.space.mappingInfo(STACK-8n).frameId;assert.equal(f.fork(),S_DONE);assert.equal(f.reg(f.a.thread,0),BigInt.asUintN(64,-12n));assert.equal(f.k.procs.size,1);assert.equal(f.spawned.length,0);assert.equal(f.budget.stats().ownedPayloadBytes,2*M.PAGE);assert.equal(f.space.mappingInfo(STACK-8n).frameId,id);

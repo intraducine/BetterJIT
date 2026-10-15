@@ -7,7 +7,8 @@ onmessage=async({data:d})=>{
  if(d.op==='unit-reply'){const p=pending.get(d.id);if(p){pending.delete(d.id);d.error?p.reject(Error(d.error)):p.resolve(d.unit);}return;}
  if(d.op!=='start'||started)throw Error('Sparse worker starts once');started=true;
  try{const result=await FexLinuxThread.runThread({data:d.spec,stepBroker:(space,rip)=>new Promise((resolve,reject)=>{const id=++next;pending.set(id,{resolve,reject});postMessage({op:'unit-request',id,space,rip});})});
-  onmessage=null;postMessage({op:'thread-result',result});
- }catch(error){onmessage=null;postMessage({op:'failure',message:String(error)});}
+  if(pending.size)throw Error('Sparse execution completed with pending requests');
+  onmessage=null;postMessage({op:'thread-result',result,lease:d.spec.lease,slot:d.spec.slot,tid:d.spec.tid,pendingRequests:0});
+ }catch(error){onmessage=null;if(!pending.size)postMessage({op:'failure',message:String(error),lease:d.spec.lease,slot:d.spec.slot,tid:d.spec.tid,pendingRequests:0});else postMessage({op:'failure',message:'Sparse failure retained pending requests',lease:d.spec.lease,slot:d.spec.slot,tid:d.spec.tid,pendingRequests:pending.size});}
  // Internal memory remains retained until the owning session is torn down.
 };

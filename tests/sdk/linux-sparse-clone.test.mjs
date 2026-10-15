@@ -42,11 +42,12 @@ test('guest clone stages complete state and publishes only after exact worker RE
  assert.equal(f.k.sparseClones.size,0);assert.equal(f.k.timers[0].dead,true);
 });
 test('unsupported clone flags, TID/TLS options, stack and missing host contract restore prestate before spawn',t=>{
- for(const args of [{flags:0n},{flags:0x10f11n},{flags:0x90f00n},{ptid:STACK},{ctid:STACK},{tls:1n},{stack:0n},{stack:STACK+1n},{stack:STACK+P},{nr:57n},{nr:59n}]) {
+ for(const args of [{flags:0n},{flags:0x10f11n},{flags:0x90f00n},{ptid:STACK},{ctid:STACK},{tls:1n},{stack:0n},{stack:STACK+1n},{stack:STACK-8n},{stack:STACK+P},{nr:57n},{nr:59n}]) {
   const f=fixture(t);assert.equal(f.begin(args),S_DONE);assert.equal(f.k.k64[f.b64+8],2n);assert.equal(f.v.getBigUint64(f.th.tb+cfg.ctx+cfg.ripOff,true),RIP);
   assert.equal(f.reg(0),args.nr??56n);assert.equal(f.spawned.length,0);assert.equal(f.k.threads.size,1);
  }
  const f=fixture(t);delete f.k.host.stopSparseThread;assert.equal(f.begin(),S_DONE);assert.equal(f.spawned.length,0);
+ const bounded=fixture(t);bounded.k.host.sparseAllowThreads=false;assert.equal(bounded.begin(),S_DONE);assert.equal(bounded.spawned.length,0);assert.equal(bounded.k.k64[bounded.b64+8],2n);
 });
 test('failed startup retains resources until acknowledged exit then returns EAGAIN without publication',t=>{
  const f=fixture(t);f.begin();const d=f.spawned[0];Atomics.store(new Int32Array(d.startGate),0,L.FAILED);f.k.serviceRequests();

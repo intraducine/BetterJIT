@@ -114,3 +114,7 @@ Host execution/unsigned app compilation establishes no physical-phone, resident
 RAM, stock Wine or DXMT compatibility. Paused stock-preloader research is not
 part of this increment. A portable SDK export and outside-checkout consumer build
 remain separate deliverables from publishing a repository/package or release.
+
+For the separate opt-in compiled parent/child route, see
+[bounded static process trees](sparse-processes.md). The original profile and
+its retention policy remain unchanged.

@@ -40,7 +40,9 @@ targets:
       - path: SparseROT13Fixture.swift
       - path: Guest/sparse-rot13.json
       - path: SparseCatFixture.swift
+      - path: SparsePipelineFixture.swift
       - path: Guest/sparse-cat.json
+      - path: Guest/sparse-pipeline.json
         buildPhase: resources
     dependencies:
       - package: BetterJIT

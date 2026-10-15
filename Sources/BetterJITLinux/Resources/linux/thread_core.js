@@ -593,7 +593,11 @@ async function executeSparseThread(env) {
   if(start!==undefined&&(!(start instanceof SharedArrayBuffer)||start.byteLength!==16||
      new Int32Array(start)[1]!==B.LIFECYCLE.version||new BigUint64Array(start)[1]!==d.lease))
     throw new Error('Invalid sparse startup gate');
+  const stopControl=d.stopControl===undefined?null:new Int32Array(d.stopControl);
+  if(stopControl&&(!(d.stopControl instanceof SharedArrayBuffer)||d.stopControl.byteLength!==4))throw new Error('Invalid sparse stop control');
+  function checkStopped(){if(stopControl&&Atomics.load(stopControl,0)!==0)throw new Error('Sparse execution cooperatively stopped');}
   function exchange(nr,sequence,phase=0,stepStatus=0) {
+    checkStopped();
     if(!Number.isInteger(sequence)||sequence<1||sequence>0xffffffff)throw new Error('Sparse transport sequence exhausted');
     if(Atomics.load(k32,base)!==0)throw new Error('Sparse mailbox is already occupied');
     k64[b64+1]=BigInt(nr);k64[b64+2]=BigInt.asIntN(64,d.lease);k64[b64+3]=BigInt(sequence);
@@ -601,6 +605,7 @@ async function executeSparseThread(env) {
     Atomics.store(k32,base,1);Atomics.add(k32,0,1);Atomics.notify(k32,0);
     const deadline=performance.now()+(d.requestTimeoutMs??30000);
     while(Atomics.load(k32,base)!==2) {
+      checkStopped();
       const seen=Atomics.load(k32,base);if(seen===2)break;
       // Only the kernel may publish PARKED after compare/enqueue. A spilled
       // futex wait has its own guest deadline (possibly none), not the RPC
@@ -613,6 +618,7 @@ async function executeSparseThread(env) {
       if(performance.now()>=deadline&&current!==2&&current!==B.ABI.parkedState)
         throw new Error('Sparse mailbox deadline exceeded');
     }
+    checkStopped();
     const flags=k32[base+1],result=k64[b64+8];Atomics.store(k32,base,0);
     if(flags!==0)throw new Error('Sparse memory/boundary transport cannot redirect or deliver signals');
     return Number(result);
@@ -627,7 +633,8 @@ async function executeSparseThread(env) {
   for(;executed<maximum;) {
     const rip=view.getBigUint64(ripAt,true);
     if(d.stopRip!==undefined&&rip===d.stopRip)break;
-    const unit=await env.stepBroker(d.space,rip);
+    checkStopped();
+    const unit=await env.stepBroker(d.space,rip);checkStopped();
     if(!unit||unit.status===B.STEP.UNSUPPORTED){if(start){if(d.startupStatus instanceof SharedArrayBuffer&&d.startupStatus.byteLength===4)Atomics.store(new Int32Array(d.startupStatus),0,2);throw new Error('Sparse startup continuation unavailable');}status=B.STEP.UNSUPPORTED;break;}
     if(unit.status!==0||unit.rip!==rip||!(unit.module instanceof WebAssembly.Module))throw new Error('Wrong broker step unit');
     const imports=WebAssembly.Module.imports(unit.module);
@@ -643,6 +650,7 @@ async function executeSparseThread(env) {
       Atomics.add(k32,0,1);Atomics.notify(k32,0);
       const until=performance.now()+(d.requestTimeoutMs??30000);
       while(Atomics.load(c,0)===L.READY) {
+        checkStopped();
         Atomics.wait(c,0,L.READY,100);
         if(performance.now()>until&&Atomics.load(c,0)===L.READY)throw new Error('Sparse startup deadline exceeded');
       }

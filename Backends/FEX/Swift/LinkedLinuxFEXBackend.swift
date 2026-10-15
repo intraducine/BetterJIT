@@ -16,7 +16,7 @@ public final class LinkedLinuxFEXBackend: LinuxTranslationBackend, @unchecked Se
         try FileManager.default.createDirectory(at:cacheDirectory,withIntermediateDirectories:true)
         let suffix=extraOptions.trimmingCharacters(in:.whitespacesAndNewlines)
         // Broker steps reject the legacy on-disk direct-unit cache.
-        let base=executionProfile == .sparseStatic ? "linux=1 guestmem=broker1" : "linux=1 depth=24 cache=\(cacheDirectory.path)"
+        let base=executionProfile.usesSparseBacking ? "linux=1 guestmem=broker1" : "linux=1 depth=24 cache=\(cacheDirectory.path)"
         options=base + (suffix.isEmpty ? "" : " " + suffix)
     }
 

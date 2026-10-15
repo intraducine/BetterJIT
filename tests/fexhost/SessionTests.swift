@@ -16,7 +16,7 @@ import Foundation
         precondition(DeviceSessionGuestOutput.consoleText("a\u{001B}[9999999999999999999999999999999999Cb").count == 258)
         precondition(AdaptedWinePhase.command.arguments == ["/opt/wine-flat/bin/wine","/usr/lib/wine/x86_64-windows/cmd.exe","/c","ver"])
         let ids=DeviceSessionReport.plan.map(\.id)
-        precondition(ids[1]=="compiled-rot13" && ids[2]=="compiled-cat")
+        precondition(ids[1]=="compiled-rot13" && ids[2]=="compiled-cat" && ids[3]=="compiled-pipeline")
         for phase in AdaptedWinePhase.allCases { precondition(ids.filter{$0 == phase.rawValue}.count == 1) }
         precondition(ids.firstIndex(of:AdaptedWinePhase.nestedCreateProcess.rawValue)! < ids.firstIndex(of:AdaptedWinePhase.spawnContract.rawValue)!)
         precondition(AdaptedWinePhase.fsContract.arguments.count == 1 && AdaptedWinePhase.spawnContract.arguments.count == 1)

@@ -46,6 +46,24 @@ final class LinuxSparseTransportTests:XCTestCase {
         XCTAssertFalse(LinuxRuntimeEvent(kind:.unsupported,text:nil,code:0).valid)
         XCTAssertEqual(LinuxRuntimeError.unsupported("missing").errorDescription,"missing")
     }
+    @MainActor func testBoundedProcessProfileAndExecutablePathsStayExplicit() throws {
+        let backend=SparseRouteBackend(),files=try DirectoryLinuxFileSystem(root:FileManager.default.temporaryDirectory)
+        let paths=["/test/cat","/test/c++"]
+        let session=try LinuxRuntimeSession(backend:backend,fileSystem:files,configuration:.init(arguments:["/test/parent","/test/cat"],regions:false,useNativeChannels:false,standardIO:.captured,executionProfile:.sparseStaticProcesses,standardInput:Data([0,255]),additionalExecutablePaths:paths))
+        defer{session.close()}
+        let url=try session.launchURL(port:12345),components=try XCTUnwrap(URLComponents(url:url,resolvingAgainstBaseURL:false))
+        let q=Dictionary(uniqueKeysWithValues:components.queryItems!.map{($0.name,$0.value!)})
+        XCTAssertEqual(url.path,"/linux/web/sparse.html");XCTAssertEqual(q["processes"],"1");XCTAssertEqual(q["stdin"],"1")
+        XCTAssertEqual(try JSONDecoder().decode([String].self,from:Data(q["executables"]!.utf8)),paths)
+        XCTAssertFalse(components.percentEncodedQuery!.contains("+"))
+    }
+    @MainActor func testExecutableSnapshotsRejectInvalidOrWrongProfileBeforeWebContent() throws {
+        let backend=SparseRouteBackend(),files=try DirectoryLinuxFileSystem(root:FileManager.default.temporaryDirectory)
+        for paths in [["relative"],["/test/../cat"],["/test//cat"],["/test/cat","/test/cat"],(0..<5).map{"/test/\($0)"}] {
+            XCTAssertThrowsError(try LinuxRuntimeSession(backend:backend,fileSystem:files,configuration:.init(arguments:["/a"],regions:false,useNativeChannels:false,standardIO:.captured,executionProfile:.sparseStaticProcesses,additionalExecutablePaths:paths)))
+        }
+        XCTAssertThrowsError(try LinuxRuntimeSession(backend:backend,fileSystem:files,configuration:.init(arguments:["/a"],regions:false,useNativeChannels:false,standardIO:.captured,executionProfile:.sparseStatic,additionalExecutablePaths:["/test/cat"])))
+    }
     @MainActor func testFiniteStdinBoundsAndProfileFailBeforeStartingWebContent() throws {
         let backend=SparseRouteBackend(),files=try DirectoryLinuxFileSystem(root:FileManager.default.temporaryDirectory.appendingPathComponent("sparse-input-"+UUID().uuidString))
         XCTAssertThrowsError(try LinuxRuntimeSession(backend:backend,fileSystem:files,configuration:.init(arguments:["/a"],standardInput:Data()))) {error in

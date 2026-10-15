@@ -64,6 +64,30 @@ private final class SparseNativeHost: LinuxTranslationBackend, @unchecked Sendab
     deinit {close()}
 }
 final class SparseWebKitHostTests:XCTestCase {
+    @MainActor func testCompiledForkExecThroughProductionProcessPage() async throws {
+        guard let native=ProcessInfo.processInfo.environment["BETTERJIT_SPARSE_FEXSERVE"]else{throw XCTSkip("Opt-in real FEX/WebKit process test.")}
+        _=NSApplication.shared
+        let root=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        func fixture(_ name:String)throws->([String:Any],Data){let o=try JSONSerialization.jsonObject(with:Data(contentsOf:root.appendingPathComponent("Examples/FEXHost/Guest/"+name+".json")))as![String:Any];return(o,try XCTUnwrap(Data(base64Encoded:try XCTUnwrap(o["elf"]as?String))))}
+        let (object,parent)=try fixture("sparse-pipeline"),(_,child)=try fixture("sparse-cat")
+        let cases:[(String,String,String?,Int)]=[("empty","","/test/cat",0),("text","A compiled parent and child. é🙂\n","/test/cat",0),("boundary",String(repeating:"x",count:4095)+"\u{FEFF}split\n","/test/cat",0),("leading-bom","\u{FEFF}Hello pipeline\n","/test/cat",0),("large",String(repeating:"line: parent fork exec child 0123\n",count:1024),"/test/cat",0),("missing","abc","/test/absent",71),("argument","abc",nil,64)]
+        for(id,input,path,code)in cases {
+            let backend=try SparseNativeHost(binary:native);defer{backend.close()};try await backend.ready()
+            let files=try DirectoryLinuxFileSystem(root:root.appendingPathComponent(".build/sparse-process-empty-root"),overlay:["/test/pipeline":parent,"/test/cat":child])
+            let session=try LinuxRuntimeSession(backend:backend,fileSystem:files,configuration:.init(arguments:["/test/pipeline"]+(path.map{[$0]} ?? []),timeoutSeconds:60,regions:false,useNativeChannels:false,standardIO:.captured,executionProfile:.sparseStaticProcesses,standardInput:Data(input.utf8),additionalExecutablePaths:["/test/cat"]))
+            let window=NSWindow(contentRect:NSRect(x:0,y:0,width:480,height:320),styleMask:[.titled],backing:.buffered,defer:false);window.isReleasedWhenClosed=false;window.contentView=session.webView;window.orderFrontRegardless();defer{session.close();window.close()}
+            let value:LinuxRuntimeResult
+            do{value=try await session.run()}catch LinuxRuntimeError.unsupported(let reason){if reason.contains("engine")&&reason.contains("memory"){throw XCTSkip(reason)};throw LinuxRuntimeError.unsupported(reason)}
+            let expected=code==0 ? input : code==71 ? "a" : ""
+            XCTAssertEqual(value.exitCode,code);XCTAssertEqual(value.stdout,expected);XCTAssertEqual(value.stderr,"");XCTAssertFalse(value.outputTruncated)
+            let line=try XCTUnwrap(value.log.split(separator:"\n").last(where:{$0.hasPrefix("[sparse-processes] ")}));let report=try JSONSerialization.jsonObject(with:Data(line.dropFirst("[sparse-processes] ".count).utf8))as![String:Any]
+            XCTAssertEqual(report["guestAccessQuiescenceAcknowledged"]as?Bool,true);XCTAssertEqual(report["workerRetirementAcknowledged"]as?Bool,false);XCTAssertEqual(report["internalContextsRetainedUntilSessionTeardown"]as?Bool,true)
+            let contexts=code==64 ? 1 : code==71 ? 2 : 3;XCTAssertEqual(report["internalContextsRetained"]as?Int,contexts);XCTAssertEqual(report["internalBytesRetained"]as?Int,contexts*33*65536)
+            let backing=try XCTUnwrap(report["guestBacking"]as?[String:Int]);XCTAssertEqual(backing["ownedPayloadBytes"],0)
+            XCTAssertGreaterThan(backend.statistics()["steps"] ?? 0,0)
+            print("[sparse-process-webkit] \(try String(data:JSONSerialization.data(withJSONObject:["id":id,"elfSHA256":object["elfSHA256"] ?? "","exitCode":value.exitCode,"stdoutBytes":value.stdout.utf8.count,"native":backend.statistics(),"runtimeLog":value.log],options:[.sortedKeys]),encoding:.utf8)!)")
+        }
+    }
     @MainActor func testCompiledStdinThroughProductionSparsePage() async throws {
         guard let native=ProcessInfo.processInfo.environment["BETTERJIT_SPARSE_FEXSERVE"] else {
             throw XCTSkip("Opt-in real native FEX/WebKit test; run after building the host translator.")

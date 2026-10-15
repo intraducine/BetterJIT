@@ -242,3 +242,9 @@ checks a bundled spawn contract before the real Wine command; both contract
 and Windows output/exit requirements remain mandatory. This avoids an extra
 intermediate fork copy but does not promise memory-budget reclamation or phone
 Wine compatibility.
+
+The opt-in **Compiled C: fork, exec and inherited stdin** phase runs fourth.
+It uses a real compiler parent and child, checks inherited input and wait/exit,
+and reports guest-access quiescence separately from physical worker retirement.
+Internal contexts and occupied slots stay retained until session teardown.
+This does not enable Wine or broader Linux compatibility in the sparse profile.

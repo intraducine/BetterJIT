@@ -46,17 +46,25 @@ import WebKit
               configuration.currentDirectory.first == "/" else {
             throw LinuxRuntimeError.invalidConfiguration("Invalid Linux runtime arguments, environment, timeout or cwd.")
         }
-        if configuration.executionProfile == .sparseStatic &&
+        if configuration.executionProfile.usesSparseBacking &&
            (configuration.standardIO != .captured || configuration.regions || configuration.useNativeChannels || !configuration.sharedAddressSpace ||
             configuration.display != nil || configuration.screenOnly || configuration.currentDirectory != "/" ||
             configuration.trace || configuration.traceCode || configuration.traceMaps) {
-            throw LinuxRuntimeError.unsupported("The sparse command profile requires captured single-process execution without regions, native channels, display, tracing or a different cwd.")
+            throw LinuxRuntimeError.unsupported("The sparse command profile requires captured bounded static execution without regions, native channels, display, tracing or a different cwd.")
         }
         if let input=configuration.standardInput {
             guard input.count <= 1024*1024 else { throw LinuxRuntimeError.invalidConfiguration("Captured stdin exceeds 1 MiB.") }
-            guard configuration.executionProfile == .sparseStatic, configuration.standardIO == .captured else {
+            guard configuration.executionProfile.usesSparseBacking, configuration.standardIO == .captured else {
                 throw LinuxRuntimeError.unsupported("Finite captured stdin requires the sparse static profile.")
             }
+        }
+        let paths=configuration.additionalExecutablePaths
+        guard paths.count<=4,Set(paths).count==paths.count,paths.allSatisfy({path in
+            path.first=="/" && path.utf8.count<=4096 && !path.contains("\0") &&
+            path.split(separator:"/",omittingEmptySubsequences:false).dropFirst().allSatisfy{!$0.isEmpty && $0 != "." && $0 != ".."}
+        }) else {throw LinuxRuntimeError.invalidConfiguration("Invalid bounded executable snapshot paths.")}
+        if !paths.isEmpty && configuration.executionProfile != .sparseStaticProcesses {
+            throw LinuxRuntimeError.unsupported("Additional executables require the sparse static processes profile.")
         }
         self.backend=backend; self.fileSystem=fileSystem; self.configuration=configuration
         self.gpuHandler=gpuHandler
@@ -194,7 +202,7 @@ import WebKit
 
     func launchURL(port:UInt16) throws -> URL {
         var c=URLComponents()
-        c.scheme="http"; c.host="127.0.0.1"; c.port=Int(port); c.path=configuration.executionProfile == .sparseStatic ? "/linux/web/sparse.html" : "/linux/web/linux.html"
+        c.scheme="http"; c.host="127.0.0.1"; c.port=Int(port); c.path=configuration.executionProfile.usesSparseBacking ? "/linux/web/sparse.html" : "/linux/web/linux.html"
         let argv=try JSONSerialization.data(withJSONObject:configuration.arguments)
         let env=try JSONSerialization.data(withJSONObject:configuration.environment)
         guard let a=String(data:argv,encoding:.utf8),let e=String(data:env,encoding:.utf8) else {
@@ -218,7 +226,11 @@ import WebKit
             URLQueryItem(name:"tspin",value:String(configuration.threadSpinMilliseconds))
         ]
         q.append(URLQueryItem(name:"display",value:configuration.display ?? "0"))
-        if configuration.executionProfile == .sparseStatic { q.append(URLQueryItem(name:"stdin",value:"1")) }
+        if configuration.executionProfile.usesSparseBacking { q.append(URLQueryItem(name:"stdin",value:"1")) }
+        if configuration.executionProfile == .sparseStaticProcesses {
+            q.append(URLQueryItem(name:"processes",value:"1"))
+            q.append(URLQueryItem(name:"executables",value:String(decoding:try JSONSerialization.data(withJSONObject:configuration.additionalExecutablePaths),as:UTF8.self)))
+        }
         if configuration.screenOnly { q.append(URLQueryItem(name:"ui",value:"screen")) }
         c.queryItems=q
         // URLSearchParams uses form decoding: a literal '+' becomes a space.
@@ -234,6 +246,7 @@ import WebKit
             "linux/thread_core.js","linux/compositor.js",
             "linux/guest_memory.js","linux/guest_memory_broker.js","linux/guest_image.js",
             "linux/web/sparse.html","linux/web/sparse_main.js","linux/web/sparse_kernel.js","linux/web/sparse_thread.js",
+            "linux/web/sparse_process_host.js","linux/web/sparse_process_kernel.js",
             "linux/web/linux.html","linux/web/linux_main.js","linux/web/kworker_web.js",
             "linux/web/thread_web.js","linux/web/chan_web.js","linux/web/chan_file.js",
             "linux/web/sampler.js","linux/web/probe_worker.js","linux/web/linux-kernel.js",

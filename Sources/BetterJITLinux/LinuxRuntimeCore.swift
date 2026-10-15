@@ -40,8 +40,11 @@ public struct LinuxChannelReply: Sendable, Equatable {
 public typealias LinuxGPUChannelHandler = @Sendable (_ request: Data, _ responseCapacity: Int) throws -> LinuxChannelReply
 
 public struct LinuxRuntimeConfiguration: Sendable, Equatable {
-    /// Sparse static is an experimental single-process, normal-exit profile.
-    public enum ExecutionProfile: String, Sendable { case direct, sparseStatic }
+    /// Experimental sparse profiles accept bounded static executables only.
+    public enum ExecutionProfile: String, Sendable {
+        case direct, sparseStatic, sparseStaticProcesses
+        public var usesSparseBacking: Bool { self != .direct }
+    }
     public var executionProfile: ExecutionProfile
     public enum StandardIO: String, Sendable { case terminal, captured }
     public var arguments: [String]
@@ -65,6 +68,9 @@ public struct LinuxRuntimeConfiguration: Sendable, Equatable {
     /// Finite captured stdin for sparse static commands, at most 1 MiB.
     /// Nil supplies EOF. Interactive stdin and direct-profile input are unsupported.
     public var standardInput: Data?
+    /// Up to four immutable exec snapshots for sparseStaticProcesses. Paths
+    /// are read once before guest startup; this is not general filesystem IO.
+    public var additionalExecutablePaths: [String]
 
     public init(arguments: [String],
                 environment: [String:String] = [:],
@@ -83,7 +89,8 @@ public struct LinuxRuntimeConfiguration: Sendable, Equatable {
                 sharedAddressSpace: Bool = true,
                 standardIO: StandardIO = .terminal,
                 executionProfile: ExecutionProfile = .direct,
-                standardInput: Data? = nil) {
+                standardInput: Data? = nil,
+                additionalExecutablePaths: [String] = []) {
         self.executionProfile=executionProfile
         self.arguments = arguments
         self.environment = environment
@@ -102,6 +109,7 @@ public struct LinuxRuntimeConfiguration: Sendable, Equatable {
         self.sharedAddressSpace = sharedAddressSpace
         self.standardIO = standardIO
         self.standardInput = standardInput
+        self.additionalExecutablePaths = additionalExecutablePaths
     }
 }
 

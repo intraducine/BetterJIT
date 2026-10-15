@@ -118,3 +118,7 @@ Linux process facade, with a real interchangeable document-digest consumer.
 
 The experimental [finite captured-stdin command](sparse-stdin.md) demonstrates
 ordinary compiler output, public process input and the integrated test app.
+
+The opt-in [bounded static process profile](sparse-processes.md) adds compiled
+fork/exec/wait with explicit guest-access quiescence while retaining internal
+worker contexts until session teardown. It is separate from physical retirement.

@@ -1170,10 +1170,10 @@ class Kernel {
     for(let i=0;i<MAX_SLOTS;i++) {
       const t=this.slots[i];if(!t)continue;
       const base=(SLOT_BASE+i*SLOT_SIZE)>>2;
-      // W_OCCUPIED is cleared only by the host after worker termination. A
-      // failed worker cannot send an EXIT exchange; cancel its broker state
-      // here before allowing slot reuse, without touching abandoned CPU state.
-      if(t.sparse&&!Atomics.load(this.k32,base+W_OCCUPIED)) {
+      // Legacy hosts clear W_OCCUPIED after worker termination. Retained
+      // contexts instead supply guest-access quiescence and keep occupancy.
+      // Cancel broker state without touching abandoned CPU state.
+      if(t.sparse&&(!Atomics.load(this.k32,base+W_OCCUPIED)||this.sparseGuestQuiesced(t))) {
         this.retireSparseWorker(t,t.sparse.token.generation);did=true;continue;
       }
       if(Atomics.compareExchange(this.k32,base,S_REQ,S_BUSY)!==S_REQ)continue;
@@ -1239,13 +1239,15 @@ class Kernel {
     if(dynamic)space.executableSnapshot(entryRip,1);
     if((!dynamic&&!approved.has(entryRip))||!(this.host.state instanceof Uint8Array)||this.host.state.length!==this.cfg.stateSize)
       throw new Error('Sparse entry/state is unavailable');
+    const quiescence=this.host.sparseRetainInternalContexts===true?new SharedArrayBuffer(16):undefined,stopControl=quiescence?new SharedArrayBuffer(4):undefined;
     const admission=dynamic?new SharedArrayBuffer(B.ABI.stepHeaderBytes):undefined,memory=B.createInternalMemory(),view=new DataView(memory.buffer),slot=this.allocSlot(),t=new Thread(proc,tid,slot,B.ABI.threadBase);
     this.sparseContexts=(this.sparseContexts||0)+1;
     const state=new Uint8Array(memory.buffer,t.tb+this.cfg.ctx,this.cfg.stateSize);state.set(this.host.state);
     view.setBigUint64(t.tb+this.cfg.ctx+this.cfg.ripOff,entryRip,true);
     this.sparseBroker??=new B.GuestMemoryBroker();
     const token=this.sparseBroker.register(slot,{space,memory,checkpointLayout:this.cfg.checkpoint});
-    t.sparse={token,space,memory,view,plans:approved,dynamic,admission,boundarySequence:0,active:null,steps:0,last:null,parked:null,syscalls:0};
+    if(quiescence){new Int32Array(quiescence)[1]=1;new BigUint64Array(quiescence)[1]=token.generation;}
+    t.sparse={token,space,memory,view,plans:approved,dynamic,admission,quiescence,stopControl,boundarySequence:0,active:null,steps:0,last:null,parked:null,syscalls:0};
     // Compatibility diagnostics may inspect the primary context; sparse paths
     // always use the authenticated thread's own view, never this alias.
     if(!mm.mem){mm.mem=memory;mm.dv=view;}
@@ -1253,7 +1255,7 @@ class Kernel {
     new Int32Array(this.ksab,SLOT_BASE+slot*SLOT_SIZE,SLOT_SIZE>>2).fill(0);
     Atomics.store(this.k32,((SLOT_BASE+slot*SLOT_SIZE)>>2)+W_OCCUPIED,1);
     return {proc,thread:t,worker:{pid:proc.pid,tid,tb:t.tb,mem:memory,space:spaceId,admission:t.sparse.admission,slot,ksab:this.ksab,
-      lease:token.generation,cfg:this.cfg}};
+      lease:token.generation,quiescence,stopControl,cfg:this.cfg}};
   }
 
   sparseRequest(t) {
@@ -1324,16 +1326,35 @@ class Kernel {
     return Atomics.load(this.k32,b*2+W_OCCUPIED)!==0&&[S_BUSY,globalThis.BetterJITGuestMemoryBroker.ABI.parkedState].includes(state)&&
       BigInt.asUintN(64,this.k64[b+2])===lease&&this.k64[b+3]===seq;
   }
+  sparseGuestQuiesced(t) {
+    if(this.host.sparseRetainInternalContexts!==true)return false;
+    const q=t.sparse?.quiescence;if(!(q instanceof SharedArrayBuffer)||q.byteLength!==16)throw new Error('Missing sparse quiescence receipt');
+    const c=new Int32Array(q),state=Atomics.load(c,0);
+    if(c[1]!==1||new BigUint64Array(q)[1]!==t.sparse.token.generation||![0,1,2,3].includes(state))throw new Error('Corrupt sparse quiescence receipt');
+    return state!==0;
+  }
+  sparseWorkerActive(t) {
+    return Atomics.load(this.k32,((SLOT_BASE+t.slot*SLOT_SIZE)>>2)+W_OCCUPIED)!==0&&!this.sparseGuestQuiesced(t);
+  }
+  sparseExecutionEnded(t) {return !!t.sparse.retired||!!t.sparse.executionQuiesced;}
+  markSparseExecutionEnded(t) {
+    if(this.host.sparseRetainInternalContexts===true)t.sparse.executionQuiesced=true;
+    else t.sparse.retired=true;
+  }
   retireSparseWorker(t,lease) {
     if(this.slots[t.slot]!==t||!t.sparse||t.sparse.token.generation!==lease)return false;
     const base=(SLOT_BASE+t.slot*SLOT_SIZE)>>2;
-    if(Atomics.load(this.k32,base+W_OCCUPIED))return false;
+    const quiesced=this.sparseGuestQuiesced(t);
+    if(Atomics.load(this.k32,base+W_OCCUPIED)&&!quiesced)return false;
     const replaced=!!t.sparse.execStop,failed=!t.dead&&!replaced;
-    this.sparseBroker.unregister(t.sparse.token);t.sparse.active=null;t.sparse.parked=null;t.sparse.retired=true;t.dead=true;
+    this.sparseBroker.unregister(t.sparse.token);t.sparse.active=null;t.sparse.parked=null;this.markSparseExecutionEnded(t);t.dead=true;
     if(failed){t.sparse.terminalStatus=2;t.proc.exitStatus=2;}
     if(!replaced)t.proc.zombie=[...t.proc.threads.values()].every(th=>th.dead);
     this.slots[t.slot]=null;Atomics.store(this.k32,base,S_IDLE);
-    this.host.sparseWorkerRetired?.(t,{failed,replaced});return true;
+    // Quiescence revokes guest access; it does not acknowledge physical worker
+    // termination or permit reuse of its occupied slot/internal memory.
+    if(quiesced)this.host.sparseGuestQuiesced?.(t,{failed,replaced});
+    else this.host.sparseWorkerRetired?.(t,{failed,replaced});return true;
   }
   completeSparseTransport(t,lease,seq,result,allowDead=false) {
     if(!this.ownsSparseTransport(t,lease,seq,allowDead))return false;
@@ -1364,7 +1385,7 @@ class Kernel {
     });
   }
   sparseFutexSupported(t) {
-    if(this.host.sparseProcessLifecycle===false)return false;
+    if(this.host.sparseProcessLifecycle===false||this.host.sparseAllowFutex===false)return false;
     const v=t.sparse.view,g=t.tb+this.cfg.ctx+this.cfg.gregsOff;
     const op=Number(v.getBigUint64(g+6*8,true)&0xffffffffn);
     return v.getBigUint64(g,true)===202n&&[0,1,128,129].includes(op);
@@ -1380,6 +1401,7 @@ class Kernel {
        typeof this.host.stopSparseThread!=='function'||t.pending||t.proc.pending||
        this.threads.get(t.tid)!==t||this.procs.get(t.proc.pid)!==t.proc||t.proc.mm.guest!==s.space||
        t.proc.actions.some(a=>a.handler!==0n))return false;
+    if(nr===56n&&this.host.sparseAllowThreads===false)return false;
     if(nr===59n)return this.host.sparseLifecycleVersion>=3&&!!globalThis.BetterJITGuestImage&&
       this.host.sparseExecutables instanceof globalThis.BetterJITGuestImage.ExecutableStore&&typeof this.host.dropSparseSpace==='function'&&
       t.tid===t.proc.pid&&[...t.proc.threads.values()].filter(th=>!th.dead).length===1&&this.sparseOutputDescriptorsSupported(t.proc)&&!t.proc.children.size&&
@@ -1396,7 +1418,9 @@ class Kernel {
     if((!fork&&(nr!==56n||t.proc.sparseForkOrigin||t.proc.children.size||reg(7)!==0x10f00n||!reg(6)||reg(2)||reg(10)||reg(8)))||
        (!s.dynamic&&!s.plans.has(v.getBigUint64(t.tb+this.cfg.ctx+this.cfg.ripOff,true))))return false;
     try {
-      const stack=reg(fork?4:6);if(stack%16n||stack<16n)return false;
+      // fork preserves the caller's C frame (RSP % 16 may be 8). The
+      // same-process clone profile still requires a fresh 16-byte stack.
+      const stack=reg(fork?4:6);if(stack%(fork?8n:16n)||stack<16n)return false;
       if(t.proc.mm.guest.mappingInfo(stack-8n)?.kind!=='private')return false;
       const tx=t.proc.mm.guest.prepareWrite(stack-8n,8);tx.cancel();return true;
     }catch(error){if(error instanceof globalThis.BetterJITGuestMemory.MemoryFault||
@@ -1451,7 +1475,7 @@ class Kernel {
       const t=r.parent,child=r.made.thread,c=r.control,base=(SLOT_BASE+slot*SLOT_SIZE)>>2,
         owner=this.ownsSparseTransport(t,r.lease,r.seq)&&this.threads.get(t.tid)===t&&this.procs.get(t.proc.pid)===t.proc&&
           t.proc.mm===r.mm&&t.sparse.clonePending===r;
-      const state=Atomics.load(c,0),occupied=Atomics.load(this.k32,base+W_OCCUPIED);
+      const state=Atomics.load(c,0),occupied=this.sparseWorkerActive(child);
       if(!owner||t.pending||t.proc.pending||[L.FAILED,L.CANCEL].includes(state)||!occupied||
          c[1]!==L.version||new BigUint64Array(c.buffer)[1]!==child.sparse.token.generation||
          ![L.PENDING,L.READY,L.CANCEL,L.FAILED].includes(state)) {
@@ -1468,7 +1492,7 @@ class Kernel {
         if(state!==L.CANCEL){Atomics.store(c,0,L.CANCEL);Atomics.notify(c,0);did=true;}
         if(occupied&&!r.stopRequested){r.stopRequested=true;this.host.stopSparseThread({slot,lease:child.sparse.token.generation});did=true;}
         if(occupied)continue; // No timer is a worker-exit acknowledgement.
-        this.sparseBroker.unregister(child.sparse.token);child.dead=true;child.sparse.retired=true;
+        this.sparseBroker.unregister(child.sparse.token);child.dead=true;this.markSparseExecutionEnded(child);
         if(r.forkSpace){this.closeSparseOutputs(child.proc);this.closeSparseImage(child.proc.mm);}
         this.sparseClones.delete(slot);r.timer.dead=true;if(t.sparse.clonePending===r)t.sparse.clonePending=null;
         if(owner)this.completeSparseSyscall(t,r.lease,r.seq,r.error);did=true;continue;
@@ -1588,7 +1612,7 @@ class Kernel {
   serviceSparseExecs() {
     const B=globalThis.BetterJITGuestMemoryBroker,L=B.LIFECYCLE;let did=false;
     for(const [slot,r]of this.sparseExecs) {
-      const t=r.old,n=r.made.thread,proc=r.proc,base=(SLOT_BASE+slot*SLOT_SIZE)>>2,occupied=Atomics.load(this.k32,base+W_OCCUPIED),state=Atomics.load(r.c,0),
+      const t=r.old,n=r.made.thread,proc=r.proc,base=(SLOT_BASE+slot*SLOT_SIZE)>>2,occupied=this.sparseWorkerActive(n),state=Atomics.load(r.c,0),
         identity=t.proc===proc&&this.threads.get(t.tid)===t&&this.procs.get(proc.pid)===proc&&proc.mm===r.oldMM&&r.oldMM.guest===t.sparse.space&&t.sparse.execPending===r,
         owner=identity&&(r.state==='preparing'?this.ownsSparseTransport(t,r.lease,r.seq):t.sparse.token.generation===r.lease);
       if(!owner||t.pending||proc.pending||!occupied||[L.FAILED,L.CANCEL].includes(state)||r.c[1]!==L.version||new BigUint64Array(r.gate)[1]!==n.sparse.token.generation||![L.PENDING,L.READY,L.FAILED,L.CANCEL].includes(state))r.cancelled=true;
@@ -1602,8 +1626,8 @@ class Kernel {
       if(r.cancelled) {
         if(state!==L.CANCEL){Atomics.store(r.c,0,L.CANCEL);Atomics.notify(r.c,0);did=true;}
         if(occupied&&!r.stopRequested){r.stopRequested=true;this.host.stopSparseThread({slot,lease:n.sparse.token.generation});did=true;}
-        if(occupied||(r.state==='fatal'&&!t.sparse.retired))continue;
-        this.sparseBroker.unregister(n.sparse.token);n.dead=true;n.sparse.retired=true;this.closeSparseImage(r.mm);
+        if(occupied||(r.state==='fatal'&&!this.sparseExecutionEnded(t)))continue;
+        this.sparseBroker.unregister(n.sparse.token);n.dead=true;this.markSparseExecutionEnded(n);this.closeSparseImage(r.mm);
         this.sparseExecs.delete(slot);r.timer.dead=true;if(t.sparse.execPending===r)t.sparse.execPending=null;
         if(r.state==='fatal'){
           this.closeSparseImage(r.oldMM);this.closeSparseOutputs(proc);proc.exitStatus=2;proc.zombie=true;t.sparse.execFatal=true;
@@ -1617,11 +1641,12 @@ class Kernel {
       if(state!==L.READY)continue;
       if(r.state==='preparing') {
         r.state='stopping';r.timer.dead=true;t.sparse.execStop=r;
-        // Host ACK includes actual worker termination AND all owned native
-        // translation requests. Neither a gate nor a timeout is an ACK.
+        // Host proof drains every owned native request. Legacy hosts also
+        // acknowledge worker termination. Retained-context hosts certify no
+        // future guest access, retaining occupancy/internal memory instead.
         this.host.stopSparseThread({slot:t.slot,lease:r.lease});did=true;continue;
       }
-      if(!t.sparse.retired)continue;
+      if(!this.sparseExecutionEnded(t))continue;
       // All fallible preparation finished before the irreversible old stop.
       // PID, relationships and mask survive. CPU, mm, stack and lease replace.
       proc.mm=r.mm;proc.space=r.mm.catalog.id;proc.argv=r.image.argv;proc.exe=r.image.path;proc.zombie=false;
@@ -1635,7 +1660,7 @@ class Kernel {
   }
 
   sparseChildReady(child) {
-    return child.zombie&&[...child.threads.values()].every(th=>th.sparse.retired);
+    return child.zombie&&[...child.threads.values()].every(th=>this.sparseExecutionEnded(th));
   }
   sparseReap(t,child,pointer) {
     const M=globalThis.BetterJITGuestMemory,exit=child.sparseGuestExit;

@@ -141,6 +141,51 @@ import BetterJITFEXAdapter
     }
     private func execute(_ i:Int, stress:Bool) async throws {
         guard let id=report?.phases[i].id else { throw SuiteFailure("Missing phase.") }
+        if id == "compiled-pipeline" {
+            report?.phases[i].details["execution"]="Compiler C parent → fork → compiler child exec → inherited stdin/stdout → wait/exit"
+            report?.phases[i].details["lifecycle"]="Bounded guest-access quiescence; occupied slots and internal contexts retained until session teardown; physical worker retirement unsupported"
+            report?.phases[i].details["JSPIRequired"]="false"
+            do {
+                let parent=try SparsePipelineFixture.load(),child=try SparseCatFixture.load()
+                report?.phases[i].details["compiler"]=parent.1.compiler
+                report?.phases[i].details["sourceSHA256"]=parent.1.sourceSHA256
+                report?.phases[i].details["elfSHA256"]=parent.1.elfSHA256
+                report?.phases[i].details["childELFSHA256"]=child.1.elfSHA256
+                report?.phases[i].details["childSourceSHA256"]=child.1.sourceSHA256
+                report?.phases[i].details["childCompiler"]=child.1.compiler
+                let value=try await linux.run(.sparsePipeline)
+                try checkStop()
+                report?.phases[i].captureOutput(log:value.log,stdout:value.stdout,stderr:value.stderr,runtimeTruncated:value.outputTruncated)
+                report?.phases[i].counters=linux.counters
+                let evidence=try SparsePipelineFixture.RuntimeEvidence.parse(value.log)
+                report?.phases[i].details["exitCode"]=String(value.exitCode)
+                report?.phases[i].details["stdinProvidedBytes"]=String(evidence.stdin.providedBytes)
+                report?.phases[i].details["stdinConsumedBytes"]=String(evidence.stdin.consumedBytes)
+                report?.phases[i].details["stdinPositiveReads"]=String(evidence.stdin.positiveReads)
+                report?.phases[i].details["stdinSHA256"]=SparseCatFixture.digest(SparsePipelineFixture.input)
+                report?.phases[i].details["stdoutSHA256"]=SparseCatFixture.digest(Data(value.stdout.utf8))
+                report?.phases[i].details["guestWasmSteps"]=String(evidence.steps)
+                report?.phases[i].details["guestBackingAfterCloseBytes"]=String(evidence.guestBacking.ownedPayloadBytes)
+                report?.phases[i].details["internalContextsRetained"]=String(evidence.internalContextsRetained)
+                report?.phases[i].details["internalBytesRetained"]=String(evidence.internalBytesRetained)
+                report?.phases[i].details["guestAccessQuiescenceAcknowledged"]=String(evidence.guestAccessQuiescenceAcknowledged)
+                report?.phases[i].details["workerRetirementAcknowledged"]=String(evidence.workerRetirementAcknowledged)
+                guard value.exitCode==0,value.stdout==SparsePipelineFixture.expected,value.stderr.isEmpty,!value.outputTruncated,
+                      evidence.stdin.providedBytes==SparsePipelineFixture.input.count,evidence.stdin.consumedBytes==SparsePipelineFixture.input.count,evidence.stdin.positiveReads==3,
+                      evidence.births.count==1,evidence.commits.count==1,evidence.commits[0].pid==evidence.births[0].pid,evidence.commits[0].path=="/test/cat",
+                      evidence.guestAccessQuiescenceAcknowledged,!evidence.workerRetirementAcknowledged,evidence.internalContextsRetainedUntilSessionTeardown,
+                      evidence.internalContextsRetained==3,evidence.internalBytesRetained==3*33*65536,evidence.guestBacking.ownedPayloadBytes==0,
+                      (linux.counters["stepRequests"] ?? 0)>0,(linux.counters["codeMappings"] ?? 0)>0 else {
+                    throw SuiteFailure("Compiled process tree did not complete its bounded guest lifecycle with exact output and retained-context evidence.")
+                }
+                report?.phases[i].status = .passed
+            } catch LinuxRuntimeError.unsupported(let reason) {
+                report?.phases[i].counters=linux.counters;report?.phases[i].status = .unsupported;report?.phases[i].details["reason"]=reason
+            } catch SparseROT13Fixture.LinuxFixtureError.missing {
+                report?.phases[i].status = .unsupported;report?.phases[i].details["reason"]="A compiled process payload is absent from this build."
+            }
+            return
+        }
         if id == "compiled-rot13" || id == "compiled-cat" {
             let cat=id == "compiled-cat",expected=cat ? SparseCatFixture.expected : SparseROT13Fixture.expected
             let input=cat ? SparseCatFixture.input : Data()

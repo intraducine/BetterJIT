@@ -79,6 +79,7 @@ test('recognized bad futex arguments return errno while uncovered syscalls resto
  assert.equal(a.begin({op:1,value:-1n}),S_DONE);assert.equal(a.result(),-22n);a.ack();
  assert.equal(a.begin({nr:39n}),S_DONE);assert.equal(f.k.k64[a.b32/2+8],2n);
  assert.equal(a.v.getBigUint64(a.thread.tb+cfg.ctx+cfg.ripOff,true),RIP);assert.equal(a.result(),39n);
+ const bounded=setup(t),th=bounded.make(0);bounded.k.host.sparseAllowFutex=false;assert.equal(th.begin(),S_DONE);assert.equal(bounded.k.k64[th.b32/2+8],2n);assert.equal(bounded.k.sparseBroker.futexStats().waiting,0);
 });
 
 test('kernel user-copy capabilities recheck thread, occupancy and image ownership on every use',t=>{

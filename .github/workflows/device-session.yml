@@ -38,6 +38,7 @@ jobs:
         run: |
           python3 Examples/FEXHost/Guest/build-sparse-rot13.py --output .build/sparse-compiled-input/sparse-rot13-fresh.json --native-check
           python3 Examples/FEXHost/Guest/build-sparse-cat.py --output .build/sparse-compiled-input/sparse-cat-fresh.json --native-check
+          python3 Examples/FEXHost/Guest/build-sparse-pipeline.py --output .build/sparse-compiled-input/sparse-pipeline-fresh.json --native-check
       - name: Transfer the fresh compiler output to Apple validation
         if: github.ref == 'refs/heads/experimental/sparse-guest-backing'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -231,6 +232,8 @@ jobs:
           node tests/sdk/linux-host/sparse-compiled.cjs .build/host-fex/fexserve .build/sparse-compiled-fresh-results.json .build/sparse-compiled-input/sparse-rot13-fresh.json
           node tests/sdk/linux-host/sparse-cat.cjs .build/host-fex/fexserve .build/sparse-cat-results.json
           node tests/sdk/linux-host/sparse-cat.cjs .build/host-fex/fexserve .build/sparse-cat-fresh-results.json .build/sparse-compiled-input/sparse-cat-fresh.json
+          node tests/sdk/linux-host/sparse-pipeline.cjs .build/host-fex/fexserve .build/sparse-pipeline-results.json
+          node tests/sdk/linux-host/sparse-pipeline.cjs .build/host-fex/fexserve .build/sparse-pipeline-fresh-results.json .build/sparse-compiled-input/sparse-pipeline-fresh.json
       - name: Execute the compiled command in real macOS WebKit
         if: github.ref == 'refs/heads/experimental/sparse-guest-backing'
         run: |
@@ -254,6 +257,8 @@ jobs:
             .build/sparse-compiled-fresh-results.json
             .build/sparse-cat-results.json
             .build/sparse-cat-fresh-results.json
+            .build/sparse-pipeline-results.json
+            .build/sparse-pipeline-fresh-results.json
             .build/sparse-webkit-results.log
           include-hidden-files: true
           if-no-files-found: error

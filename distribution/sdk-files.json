@@ -247,6 +247,18 @@
     "tests/sdk/linux-host/sparse-cat.cjs": "tests/sdk/linux-host/sparse-cat.cjs",
     "tests/sdk/linux-host/sparse-stdin-oracle.c": "tests/sdk/linux-host/sparse-stdin-oracle.c",
     "tests/sdk/linux-sparse-input.test.mjs": "tests/sdk/linux-sparse-input.test.mjs",
-    "tests/sdk/linux-sparse-page.test.mjs": "tests/sdk/linux-sparse-page.test.mjs"
+    "tests/sdk/linux-sparse-page.test.mjs": "tests/sdk/linux-sparse-page.test.mjs",
+    "Examples/FEXHost/Guest/build-sparse-pipeline.py": "Examples/FEXHost/Guest/build-sparse-pipeline.py",
+    "Examples/FEXHost/Guest/sparse-pipeline.c": "Examples/FEXHost/Guest/sparse-pipeline.c",
+    "Examples/FEXHost/Guest/sparse-pipeline.json": "Examples/FEXHost/Guest/sparse-pipeline.json",
+    "Examples/FEXHost/SparsePipelineFixture.swift": "Examples/FEXHost/SparsePipelineFixture.swift",
+    "Sources/BetterJITLinux/Resources/linux/web/sparse_process_host.js": "Sources/BetterJITLinux/Resources/linux/web/sparse_process_host.js",
+    "Sources/BetterJITLinux/Resources/linux/web/sparse_process_kernel.js": "Sources/BetterJITLinux/Resources/linux/web/sparse_process_kernel.js",
+    "docs/sdk/sparse-processes.md": "docs/sdk/sparse-processes.md",
+    "tests/sdk/linux-host/sparse-browser-thread.cjs": "tests/sdk/linux-host/sparse-browser-thread.cjs",
+    "tests/sdk/linux-host/sparse-pipeline-kernel.cjs": "tests/sdk/linux-host/sparse-pipeline-kernel.cjs",
+    "tests/sdk/linux-host/sparse-pipeline.cjs": "tests/sdk/linux-host/sparse-pipeline.cjs",
+    "tests/sdk/linux-sparse-process-host.test.mjs": "tests/sdk/linux-sparse-process-host.test.mjs",
+    "tests/sdk/sparse-process-browser.py": "tests/sdk/sparse-process-browser.py"
   }
 }
