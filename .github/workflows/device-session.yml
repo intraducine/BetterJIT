@@ -1,7 +1,7 @@
 name: One iPhone device session
 on:
   push:
-    branches: [feature/one-device-session, feature/packaged-backend]
+    branches: [feature/one-device-session, feature/packaged-backend, experimental/sparse-guest-backing]
     paths:
       - 'Sources/**'
       - 'Examples/**'
@@ -24,7 +24,7 @@ permissions:
   contents: read
 concurrency:
   group: betterjit-device-session-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/experimental/sparse-guest-backing' }}
 jobs:
   linux-fixture:
     runs-on: ubuntu-24.04
@@ -196,6 +196,20 @@ jobs:
         with:
           path: .build/host-fex
           key: ${{ steps.host-key.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Validate experimental sparse steps with the fresh Apple host translator
+        if: github.ref == 'refs/heads/experimental/sparse-guest-backing'
+        run: |
+          node tests/sdk/linux-host/sparse-live.cjs .build/host-fex/fexserve .build/sparse-live-results.json
+          node tests/sdk/linux-host/sparse-scalars.cjs .build/host-fex/fexserve .build/sparse-scalar-results.json
+          node tests/sdk/linux-host/sparse-sync.cjs .build/host-fex/fexserve .build/sparse-sync-results.json
+      - name: Preserve experimental host execution evidence
+        if: always() && github.ref == 'refs/heads/experimental/sparse-guest-backing'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Sparse-host-validation-${{ github.sha }}
+          path: .build/sparse-*-results.json
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Execute real Linux userspace through live FEX and the promoted runtime
         id: live-linux
         env:
