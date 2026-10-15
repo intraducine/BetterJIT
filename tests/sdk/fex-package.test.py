@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Package-layout/error tests with metadata fixtures; no native execution claim."""
 import importlib.util
+import json
 import pathlib
 import plistlib
 import tempfile
@@ -10,6 +11,8 @@ ROOT=pathlib.Path(__file__).resolve().parents[2]
 spec=importlib.util.spec_from_file_location('fex_adapter',ROOT/'scripts/package-fex-adapter.py')
 adapter=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(adapter)
+spec=importlib.util.spec_from_file_location('fex_consumer',ROOT/'scripts/package-fex-consumer.py')
+consumer=importlib.util.module_from_spec(spec);spec.loader.exec_module(consumer)
 
 class AdapterPackageTests(unittest.TestCase):
     def setUp(self):
@@ -58,5 +61,43 @@ class AdapterPackageTests(unittest.TestCase):
             adapter.generate(self.native,self.sdk,self.output,source=self.sdk)
         self.assertFalse(self.output.exists())
         self.assertTrue(self.info.is_file())
+
+    def test_portable_native_receipt_is_preserved_exactly_and_checks_packaged_bytes(self):
+        binary=self.root/'PortableNative';binary.mkdir()
+        for name in ('Package.swift','COPYING','CFEXWasm.xcframework/ios-arm64/Headers/translator.h',
+                     'CFEXWasm.xcframework/ios-arm64/Headers/module.modulemap'):
+            path=binary/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('fixture '+name)
+        files={p.relative_to(binary).as_posix():{'sha256':consumer.digest(p)} for p in binary.rglob('*') if p.is_file()}
+        receipt={'schema':1,'identity':{'inputs':{'component':'fex-ios'}},
+                 'producer':{'commit':'a'*40},'files':files}
+        original=json.dumps(receipt,indent=2)+'\n';(self.native/'ASSET-MANIFEST.json').write_text(original)
+        result=consumer.copy_native_receipt(self.native,binary)
+        self.assertEqual((binary/'ASSET-MANIFEST.json').read_text(),original)
+        self.assertEqual(result['sha256'],consumer.digest(binary/'ASSET-MANIFEST.json'))
+        (binary/'ASSET-MANIFEST.json').unlink();(binary/'COPYING').write_text('changed')
+        with self.assertRaisesRegex(ValueError,'does not match'): consumer.copy_native_receipt(self.native,binary)
+        self.assertFalse((binary/'ASSET-MANIFEST.json').exists())
+
+    def test_legacy_native_package_has_no_claimed_producer_receipt(self):
+        binary=self.root/'PortableNative';binary.mkdir()
+        self.assertIsNone(consumer.copy_native_receipt(self.native,binary))
+
+    def test_malformed_native_receipts_are_rejected(self):
+        binary=self.root/'PortableNative';binary.mkdir();(binary/'COPYING').write_text('fixture')
+        receipt=self.native/'ASSET-MANIFEST.json'
+        invalid=[[], {'schema':1,'identity':[]}, {'schema':1,'identity':{'inputs':[]}},
+                 {'schema':1,'identity':{'inputs':{'component':'fex-host'}},'files':{}},
+                 {'schema':1,'identity':{'inputs':{'component':'fex-ios'}},'files':[]},
+                 {'schema':1,'identity':{'inputs':{'component':'fex-ios'}},'files':{'COPYING':[]}}]
+        for data in invalid:
+            with self.subTest(data=data):
+                receipt.write_text(json.dumps(data))
+                with self.assertRaises(ValueError): consumer.copy_native_receipt(self.native,binary)
+                self.assertFalse((binary/'ASSET-MANIFEST.json').exists())
+
+    def test_broken_receipt_symlink_is_not_treated_as_legacy(self):
+        binary=self.root/'PortableNative';binary.mkdir()
+        (self.native/'ASSET-MANIFEST.json').symlink_to(self.native/'missing-receipt.json')
+        with self.assertRaisesRegex(ValueError,'regular file'): consumer.copy_native_receipt(self.native,binary)
 
 if __name__=='__main__':unittest.main()

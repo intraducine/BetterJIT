@@ -112,8 +112,14 @@ def required_outputs(root, component, expected):
         if not isinstance(lib, dict): raise ValueError('Invalid native slice metadata')
         if lib.get('SupportedPlatform') != 'ios' or lib.get('SupportedArchitectures') != ['arm64'] or lib.get('SupportedPlatformVariant'):
             raise ValueError('Wrong native platform')
-        identifier, library = lib['LibraryIdentifier'], lib['LibraryPath']
-        if any('/' in p or p in ('.', '..') for p in (identifier, library)): raise ValueError('Unsafe native path')
+        identifier, library, headers = lib['LibraryIdentifier'], lib['LibraryPath'], lib['HeadersPath']
+        if any(not isinstance(p, str) or not p or '/' in p or p in ('.', '..') for p in (identifier, library, headers)):
+            raise ValueError('Unsafe native path')
+        for name in ('translator.h', 'module.modulemap'):
+            header_path = root/'CFEXWasm.xcframework'/identifier/headers/name
+            if not header_path.is_file() or not header_path.stat().st_size:
+                raise ValueError('Missing native slice header: '+name)
+            if sha(header_path) != sha(root/'Headers'/name): raise ValueError('Native slice header mismatch: '+name)
         with (root/'CFEXWasm.xcframework'/identifier/library).open('rb') as handle: header = handle.read(8)
         if header != b'!<arch>\n':
             raise ValueError('Missing native archive')

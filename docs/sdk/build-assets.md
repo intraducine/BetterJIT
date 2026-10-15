@@ -48,7 +48,13 @@ save successfully rebuilt components. `asset-usage/*.json` and the final
 `BUILD-MANIFEST.json` distinguish built/reused inputs and their original producers
 from the exact consuming app commit. The full producer checkout is required to
 compute FEX identities; SDK consumers use the exported native package and current
-adapter sources.
+adapter sources. The portable bundle preserves the native `ASSET-MANIFEST.json`
+byte for byte and links its hash from `PACKAGE-MANIFEST.json`; copied native files
+must match that producer receipt. Its scope remains the original producer output,
+of which the portable native package contains a subset. Older local packages
+without a receipt remain explicitly unidentified rather than acquiring invented
+producer provenance. Native validation requires the XCFramework slice's headers
+and module map as well as the library, with matching producer header copies.
 
 The first run after a recipe/key-format change fills new caches. A later compatible
 run must show validated cache hits and skipped producer compilation, while all

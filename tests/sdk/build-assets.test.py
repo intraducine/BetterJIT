@@ -59,15 +59,26 @@ class AssetTests(unittest.TestCase):
     def test_native_package_requires_device_arm64_and_matching_required_outputs(self):
         target = self.root/assets.COMPONENTS['fex-ios']['path']; target.mkdir()
         for name in ('Package.swift','COPYING','Headers/translator.h','Headers/module.modulemap','libCFEXWasm.a',
-                     'CFEXWasm.xcframework/ios-arm64/libCFEXWasm.a'):
+                     'CFEXWasm.xcframework/ios-arm64/libCFEXWasm.a',
+                     'CFEXWasm.xcframework/ios-arm64/Headers/translator.h',
+                     'CFEXWasm.xcframework/ios-arm64/Headers/module.modulemap'):
             path = target/name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(b'!<arch>\nfixture')
         info = {'AvailableLibraries':[{'LibraryIdentifier':'ios-arm64','LibraryPath':'libCFEXWasm.a',
-                 'SupportedPlatform':'ios','SupportedArchitectures':['arm64']}]}
+                 'HeadersPath':'Headers','SupportedPlatform':'ios','SupportedArchitectures':['arm64']}]}
         path = target/'CFEXWasm.xcframework/Info.plist'; path.write_bytes(plistlib.dumps(info))
         expected = assets.identity(self.root, 'fex-ios', self.tools)
         producer = {**self.producer, 'step':'build-native'}
         assets.seal(target, 'fex-ios', expected, producer, NOW)
         assets.validate(target, 'fex-ios', expected, NOW)
+        for name in ('translator.h','module.modulemap'):
+            header = target/'CFEXWasm.xcframework/ios-arm64/Headers'/name
+            original = header.read_bytes(); header.unlink()
+            with self.assertRaisesRegex(ValueError, 'Missing native slice header'):
+                assets.seal(target, 'fex-ios', expected, producer, NOW)
+            header.write_bytes(b'mismatched header')
+            with self.assertRaisesRegex(ValueError, 'header mismatch'):
+                assets.seal(target, 'fex-ios', expected, producer, NOW)
+            header.write_bytes(original)
         info['AvailableLibraries'][0]['SupportedPlatformVariant'] = 'simulator'; path.write_bytes(plistlib.dumps(info))
         with self.assertRaisesRegex(ValueError, 'platform'): assets.seal(target, 'fex-ios', expected, producer, NOW)
     def test_tampered_missing_extra_and_mode_changed_outputs_reject(self):

@@ -22,6 +22,29 @@ def digest(path):
             digest.update(chunk)
     return digest.hexdigest()
 
+def copy_native_receipt(native,binary):
+    receipt=native/'ASSET-MANIFEST.json'
+    if receipt.is_symlink(): raise ValueError('Native producer receipt must be a regular file')
+    if not receipt.exists(): return None  # Legacy local packages have no producer receipt.
+    if not receipt.is_file(): raise ValueError('Native producer receipt must be a regular file')
+    data=json.loads(receipt.read_text())
+    if not isinstance(data,dict) or data.get('schema')!=1:
+        raise ValueError('Invalid native producer receipt')
+    identity=data.get('identity')
+    inputs=identity.get('inputs') if isinstance(identity,dict) else None
+    files=data.get('files')
+    if not isinstance(inputs,dict) or inputs.get('component')!='fex-ios' or not isinstance(files,dict):
+        raise ValueError('Invalid native producer receipt')
+    for path in binary.rglob('*'):
+        if not path.is_file(): continue
+        name=path.relative_to(binary).as_posix()
+        entry=files.get(name)
+        if not isinstance(entry,dict) or entry.get('sha256')!=digest(path):
+            raise ValueError('Native producer receipt does not match packaged output: '+name)
+    shutil.copyfile(receipt,binary/receipt.name)
+    return {'path':'FEXNativePackage/'+receipt.name,'sha256':digest(binary/receipt.name),
+            'scope':'Original native producer output; the portable bundle contains a subset of that output'}
+
 def package(native,out,ref='HEAD'):
     if out.exists(): raise ValueError('Existing consumer bundle retained unchanged: '+str(out))
     if out==ROOT or ROOT in out.parents: raise ValueError('Stage the consumer bundle outside the checkout')
@@ -40,6 +63,7 @@ def package(native,out,ref='HEAD'):
         for name in ('Package.swift','COPYING'):
             shutil.copyfile(native/name,binary/name)
         shutil.copytree(native/'CFEXWasm.xcframework',binary/'CFEXWasm.xcframework')
+        producer_receipt=copy_native_receipt(native,binary)
         adapter.generate(binary,sdk,out/'BetterJITFEXAdapter',source=sdk)
         revision=json.loads(files['SOURCE-MANIFEST.json'][0])['sourceRevision']
         hashes={str(p.relative_to(out)):digest(p)
@@ -47,6 +71,7 @@ def package(native,out,ref='HEAD'):
         manifest={'schema':1,'repository':'intraducine/BetterJIT','sourceRevision':revision,
                   'platforms':['iOS device arm64'],'signed':False,'deviceExecuted':False,
                   'nativeBackend':'Existing CFEXWasm binary; exact packaged bytes hashed below',
+                  'nativeProducerReceipt':producer_receipt,
                   'hashScope':'SDK, adapter and native inputs before compilation; generated Xcode files are excluded',
                   'files':hashes}
         (out/'PACKAGE-MANIFEST.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
