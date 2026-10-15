@@ -1169,6 +1169,7 @@ class Kernel {
       did=true;
     }
     if(this.sparseClones?.size)did=this.serviceSparseClones()||did;
+    if(this.sparseWaits?.size)did=this.serviceSparseWaits()||did;
     return did;
   }
 
@@ -1276,7 +1277,7 @@ class Kernel {
         result=BigInt(status);
         this.host.sparseStep?.(t,s.last);
       } else if(phase===3) {
-        if(s.active||s.parked||s.clonePending)throw new Error('Sparse exit during an instruction or parked syscall');
+        if(s.active||s.parked||s.clonePending||s.waitPending)throw new Error('Sparse exit during an instruction or parked syscall');
         const status=Number(this.k64[b64+5]);
         if(![0,1,2].includes(status))throw new Error('Invalid sparse terminal status');
         s.terminalStatus=status;t.proc.exitStatus=status;
@@ -1319,7 +1320,7 @@ class Kernel {
     const check=()=>{
       if(this.cfg.guestMemory!=='broker1'||!broker||!space||!s||t.sparse!==s||s.token!==token||
          t.proc!==proc||t.slot!==slot||t.tid!==tid||t.dead||s.retired||
-         this.sparseBroker!==broker||this.threads.get(tid)!==t||this.slots[slot]!==t||proc.mm!==mm||mm?.guest!==space||s.active||s.parked||s.clonePending||
+         this.sparseBroker!==broker||this.threads.get(tid)!==t||this.slots[slot]!==t||proc.mm!==mm||mm?.guest!==space||s.active||s.parked||s.clonePending||s.waitPending||
          !Atomics.load(this.k32,((SLOT_BASE+slot*SLOT_SIZE)>>2)+W_OCCUPIED))
         throw new Error('Authenticated runnable sparse user-memory owner required');
     };
@@ -1345,17 +1346,23 @@ class Kernel {
   sparseSyscallSupported(t) {
     if(this.sparseFutexSupported(t))return true;
     const s=t.sparse,v=s.view,g=t.tb+this.cfg.ctx+this.cfg.gregsOff,reg=i=>v.getBigUint64(g+i*8,true),nr=reg(0);
-    if(this.host.sparseLifecycleVersion!==1||typeof this.host.spawnSparseThread!=='function'||
+    if(![1,2].includes(this.host.sparseLifecycleVersion)||typeof this.host.spawnSparseThread!=='function'||
        typeof this.host.stopSparseThread!=='function'||t.pending||t.proc.pending||
        this.threads.get(t.tid)!==t||this.procs.get(t.proc.pid)!==t.proc||t.proc.mm.guest!==s.space||
        t.proc.actions.some(a=>a.handler!==0n))return false;
-    if(nr===60n)return true;
+    if(nr===60n)return t.proc.children.size===0;
+    if([57n,61n].includes(nr)&&this.host.sparseLifecycleVersion!==2)return false;
+    if(nr===61n)return t.tid===t.proc.pid&&reg(7)>0n&&reg(7)<=0x7fffffffn&&reg(2)===0n&&reg(10)===0n;
+    const fork=nr===57n;
+    if(fork&&(t.tid!==t.proc.pid||[...t.proc.threads.values()].filter(th=>!th.dead).length!==1||
+       t.proc.fds.size||t.proc.children.size||(t.sigmask&(1n<<16n))||
+       t.proc.actions.some(a=>a.handler||a.flags||a.restorer||a.mask)))return false;
     // One bounded Linux x86-64 same-process thread profile. No TLS/TID stores,
     // exit signal, vfork, namespace or unknown flag behavior is inferred.
-    if(nr!==56n||reg(7)!==0x10f00n||!reg(6)||reg(2)||reg(10)||reg(8)||
+    if((!fork&&(nr!==56n||t.proc.sparseForkOrigin||t.proc.children.size||reg(7)!==0x10f00n||!reg(6)||reg(2)||reg(10)||reg(8)))||
        !s.plans.has(v.getBigUint64(t.tb+this.cfg.ctx+this.cfg.ripOff,true)))return false;
     try {
-      const stack=reg(6);if(stack%16n||stack<16n)return false;
+      const stack=reg(fork?4:6);if(stack%16n||stack<16n)return false;
       if(t.proc.mm.guest.mappingInfo(stack-8n)?.kind!=='private')return false;
       const tx=t.proc.mm.guest.prepareWrite(stack-8n,8);tx.cancel();return true;
     }catch(error){if(error instanceof globalThis.BetterJITGuestMemory.MemoryFault||
@@ -1364,24 +1371,32 @@ class Kernel {
   sparseSyscall(t,lease,seq,rip) {
     const B=globalThis.BetterJITGuestMemoryBroker,s=t.sparse,g=t.tb+this.cfg.ctx+this.cfg.gregsOff,nr=s.view.getBigUint64(g,true);
     if(nr===202n)return this.sparseFutex(t,lease,seq);
+    if(nr===61n)return this.sparseWait(t,lease,seq);
     if(nr===60n) {
       this.sparseBroker.assertCopiesComplete(s.token);
       s.guestExitCode=Number(s.view.getBigUint64(g+7*8,true)&255n);
       this.completeSparseTransport(t,lease,seq,BigInt(B.LIFECYCLE.syscallExit));return {parked:true};
     }
-    if(nr!==56n)throw new Error('Unadmitted sparse syscall');
+    if(nr!==56n&&nr!==57n)throw new Error('Unadmitted sparse syscall');
     if((this.sparseContexts||0)>=B.ABI.maximumThreads)return {parked:false,result:-11n};
-    const entryRip=s.view.getBigUint64(t.tb+this.cfg.ctx+this.cfg.ripOff,true),stack=s.view.getBigUint64(g+6*8,true);
-    let made,gate,control;
+    const fork=nr===57n,mm=t.proc.mm,entryRip=s.view.getBigUint64(t.tb+this.cfg.ctx+this.cfg.ripOff,true),stack=s.view.getBigUint64(g+(fork?4:6)*8,true);
+    let made,gate,control,forkSpace,proc=t.proc;
     try{gate=new SharedArrayBuffer(16);control=new Int32Array(gate);
-      made=this.allocateSparseThread(t.proc,{entryRip,plans:s.plans.values(),publish:false},this.newTid());}
-    catch(error){if(error instanceof RangeError)return {parked:false,result:-12n};throw error;}
+      if(fork) {
+        forkSpace=mm.guest.fork();proc=new Process(this,this.newTid(),t.proc.pid);
+        proc.mm={guest:forkSpace,sparse:true};proc.space=t.proc.space; // inherited immutable code catalogue, distinct guest storage
+        for(const name of ['pgid','sid','cwd','umask','exe'])proc[name]=t.proc[name];
+        proc.argv=t.proc.argv.slice();proc.rlimits=new Map(t.proc.rlimits);proc.actions=t.proc.actions.map(a=>({...a}));
+        proc.sparseForkOrigin={parentPid:t.proc.pid,parentTid:t.tid,rip};
+      }
+      made=this.allocateSparseThread(proc,{entryRip,plans:s.plans.values(),publish:false},fork?proc.pid:this.newTid());}
+    catch(error){forkSpace?.close();if(error instanceof RangeError||error instanceof globalThis.BetterJITGuestMemory.AllocationFailure)return {parked:false,result:-12n};throw error;}
     const child=made.thread;
     for(const span of [this.cfg.checkpoint.cpu,this.cfg.checkpoint.lazyFlags,this.cfg.checkpoint.roundMode])
       new Uint8Array(child.sparse.memory.buffer,child.tb+span.offset,span.size).set(new Uint8Array(s.memory.buffer,t.tb+span.offset,span.size));
     child.sparse.view.setBigUint64(g,0n,true);child.sparse.view.setBigUint64(g+4*8,stack,true);child.sigmask=t.sigmask;
     control[1]=B.LIFECYCLE.version;new BigUint64Array(gate)[1]=child.sparse.token.generation;
-    const rec={parent:t,mm:t.proc.mm,lease,seq,rip,made,control,cancelled:false,error:-11n};
+    const rec={parent:t,mm,lease,seq,rip,made,control,forkSpace,number:Number(nr),cancelled:false,error:-11n};
     this.sparseClones??=new Map();this.sparseClones.set(child.slot,rec);s.clonePending=rec;
     rec.timer=this.addTimer(30000,()=>{rec.cancelled=true;});
     Atomics.store(this.k32,(SLOT_BASE+t.slot*SLOT_SIZE)>>2,B.ABI.parkedState);
@@ -1407,9 +1422,9 @@ class Kernel {
       if(!r.cancelled&&state===L.READY) {
         try {
           const rip=child.sparse.view.getBigUint64(child.tb+this.cfg.ctx+this.cfg.ripOff,true),p=child.sparse.plans.get(rip),
-            code=r.mm.guest.executableSnapshot(rip,p.length),stack=child.sparse.view.getBigUint64(child.tb+this.cfg.ctx+this.cfg.gregsOff+4*8,true);
-          if(!code.every((x,i)=>x===p.instruction[i])||r.mm.guest.mappingInfo(stack-8n)?.kind!=='private')r.cancelled=true;
-          else {const tx=r.mm.guest.prepareWrite(stack-8n,8);tx.cancel();}
+            space=child.proc.mm.guest,code=space.executableSnapshot(rip,p.length),stack=child.sparse.view.getBigUint64(child.tb+this.cfg.ctx+this.cfg.gregsOff+4*8,true);
+          if(!code.every((x,i)=>x===p.instruction[i])||space.mappingInfo(stack-8n)?.kind!=='private')r.cancelled=true;
+          else {const tx=space.prepareWrite(stack-8n,8);tx.cancel();}
         }catch(error){if(error instanceof globalThis.BetterJITGuestMemory.MemoryFault||
           error instanceof globalThis.BetterJITGuestMemory.PreparedWriteConflict)r.cancelled=true;else throw error;}
       }
@@ -1418,17 +1433,56 @@ class Kernel {
         if(occupied&&!r.stopRequested){r.stopRequested=true;this.host.stopSparseThread({slot,lease:child.sparse.token.generation});did=true;}
         if(occupied)continue; // No timer is a worker-exit acknowledgement.
         this.sparseBroker.unregister(child.sparse.token);child.dead=true;child.sparse.retired=true;
+        r.forkSpace?.close();
         this.sparseClones.delete(slot);r.timer.dead=true;if(t.sparse.clonePending===r)t.sparse.clonePending=null;
         if(owner)this.completeSparseSyscall(t,r.lease,r.seq,r.error);did=true;continue;
       }
       if(state!==L.READY)continue;
       // Only the authority publishes the prepared same-mm thread. Its guest
       // continuation and full CPU/lazy/round state came from the spilled caller.
+      if(r.forkSpace){this.procs.set(child.proc.pid,child.proc);t.proc.children.add(child.proc.pid);}
       this.threads.set(child.tid,child);this.slots[slot]=child;child.proc.threads.set(child.tid,child);
-      child.sparse.createdBy=Object.freeze({syscall:56,parentTid:t.tid,rip:r.rip,stack:child.sparse.view.getBigUint64(child.tb+this.cfg.ctx+this.cfg.gregsOff+4*8,true)});
+      child.sparse.createdBy=Object.freeze({syscall:r.number,parentTid:t.tid,parentPid:t.proc.pid,rip:r.rip,stack:child.sparse.view.getBigUint64(child.tb+this.cfg.ctx+this.cfg.gregsOff+4*8,true)});
       this.sparseClones.delete(slot);r.timer.dead=true;t.sparse.clonePending=null;
       Atomics.store(c,0,L.RUN);Atomics.notify(c,0);
       this.completeSparseSyscall(t,r.lease,r.seq,BigInt(child.tid));this.host.sparseCloneCreated?.(child);did=true;
+    }
+    return did;
+  }
+  sparseChildReady(child) {
+    return child.zombie&&[...child.threads.values()].every(th=>th.sparse.retired);
+  }
+  sparseReap(t,child,pointer) {
+    const M=globalThis.BetterJITGuestMemory,exit=child.sparseGuestExit;
+    if(!exit||[...child.threads.values()].some(th=>th.sparse.guestExitCode===undefined||th.sparse.terminalStatus!==0))
+      throw new Error('Sparse child failed without a guest wait status');
+    let tx,result=BigInt(child.pid);
+    try {
+      if(pointer){tx=this.sparseUserMemory(t).prepareCopyOut(pointer,4);new DataView(tx.bytes.buffer).setUint32(0,exit.lastThreadCode<<8,true);tx.validate();}
+    }catch(error){tx?.cancel();if(error instanceof M.MemoryFault||error instanceof M.AllocationFailure)result=-14n;else throw error;}
+    // Linux wait4 selects/reaps before copying status to userspace. A bad
+    // status destination returns EFAULT after reaping; retry sees ECHILD.
+    t.proc.children.delete(child.pid);child.sparseReaped=true;
+    try{if(tx&&result>0n)tx.commit();}finally{tx?.cancel();child.mm.guest.close();}
+    return result;
+  }
+  sparseWait(t,lease,seq) {
+    const s=t.sparse,g=t.tb+this.cfg.ctx+this.cfg.gregsOff,pid=Number(s.view.getBigUint64(g+7*8,true)),pointer=s.view.getBigUint64(g+6*8,true),child=this.procs.get(pid);
+    if(!child||!t.proc.children.has(pid)||child.ppid!==t.proc.pid||!child.sparseForkOrigin||child.sparseReaped)return {parked:false,result:-10n};
+    if(this.sparseChildReady(child))return {parked:false,result:this.sparseReap(t,child,pointer)};
+    const r={parent:t,mm:t.proc.mm,lease,seq,child,pointer};s.waitPending=r;this.sparseWaits??=new Set();this.sparseWaits.add(r);
+    Atomics.store(this.k32,(SLOT_BASE+t.slot*SLOT_SIZE)>>2,globalThis.BetterJITGuestMemoryBroker.ABI.parkedState);
+    this.host.sparseWaitQueued?.(t,{pid});return {parked:true};
+  }
+  serviceSparseWaits() {
+    let did=false;
+    for(const r of this.sparseWaits) {
+      const t=r.parent,owner=this.ownsSparseTransport(t,r.lease,r.seq)&&this.threads.get(t.tid)===t&&
+        this.procs.get(t.proc.pid)===t.proc&&t.proc.mm===r.mm&&t.sparse.waitPending===r;
+      const currentChild=this.procs.get(r.child.pid)===r.child&&t.proc.children.has(r.child.pid)&&!r.child.sparseReaped;
+      if(owner&&currentChild&&!t.pending&&!t.proc.pending&&!this.sparseChildReady(r.child))continue;
+      this.sparseWaits.delete(r);if(t.sparse.waitPending===r)t.sparse.waitPending=null;did=true;
+      if(owner)this.completeSparseSyscall(t,r.lease,r.seq,t.pending||t.proc.pending?-4n:!currentChild?-10n:this.sparseReap(t,r.child,r.pointer));
     }
     return did;
   }

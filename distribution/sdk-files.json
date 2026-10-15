@@ -203,6 +203,12 @@
     "tests/sdk/linux-host/sparse-flow.cjs": "tests/sdk/linux-host/sparse-flow.cjs",
     "tests/sdk/linux-host/sparse-flow-oracle.c": "tests/sdk/linux-host/sparse-flow-oracle.c",
     "tests/sdk/linux-host/sparse-flow-oracle.json": "tests/sdk/linux-host/sparse-flow-oracle.json",
-    "docs/sdk/sparse-control-flow.md": "docs/sdk/sparse-control-flow.md"
+    "docs/sdk/sparse-control-flow.md": "docs/sdk/sparse-control-flow.md",
+    "tests/sdk/linux-sparse-fork.test.mjs": "tests/sdk/linux-sparse-fork.test.mjs",
+    "tests/sdk/linux-host/sparse-fork-fixture.cjs": "tests/sdk/linux-host/sparse-fork-fixture.cjs",
+    "tests/sdk/linux-host/sparse-fork-kernel.cjs": "tests/sdk/linux-host/sparse-fork-kernel.cjs",
+    "tests/sdk/linux-host/sparse-fork.cjs": "tests/sdk/linux-host/sparse-fork.cjs",
+    "tests/sdk/linux-host/sparse-fork-oracle.c": "tests/sdk/linux-host/sparse-fork-oracle.c",
+    "docs/sdk/sparse-fork.md": "docs/sdk/sparse-fork.md"
   }
 }

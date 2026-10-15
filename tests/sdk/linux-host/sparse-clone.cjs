@@ -12,7 +12,7 @@ function nativeOracle() {
  }finally{fs.rmSync(directory,{recursive:true,force:true});}
 }
 async function execute(cfg,state,units,scenario,fixtureFile) {
- const workers=new Map(),results=[],startupFailures=[];let kernel,timer;
+ const workers=new Map(),results=[],startupFailures=[],workerExits=[];let kernel,timer;
  try{return await new Promise((resolve,reject)=>{
   timer=setTimeout(()=>reject(Error('Actual guest clone fixture exceeded 30 seconds')),30000);
   kernel=new Worker(path.join(__dirname,'sparse-clone-kernel.cjs'),{workerData:{cfg,state,resources,scenario,fixtureFile,plans:units.map(({code,module,...p})=>p)}});
@@ -20,12 +20,13 @@ async function execute(cfg,state,units,scenario,fixtureFile) {
    if(m.op==='fatal')return reject(Error(m.message));
    if(m.op==='spawn') {
     const expectedFailure=!!m.startGate&&scenario!=='success';
-    const w=new Worker(path.join(__dirname,'sparse-clone-thread.cjs'),{workerData:{...m,resources,units:expectedFailure&&scenario==='missing-continuation'?[]:units,maximumSteps:100}});workers.set(m.slot,{worker:w,spec:m});
+    const w=new Worker(path.join(__dirname,'sparse-clone-thread.cjs'),{workerData:{...m,resources,units:expectedFailure&&scenario==='missing-continuation'?[]:units,maximumSteps:100,
+      startupHold:expectedFailure&&scenario==='terminate-before-ready'?new SharedArrayBuffer(4):undefined}});workers.set(m.slot,{worker:w,spec:m});
     w.on('error',reject);w.on('message',r=>{if(r.op==='thread-failed'){if(expectedFailure)startupFailures.push(r);else reject(Error(r.message));}else if(r.op==='thread-result')results.push(r);});
-    w.on('exit',code=>{const k=new Int32Array(m.ksab);Atomics.store(k,((256+m.slot*128)>>2)+26,0);Atomics.add(k,0,1);Atomics.notify(k,0);if(code!==0&&!expectedFailure)reject(Error('Clone worker exited '+code));});
+    w.on('exit',code=>{workerExits.push({pid:m.pid,tid:m.tid,slot:m.slot,lease:m.lease,code,expectedStartupFailure:expectedFailure});const k=new Int32Array(m.ksab);Atomics.store(k,((256+m.slot*128)>>2)+26,0);Atomics.add(k,0,1);Atomics.notify(k,0);if(code!==0&&!expectedFailure)reject(Error('Clone worker exited '+code));});
     if(expectedFailure&&scenario==='terminate-before-ready')w.terminate();
    }else if(m.op==='stop') {const owned=workers.get(m.slot);if(owned?.spec.lease===m.lease)owned.worker.terminate();}
-   else if(m.op==='kernel-result') {assert.equal(results.length,scenario==='success'?2:1);for(const r of results)assert.equal(r.status,0);if(scenario==='missing-continuation')assert.equal(startupFailures.length,1);resolve({...m,scenario,startupFailures,workers:results});}
+   else if(m.op==='kernel-result') {assert.equal(results.length,scenario==='success'?2:1);for(const r of results)assert.equal(r.status,0);if(scenario==='missing-continuation')assert.equal(startupFailures.length,1);resolve({...m,scenario,startupFailures,workerExits,workers:results});}
   });
  });}finally{clearTimeout(timer);await Promise.allSettled([...workers.values()].map(x=>x.worker.terminate()).concat(kernel?[kernel.terminate()]:[]));}
 }
