@@ -89,8 +89,9 @@
     if(!size||size%16)unsupported('Unsupported GNU property span');
     for(let prop=data;prop<data+size;prop+=16) {
      const kind=v.getUint32(prop,true),value=v.getUint32(prop+8,true);
-     if(v.getUint32(prop+4,true)!==4||v.getUint32(prop+12,true)!==0||
-        !((kind===0xc0000002&&!(value&~3))||(kind===0xc0008002&&value===1)))unsupported('Unsupported GNU property');
+     const length=v.getUint32(prop+4,true),padding=v.getUint32(prop+12,true);
+     if(length!==4||padding!==0||!((kind===0xc0000002&&!(value&~3))||(kind===0xc0008002&&value===1)))
+      unsupported('Unsupported GNU property kind=0x'+kind.toString(16)+' value=0x'+value.toString(16)+' size='+length+' padding=0x'+padding.toString(16)+' fileOffset=0x'+prop.toString(16));
     }
    }else unsupported('Unsupported GNU ELF note');
    at=next;

@@ -68,6 +68,7 @@ test('explicit PHDR, TLS templates and passive GNU notes are checked as load ali
  const note=extra(4,4,0x500n,0x500n,32n),v=new DataView(note.buffer);for(const [p,x]of [[0x500,4],[0x504,16],[0x508,5],[0x50c,0x00554e47],[0x510,0xc0000002],[0x514,4],[0x518,3],[0x51c,0]])v.setUint32(p,x,true);
  let r=prepare(old,note);r.space.close();v.setUint32(0x510,0xc0008002,true);v.setUint32(0x518,1,true);r=prepare(old,note);r.space.close();
  for(const [p,x]of [[0x518,2],[0x514,8],[0x50c,0x11111111],[0x508,99]]){const b=note.slice();new DataView(b.buffer).setUint32(p,x,true);assert.throws(()=>prepare(old,b),I.ImageUnsupported);}
+ v.setUint32(0x518,2,true);assert.throws(()=>prepare(old,note),e=>e instanceof I.ImageUnsupported&&e.message.includes('kind=0xc0008002 value=0x2 size=4 padding=0x0 fileOffset=0x510'));
  // Insert PHDR before INTERP/LOAD; its file range must describe all eight entries.
  const ph=F.image(),pv=new DataView(ph.buffer);ph.copyWithin(120,64,64+7*56);ph.fill(0,64,120);pv.setUint16(56,8,true);pv.setUint32(64,6,true);pv.setUint32(68,4,true);for(const [p,x]of [[72,64n],[80,64n],[96,8n*56n],[104,8n*56n],[112,8n]])pv.setBigUint64(p,x,true);
  r=prepare(old,ph);r.space.close();pv.setBigUint64(80,72n,true);assert.throws(()=>prepare(old,ph),I.ImageError);assert.equal(budget.stats().ownedPayloadBytes,4096);
