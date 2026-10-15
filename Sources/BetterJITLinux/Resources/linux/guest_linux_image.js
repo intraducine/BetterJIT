@@ -78,8 +78,9 @@
   if(p.filesz>65536n)unsupported('ELF notes exceed 64 KiB');
   // GNU build IDs and ABI tags are passive metadata. FEATURE_1_AND with
   // IBT/SHSTK compatibility bits does not enable or advertise CET here.
-  // The observed Wine FEATURE_2_USED X86 bit and ISA_1_USED baseline bit
-  // describe scalar/baseline use; they never enable more native emitters.
+  // USED properties describe optional usage, not NEEDED requirements. The
+  // staged Wine/musl inputs include X86/X87/XMM usage (0xb). Recognize the
+  // defined usage bits without enabling CPU features or native emitters.
   const v=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength),end=Number(p.off+p.filesz);let at=Number(p.off);
   while(at<end) {
    if(at+12>end)bad('Truncated ELF note');
@@ -92,8 +93,8 @@
     for(let prop=data;prop<data+size;prop+=16) {
      const kind=v.getUint32(prop,true),value=v.getUint32(prop+8,true);
      const length=v.getUint32(prop+4,true),padding=v.getUint32(prop+12,true);
-     const baselineUsed=(kind===0xc0010001||kind===0xc0010002)&&!(value&~1);
-     if(length!==4||padding!==0||!((kind===0xc0000002&&!(value&~3))||(kind===0xc0008002&&value===1)||baselineUsed))
+     const optionalUsed=(kind===0xc0010001&&!(value&~0x3ff))||(kind===0xc0010002&&!(value&~15));
+     if(length!==4||padding!==0||!((kind===0xc0000002&&!(value&~3))||(kind===0xc0008002&&value===1)||optionalUsed))
       unsupported('Unsupported GNU property kind=0x'+kind.toString(16)+' value=0x'+value.toString(16)+' size='+length+' padding=0x'+padding.toString(16)+' fileOffset=0x'+prop.toString(16));
     }
    }else unsupported('Unsupported GNU ELF note');

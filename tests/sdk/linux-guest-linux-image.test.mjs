@@ -70,8 +70,9 @@ test('explicit PHDR, TLS templates and passive GNU notes are checked as load ali
  for(const [p,x]of [[0x518,2],[0x514,8],[0x50c,0x11111111],[0x508,99]]){const b=note.slice();new DataView(b.buffer).setUint32(p,x,true);assert.throws(()=>prepare(old,b),I.ImageUnsupported);}
  v.setUint32(0x518,2,true);assert.throws(()=>prepare(old,note),e=>e instanceof I.ImageUnsupported&&e.message.includes('kind=0xc0008002 value=0x2 size=4 padding=0x0 fileOffset=0x510'));
  for(const kind of [0xc0010001,0xc0010002]){
-  v.setUint32(0x510,kind,true);v.setUint32(0x518,1,true);r=prepare(old,note);r.space.close();
-  for(const value of [2,0x80000001]){v.setUint32(0x518,value,true);assert.throws(()=>prepare(old,note),I.ImageUnsupported);}
+  v.setUint32(0x510,kind,true);
+  for(const value of kind===0xc0010001?[0,1,0xb,0x3ff]:[0,1,2,15]){v.setUint32(0x518,value,true);r=prepare(old,note);r.space.close();}
+  for(const value of [kind===0xc0010001?0x400:16,0x80000001]){v.setUint32(0x518,value,true);assert.throws(()=>prepare(old,note),I.ImageUnsupported);}
  }
  v.setUint32(0x510,0xc0008001,true);v.setUint32(0x518,1,true);assert.throws(()=>prepare(old,note),I.ImageUnsupported); // USED never admits NEEDED.
  // Insert PHDR before INTERP/LOAD; its file range must describe all eight entries.

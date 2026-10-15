@@ -14,11 +14,16 @@ combined load pages plus the 256 KiB stack are limited to 32 MiB of guest backin
 Load pages must be distinct, readable and R/RX/RW. Executable stacks, unknown
 segments, noncanonical interpreter paths, nested interpreters, overlapping
 images and unsupported GNU properties fail before guest execution.
-The prepared launcher's `GNU_PROPERTY_X86_FEATURE_2_USED` scalar-X86 marker
-(`0xc0010001`, value `1`) is recognized, as is baseline `ISA_1_USED` metadata.
-Other feature bits and unknown required properties remain refused. These
-constants follow the [LLVM ELF definitions](https://github.com/llvm/llvm-project/blob/main/llvm/include/llvm/BinaryFormat/ELF.h);
-recognizing them does not broaden the sparse instruction emitter or CPU features.
+The prepared Wine/musl inputs include `GNU_PROPERTY_X86_FEATURE_2_USED`
+(`0xc0010001`) values `1` and `0xb` (X86/X87/XMM usage). Defined optional
+`FEATURE_2_USED` and `ISA_1_USED` bits are recognized; these usage descriptions
+do not require enabling those CPU features. Unknown bits and unsupported
+`NEEDED` requirements remain refused. Constants follow the
+[LLVM ELF definitions](https://github.com/llvm/llvm-project/blob/main/llvm/include/llvm/BinaryFormat/ELF.h).
+The usage/requirement distinction follows section 5.2.1 of the
+[AMD64 ABI](https://raw.githubusercontent.com/wiki/hjl-tools/x86-psabi/x86-64-psABI-draft.pdf).
+Recognition does not broaden the native emitter: SIMD, x87 and other uncovered
+instructions still stop through ordinary typed instruction admission.
 
 The loader supports `ET_EXEC` at its linked addresses and `ET_DYN` with a fixed
 high load bias. The interpreter is `ET_DYN` at a separate high bias. These
