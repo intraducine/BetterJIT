@@ -28,8 +28,12 @@ COMPONENTS = {
 
 def canonical(value): return json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
 def digest(value): return hashlib.sha256(canonical(value)).hexdigest()
+def stream_sha(handle):
+    result = hashlib.sha256()
+    for chunk in iter(lambda: handle.read(1024*1024), b''): result.update(chunk)
+    return result.hexdigest()
 def sha(path):
-    with path.open('rb') as handle: return hashlib.file_digest(handle, 'sha256').hexdigest()
+    with path.open('rb') as handle: return stream_sha(handle)
 def command(*args): return subprocess.check_output(args, text=True).strip()
 def constant(path, name):
     for node in ast.parse(path.read_text()).body:
@@ -101,9 +105,11 @@ def required_outputs(root, component, expected):
         for name in ('Package.swift', 'COPYING', 'Headers/translator.h', 'Headers/module.modulemap', 'libCFEXWasm.a'):
             if not (root/name).is_file() or not (root/name).stat().st_size: raise ValueError('Incomplete native package')
         info = plistlib.loads((root/'CFEXWasm.xcframework/Info.plist').read_bytes())
+        if not isinstance(info, dict): raise ValueError('Invalid native package metadata')
         libraries = info.get('AvailableLibraries', [])
-        if len(libraries) != 1: raise ValueError('Unexpected native slices')
+        if not isinstance(libraries, list) or len(libraries) != 1: raise ValueError('Unexpected native slices')
         lib = libraries[0]
+        if not isinstance(lib, dict): raise ValueError('Invalid native slice metadata')
         if lib.get('SupportedPlatform') != 'ios' or lib.get('SupportedArchitectures') != ['arm64'] or lib.get('SupportedPlatformVariant'):
             raise ValueError('Wrong native platform')
         identifier, library = lib['LibraryIdentifier'], lib['LibraryPath']
@@ -144,7 +150,7 @@ def required_outputs(root, component, expected):
             elif member.name in large:
                 if not member.isfile() or not member.size: raise ValueError('Missing Wine source/binary')
                 with archive.extractfile(member) as handle:
-                    hashes[member.name] = hashlib.file_digest(handle, 'sha256').hexdigest()
+                    hashes[member.name] = stream_sha(handle)
             elif member.name in required_prefix and member.isfile() and member.size:
                 present_prefix.add(member.name)
     def read(name):
