@@ -3,6 +3,7 @@
 #include "translator.h"
 
 #include "backend.h"
+#include "broker_step.h"
 #include "fexhost.h"
 
 #include <FEXCore/Core/CoreState.h>
@@ -215,16 +216,18 @@ fexwasm_translator* fexwasm_create(const uint8_t* Image, size_t Size, uint64_t B
     }
   }
   auto Get = [&](const char* K, const char* Def) { return Opt.count(K) ? Opt[K] : std::string(Def); };
-  // Broker execution is not connected yet. Never silently fall back to direct
-  // guest accesses when a caller explicitly asks for another memory contract.
-  if (Get("guestmem", "direct") != "direct") return nullptr;
+  const auto GuestMemory = Get("guestmem", "direct");
+  if (GuestMemory != "direct" && GuestMemory != "broker1") return nullptr;
+  T->Cfg.BrokerMemory = GuestMemory == "broker1";
+  if (T->Cfg.BrokerMemory && (Get("linux", "0") != "1" || Get("shared", "1") != "1" ||
+      Get("tb", "10000") != "10000" || !Get("cache", "").empty())) return nullptr;
   const auto MaxInst = Get("maxinst", "0");
   if (MaxInst != "0" && MaxInst != "1") return nullptr;
-  T->SingleInstruction = MaxInst == "1";
+  T->SingleInstruction = T->Cfg.BrokerMemory || MaxInst == "1";
   auto& Cfg = T->Cfg;
   T->Linux = Get("linux", "0") == "1";
   if (T->Linux) {
-    Opt.emplace("tb", "0");
+    Opt.emplace("tb", T->Cfg.BrokerMemory ? "10000" : "0");
     Opt.emplace("shared", "1");
     // Wine mixes SysV (unix side), Win64 (PE side) and hand-written calling
     // conventions (the syscall thunks pass the first argument in R10), so no
@@ -275,8 +278,8 @@ fexwasm_translator* fexwasm_create(const uint8_t* Image, size_t Size, uint64_t B
 
   Cfg.CtxAddr = CTX;
   Cfg.NZCVAddr = CTX + offsetof(CPUState, flags) + FEXCore::X86State::RFLAG_NZCV_LOC;
-  Cfg.MemPages = T->Linux ? 1 : MEM_PAGES;
-  Cfg.MemMaxPages = T->Linux ? 65536 : 0;
+  Cfg.MemPages = Cfg.BrokerMemory ? fexwasm::broker::Pages : T->Linux ? 1 : MEM_PAGES;
+  Cfg.MemMaxPages = Cfg.BrokerMemory ? fexwasm::broker::Pages : T->Linux ? 65536 : 0;
   Cfg.SyscallFullState = T->Linux;
   Cfg.FlagSpillAddr = 0x40;
   Cfg.NamedConstants = FH->NamedConstants();
@@ -288,7 +291,7 @@ fexwasm_translator* fexwasm_create(const uint8_t* Image, size_t Size, uint64_t B
   T->BaseLocalFlags = Cfg.ABILocalFlags;
   Cfg.SlotTagBase = 0x14'0000;
   Cfg.SlotTagCount = 0x1'0000;
-  Cfg.Relocs = T->Linux; // (processes share translations of the libraries they map at different addresses)
+  Cfg.Relocs = T->Linux && !Cfg.BrokerMemory; // broker steps retain literal u64 PCs; no legacy window relocation
   Cfg.UnitCounterBase = 0x18'0000;
   Cfg.UnitCounterBits = 14;
   Cfg.CPUIDAddr = CPUID_ADDR;
@@ -350,7 +353,7 @@ fexwasm_translator* fexwasm_create(const uint8_t* Image, size_t Size, uint64_t B
       return V;
     };
   }
-  T->Dispatcher = fexwasm::BuildDispatcher(Cfg, T->CPUID);
+  if (!Cfg.BrokerMemory) T->Dispatcher = fexwasm::BuildDispatcher(Cfg, T->CPUID);
   return T.release();
 }
 
@@ -399,19 +402,23 @@ const char* fexwasm_config_json(fexwasm_translator* T) {
            "\"tso\":%u,\"callSiteBase\":%u,\"callSiteBits\":%u,\"linux\":%s,\"memMaxPages\":%u,\"cpuidAddr\":%u,\"cpuidCount\":%u,"
            "\"flagSpillAddr\":%u,\"stopAddr\":%u,\"depthAddr\":%u,\"faultAddr\":%u,\"missAddr\":%u,\"profAddr\":%u,\"xmmOff\":%zu,\"ripOff\":%zu,"
            "\"fsOff\":%zu,\"gsOff\":%zu,\"mxcsrOff\":%zu,\"nzcvAddr\":%u,\"memoryTraceAddr\":%u,\"memoryTraceVersion\":2,"
-           "\"guestMemory\":\"direct\",\"maxInstructions\":%u,\"debugGuestInstructions\":%s,"
+           "\"guestMemory\":\"%s\",\"maxInstructions\":%u,\"debugGuestInstructions\":%s,"
            "\"regArgs\":%u,\"callsViaDispatcher\":%s,"
            "\"checkpoint\":{\"version\":1,\"cpu\":{\"offset\":%u,\"size\":%zu,\"ripOffset\":%zu},"
-           "\"lazyFlags\":{\"offset\":%u,\"size\":24},\"roundMode\":{\"offset\":%u,\"size\":4}}}",
+           "\"lazyFlags\":{\"offset\":%u,\"size\":24},\"roundMode\":{\"offset\":%u,\"size\":4}},"
+           "\"memoryABI\":%u,\"stepABI\":%u,\"coverageVersion\":%u,\"stepHeaderBytes\":80,\"buildID\":\"%s\"}",
            Cfg.MemPages, CTX, sizeof(CPUState), T->ImageLow, STACK_TOP, HALT, uint32_t(T->Window >> 32), offsetof(CPUState, gregs),
            Cfg.DispatchBase, Cfg.DispatchBits, Cfg.HotAddr, Cfg.HotThreshold, Cfg.SlotTagBase, Cfg.SlotTagCount, Cfg.UnitCounterBase,
            Cfg.UnitCounterBits, Cfg.ThreadBaseGlobal ? int(T->ThreadBase) : -1, Cfg.SharedMemory ? "true" : "false", T->Abi.c_str(),
            Cfg.TSOMode, Cfg.CallSiteBase, Cfg.CallSiteBits, T->Linux ? "true" : "false", Cfg.MemMaxPages, Cfg.CPUIDAddr,
            Cfg.CPUIDCount, Cfg.FlagSpillAddr, Cfg.StopAddr, Cfg.DepthAddr, Cfg.FaultAddr, Cfg.MissAddr, Cfg.ProfAddr, offsetof(CPUState, xmm),
            offsetof(CPUState, rip), offsetof(CPUState, fs_cached), offsetof(CPUState, gs_cached), offsetof(CPUState, mxcsr),
-           Cfg.NZCVAddr, Cfg.MemoryTraceAddr, T->SingleInstruction ? 1u : 0u, T->DebugGuestInstructions ? "true" : "false",
+           Cfg.NZCVAddr, Cfg.MemoryTraceAddr, Cfg.BrokerMemory ? "broker1" : "direct",
+           T->SingleInstruction ? 1u : 0u, T->DebugGuestInstructions ? "true" : "false",
            Cfg.RegArgs, Cfg.CallsViaDispatcher ? "true" : "false",
-           Cfg.CtxAddr, sizeof(CPUState), offsetof(CPUState, rip), Cfg.FlagSpillAddr, Cfg.RoundModeAddr);
+           Cfg.CtxAddr, sizeof(CPUState), offsetof(CPUState, rip), Cfg.FlagSpillAddr, Cfg.RoundModeAddr,
+           Cfg.BrokerMemory ? fexwasm::broker::MemoryABI : 0, Cfg.BrokerMemory ? fexwasm::broker::StepABI : 0,
+           Cfg.BrokerMemory ? fexwasm::broker::Coverage : 0, FEXWASM_BUILD_ID);
   T->Json = B;
   return T->Json.c_str();
 }
@@ -427,6 +434,7 @@ fexwasm_bytes fexwasm_state(fexwasm_translator* T) {
 }
 
 fexwasm_bytes fexwasm_unit(fexwasm_translator* T, uint32_t Rip32) {
+  if (T->Cfg.BrokerMemory) { T->Out.clear(); return T->Give(T->Out); }
   const uint64_t RIP = T->Window | Rip32;
   T->Out.clear();
   const auto* Home = T->Host->MappingAt(RIP);
@@ -539,6 +547,49 @@ fexwasm_bytes fexwasm_unit(fexwasm_translator* T, uint32_t Rip32) {
     F.write(Rec.data(), std::streamsize(Rec.size()));
   }
   return Emit(*U, 0);
+}
+
+fexwasm_bytes fexwasm_step(fexwasm_translator* T, uint64_t RIP) {
+  using namespace fexwasm::broker;
+  T->Out.assign(HeaderBytes, 0);
+  auto U32 = [&](uint32_t At, uint32_t V) { memcpy(T->Out.data() + At, &V, 4); };
+  auto U64 = [&](uint32_t At, uint64_t V) { memcpy(T->Out.data() + At, &V, 8); };
+  U32(0, StepMagic); U32(4, MemoryABI); U32(8, CheckpointABI); U32(12, StepABI); U32(16, Coverage);
+  U32(20, 2); U64(32, RIP); U64(40, RIP);
+  auto Reject = [&](const char* Why) {
+    T->Stats.Failed++;
+    fprintf(stderr, "fexwasm: broker step rejected at %#llx: %s\n", (unsigned long long)RIP, Why);
+    return T->Give(T->Out);
+  };
+  if (!T->Cfg.BrokerMemory) return Reject("profile");
+  const auto* Home = T->Host->MappingAt(RIP);
+  if (!Home) return Reject("unmapped code");
+  const uint64_t Available = Home->Size - (RIP - Home->Base);
+  const auto* Code = T->Host->GuestCode(RIP);
+  const auto Plan = Admit(Code, size_t(std::min<uint64_t>(Available, 15)));
+  if (!Plan.Supported) return Reject("instruction admission");
+  T->UseAbi(Home->Abi);
+  uint64_t Instructions = 0;
+  const double BeforeIR = NowMs();
+  const auto* IR = T->Host->GenerateIR(RIP, &Instructions);
+  T->Stats.FexMs += NowMs() - BeforeIR;
+  const uint32_t Length = T->Host->InstructionLength(RIP);
+  if (!IR || Instructions != 1 || !Length || Length > 15 || Length > Available || RIP > UINT64_MAX - Length) {
+    T->Host->Release(); return Reject("single-instruction decode");
+  }
+  auto Cfg = T->Cfg;
+  Cfg.BrokerOperation = Plan.Operation; Cfg.BrokerWidth = Plan.Width; Cfg.BrokerNextRIP = RIP + Length;
+  const double BeforeEmit = NowMs();
+  auto R = fexwasm::Compile(*IR, RIP, Cfg);
+  T->Stats.UnitMs += NowMs() - BeforeEmit;
+  T->Host->Release();
+  if (!R.Error.empty()) return Reject(R.Error.c_str());
+  U32(20, 0); U32(24, Plan.Operation); U32(28, Plan.Width); U64(40, RIP + Length);
+  U64(48, XXH3_64bits(R.Module.data(), R.Module.size())); U32(56, uint32_t(R.Module.size())); U32(60, Length);
+  memcpy(T->Out.data() + 64, Code, Length);
+  T->Out.insert(T->Out.end(), R.Module.begin(), R.Module.end());
+  T->Stats.Units++; T->Stats.GuestInsts++; T->Stats.UnitBytes += R.Module.size();
+  return T->Give(T->Out);
 }
 
 fexwasm_bytes fexwasm_region(fexwasm_translator* T, const uint8_t* Req, size_t Size) {

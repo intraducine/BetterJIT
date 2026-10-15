@@ -19,7 +19,7 @@ async function serve(options,run) {
    try {if((await get('/xlat/totals')).ok){ready=true;break;}}catch{}
    await pause(25);
   }
-  assert.ok(ready,'Native server starts within 5 seconds');return await run(get);
+  assert.ok(ready,'Native server starts within 5 seconds');return await run(get,()=>log);
  } finally {
   if(child.exitCode===null)child.kill();
   const killTimer=setTimeout(()=>child.kill('SIGKILL'),1000);killTimer.unref();
@@ -28,7 +28,7 @@ async function serve(options,run) {
 }
 async function main() {
  const records=[];
- for(const options of ['guestmem=broker1','guestmem=typo','maxinst=2'])await serve(options,async get=>{
+ for(const options of ['guestmem=broker1 shared=0','guestmem=typo','maxinst=2'])await serve(options,async get=>{
   assert.equal((await get('/xlat/config?space=0')).status,404);
   assert.deepEqual(await (await get('/xlat/totals')).json(),{});
   assert.equal((await get('/xlat/config?space=0')).status,404);
@@ -76,4 +76,5 @@ async function main() {
  const result={evidence:'Fresh native FEX IR and generated Wasm on host; diagnostic direct memory only, not sparse execution or device evidence.',records};
  if(output)fs.writeFileSync(output,JSON.stringify(result,null,2)+'\n');console.log(JSON.stringify(result));
 }
-main().catch(error=>{console.error(error);process.exitCode=1;});
+module.exports={serve};
+if(require.main===module)main().catch(error=>{console.error(error);process.exitCode=1;});

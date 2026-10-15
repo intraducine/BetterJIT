@@ -1,13 +1,14 @@
-# Experimental broker foundation: B1
+# Experimental broker contract
 
-B1 provides an executable memory request contract, checkpoint storage and a
-native single-instruction diagnostic. It does not connect guest memory accesses
-to the translator or the Linux kernel. The default runtime does not load
+B1 introduced the memory request contract, checkpoint storage and native
+single-instruction diagnostic. [B2 scalar execution](sparse-execution.md) connects
+that contract to admitted FEX instructions and a dedicated kernel/worker route.
+The default runtime does not load
 `guest_memory.js` or `guest_memory_broker.js`.
 
-Requesting `guestmem=broker1` explicitly fails translator creation. Only
-`guestmem=direct` is supported there. This prevents an experimental caller from
-silently executing the direct guest-memory path under a different name.
+`guestmem=broker1` now selects the bounded experimental step profile. Its legacy
+unit/dispatcher APIs return no code; callers must use `fexwasm_step`. Unsupported
+profiles/instructions fail explicitly and never select direct guest access.
 
 ## Address and ownership domains
 
@@ -34,9 +35,9 @@ operations or deferred replies are implemented yet.
 
 ## ABI 1
 
-The constants identify memory ABI 1, checkpoint format 1, future step ABI 1 and
-coverage revision 1. Reserved request numbers are MEMORY_REQUEST=0x10003 and
-INSTRUCTION_BOUNDARY=0x10004. These numbers are not routed in the kernel yet.
+The constants identify memory ABI 1, checkpoint format 1, step ABI 1 and
+coverage revision 1. Dedicated request numbers are MEMORY_REQUEST=0x10003 and
+INSTRUCTION_BOUNDARY=0x10004. The kernel routes them before syscall processing.
 
 Scratch is 128 bytes at thread base + 0x1f0000, physically 0x200000 in this
 one-thread profile. All fields are little-endian. Offsets are exported in
@@ -61,7 +62,7 @@ one-thread profile. All fields are little-endian. Offsets are exported in
 | 80 | u64 | Result 1, reserved |
 | 88 | u64 | Fault VA |
 | 96 | u64 | Validated checkpoint RIP |
-| 104 | u64 | Next RIP, reserved for execution integration |
+| 104 | u64 | Full next RIP written by a successful step |
 | 112 | u32 | Completed sequence, published after response fields |
 | 116 | u32 | Boundary control, reserved for execution integration |
 | 120 | u64 | Registered thread lease |
@@ -79,7 +80,7 @@ poison the registration and throw an invariant error. Atomic operation numbers
 are reserved but return UNSUPPORTED. They are not implemented atomics.
 
 There are no syscall, signal-delivery, redirect or scheduling callbacks in this
-dispatch. A future mailbox integration must publish S_DONE only after dispatch
+dispatch. The mailbox integration publishes S_DONE only after dispatch
 returns, with the existing atomic transport ordering. Do not route memory RPC
 through `kcall`, `Kernel.request`, `attempt` or `syncShared`.
 
@@ -104,8 +105,9 @@ admitted instruction, an unsupported exit after a memory effect, or an invalid
 step transition is a fatal compiler/runtime invariant failure. It is never
 reported as a successfully rolled-back instruction.
 
-The emitter must classify the complete instruction before executing any effect.
-This admission classifier is not implemented in B1. Scalar IR node counts alone
+The emitter classifies the complete instruction before executing any effect.
+B2 admits a narrow MOV/NOP family and validates a complete IR allowlist and
+effect counts before emission. Scalar IR node counts alone
 are insufficient: CALL/PUSH, paired accesses and restart-sensitive instructions
 can have other effects. Unclassified accesses, SIMD/masked/gather operations,
 bulk REP/copy/fill, atomics and mutable executable aliases must remain explicit
@@ -123,11 +125,10 @@ retains markers without memtrace. Default options preserve their behavior.
 
 This diagnostic still imports direct guest memory with the legacy declared
 maximum and returns the legacy i32 RIP. It is not the broker execution profile,
-full opcode admission or a new step ABI. Broker execution must declare and
-allocate the small internal maximum in both producer and consumer, move
-`allocTb` outside guest VMAs, retain full u64 PCs, emit typed step exits and
-connect dedicated kernel/worker routes before it can be enabled. Native copied
-code vectors remain keyed by full guest addresses.
+full opcode admission or a new step ABI. The distinct `broker1` profile now
+declares and allocates the small internal maximum, bypasses legacy `allocTb`,
+retains full u64 PCs, emits typed step exits and uses dedicated kernel/worker
+routes. Native copied code vectors remain keyed by full guest addresses.
 
 Run actual storage/broker tests with:
 

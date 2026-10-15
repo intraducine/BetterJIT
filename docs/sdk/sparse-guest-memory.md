@@ -8,6 +8,8 @@ public execution configuration are unchanged.
 [B1 broker and native diagnostic](sparse-memory-broker.md) defines the next
 executable contract and its remaining integration gates. The default execution
 path remains unchanged.
+The [B2 scalar execution slice](sparse-execution.md) now connects that contract
+to admitted native FEX instructions in an explicitly selected host fixture.
 
 The module stores real 4 KiB byte pages behind guest virtual mappings. Address
 arguments and returned virtual addresses use BigInt; signed Wasm i64 inputs

@@ -231,6 +231,8 @@ int main(int argc, char** argv) {
         B = fexwasm_state(T);
       } else if (Route == "/xlat/unit") {
         B = fexwasm_unit(T, uint32_t(strtoul(Param(Path, "rip").c_str(), nullptr, 10)));
+      } else if (Route == "/xlat/step") {
+        B = fexwasm_step(T, strtoull(Param(Path, "rip").c_str(), nullptr, 10));
       } else if (Route == "/xlat/region") {
         static const bool Log = getenv("FEXWASM_LOGREGIONS");
         if (Log && Body.size() >= 8) {

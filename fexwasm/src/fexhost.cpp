@@ -132,6 +132,7 @@ struct OwnedIR {
   std::vector<uint8_t> Data, List;
   std::optional<FEXCore::IR::IRListView> View;
   uint64_t GuestInstructions = 0;
+  uint32_t InstructionLength = 0;
   std::vector<FexHost::CodeDep> Deps; // the code it was decoded from
   std::vector<std::pair<uint64_t, uint64_t>> Blocks; // (FEXWASM_COVERAGE: its guest blocks, entry and size)
 };
@@ -402,6 +403,12 @@ const FEXCore::IR::IRListView* FexHost::GenerateIR(uint64_t RIP, uint64_t* Guest
       O->List.assign(L, L + R.IRView->GetListSize());
       O->View.emplace(O->Data.data(), O->List.data(), O->Data.size(), O->List.size());
       O->GuestInstructions = R.TotalInstructions;
+      const auto* Decoded = P->Thread->FrontendDecoder->GetDecodedBlockInfo();
+      if (P->MaxInstructions == 1 && R.TotalInstructions == 1 && Decoded->Blocks.size() == 1) {
+        const auto& Block = Decoded->Blocks.front();
+        if (Block.Entry == RIP && Block.NumInstructions == 1 && Block.DecodedInstructions[0].PC == RIP)
+          O->InstructionLength = Block.DecodedInstructions[0].InstSize;
+      }
       O->Deps = std::move(Mine);
       if (Coverage) {
         for (const auto& Bk : P->Thread->FrontendDecoder->GetDecodedBlockInfo()->Blocks) {
@@ -441,6 +448,11 @@ const FEXCore::IR::IRListView* FexHost::GenerateIR(uint64_t RIP, uint64_t* Guest
 
 const uint8_t* FexHost::NamedConstants() const {
   return reinterpret_cast<const uint8_t*>(&P->Thread->CurrentFrame->Pointers.NamedVectorConstants[0][0]);
+}
+
+uint32_t FexHost::InstructionLength(uint64_t RIP) const {
+  auto It = P->Cache.find(RIP);
+  return It != P->Cache.end() && It->second ? It->second->InstructionLength : 0;
 }
 const uint64_t* FexHost::IndexedConstantPointers() const {
   return P->Thread->CurrentFrame->Pointers.IndexedNamedVectorConstantPointers;

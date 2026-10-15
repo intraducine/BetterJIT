@@ -175,6 +175,13 @@
     "Sources/BetterJITLinux/Resources/linux/guest_memory_broker.js": "Sources/BetterJITLinux/Resources/linux/guest_memory_broker.js",
     "tests/sdk/linux-guest-memory-broker.test.mjs": "tests/sdk/linux-guest-memory-broker.test.mjs",
     "tests/sdk/linux-host/native-step-contract.cjs": "tests/sdk/linux-host/native-step-contract.cjs",
-    "docs/sdk/sparse-memory-broker.md": "docs/sdk/sparse-memory-broker.md"
+    "docs/sdk/sparse-memory-broker.md": "docs/sdk/sparse-memory-broker.md",
+    "docs/sdk/sparse-execution.md": "docs/sdk/sparse-execution.md",
+    "tests/sdk/linux-sparse-routing.test.mjs": "tests/sdk/linux-sparse-routing.test.mjs",
+    "tests/sdk/linux-host/sparse-fixture.cjs": "tests/sdk/linux-host/sparse-fixture.cjs",
+    "tests/sdk/linux-host/sparse-thread.cjs": "tests/sdk/linux-host/sparse-thread.cjs",
+    "tests/sdk/linux-host/sparse-kernel.cjs": "tests/sdk/linux-host/sparse-kernel.cjs",
+    "tests/sdk/linux-host/sparse-live.cjs": "tests/sdk/linux-host/sparse-live.cjs",
+    "tests/sdk/linux-host/sparse-scalars.cjs": "tests/sdk/linux-host/sparse-scalars.cjs"
   }
 }

@@ -54,6 +54,8 @@ public:
   // IR for the unit starting at RIP, generated once and cached (the view stays
   // valid for the host's lifetime), or null if FEX can't translate it.
   const FEXCore::IR::IRListView* GenerateIR(uint64_t RIP, uint64_t* GuestInstructions = nullptr);
+  // Exact decoded size when a single-instruction frontend result was retained.
+  uint32_t InstructionLength(uint64_t RIP) const;
   // With CrossUnitFlags: the unit at RIP was generated and reads no flag
   // before writing it (BackendConfig::FlagsDeadAt).
   bool FlagsDeadAtEntry(uint64_t RIP) const {

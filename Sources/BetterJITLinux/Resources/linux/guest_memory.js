@@ -184,6 +184,12 @@
       for(const p of parts){bytes.set(p.pte.frame.data.subarray(p.offset,p.offset+p.length),off);off+=p.length;}
       return bytes;
     }
+    executableSnapshot(at,length) {
+      const s=spaces.get(this),r=range(s,at,length,'execute'),parts=segments(s,r,'execute',PROT.EXEC);
+      if(s.regions.some(v=>v.start<r.end&&r.start<v.end&&(v.prot&PROT.WRITE))||parts.some(p=>p.pte.kind!=='private'))
+        throw new MemoryFault('unsupported-executable-alias',r.start,r.len,'execute');
+      return this.read(r.start,r.len,{execute:true});
+    }
     write(at,bytes) {
       if(!(bytes instanceof Uint8Array))throw new TypeError('Uint8Array required');
       const s=spaces.get(this),r=range(s,at,bytes.byteLength,'write'),parts=segments(s,r,'write',PROT.WRITE),staged=[];

@@ -44,6 +44,7 @@ function readMemoryTrace(mem, tb, cfg) {
 }
 
 function runThread(env) {
+  if(env.data.cfg.guestMemory==='broker1')return runSparseThread(env);
   const { pid, tid, tb, mem, space, slot, ksab, cfg, dispatcher, xlat, bootEpoch } = env.data;
     const post = env.post;
   const SLOT_BASE = 256, SLOT_SIZE = 128;
@@ -553,6 +554,81 @@ function runThread(env) {
 
 // A unit from the translator (linux mode): u32 slot, u64 module hash, i64
 // displacement, u32 n, n u32 inline cache slots, the module.
+function parseBrokerStep(bytes) {
+  const B=G.BetterJITGuestMemoryBroker;
+  if(!B||!(bytes instanceof Uint8Array)||bytes.length<80)throw new Error('Broker step header required');
+  const v=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
+  if(v.getUint32(0,true)!==0x31534a42||v.getUint32(4,true)!==B.ABI.version||
+     v.getUint32(8,true)!==B.ABI.checkpointVersion||v.getUint32(12,true)!==B.ABI.stepVersion||
+     v.getUint32(16,true)!==B.ABI.coverageVersion)throw new Error('Incompatible broker step ABI');
+  const status=v.getUint32(20,true),operation=v.getUint32(24,true),width=v.getUint32(28,true),
+    rip=v.getBigUint64(32,true),nextRip=v.getBigUint64(40,true),size=v.getUint32(56,true),length=v.getUint32(60,true);
+  if(bytes.length!==80+size||![0,2].includes(status)||
+     (status===2&&(size||length))||(status===0&&(!size||length<1||length>15||nextRip!==rip+BigInt(length)||
+       !((operation===0&&width===0)||([1,2].includes(operation)&&[1,2,4,8].includes(width))))))
+    throw new Error('Invalid broker step metadata');
+  return {status,operation,width,rip,nextRip,length,hash:v.getBigUint64(48,true),
+    instruction:bytes.slice(64,64+length),code:bytes.slice(80)};
+}
+
+async function runSparseThread(env) {
+  const B=G.BetterJITGuestMemoryBroker,d=env.data,cfg=d.cfg;
+  if(!B||cfg.memoryABI!==B.ABI.version||cfg.stepABI!==B.ABI.stepVersion||cfg.coverageVersion!==B.ABI.coverageVersion||
+     cfg.memPages!==B.ABI.internalPages||cfg.memMaxPages!==B.ABI.internalPages||d.tb!==B.ABI.threadBase||
+     d.mem.buffer.byteLength!==B.ABI.internalPages*65536||typeof d.lease!=='bigint'||!env.stepBroker)
+    throw new Error('Incompatible sparse worker configuration');
+  const maximum=d.maximumSteps??10000;
+  if(!Number.isSafeInteger(maximum)||maximum<1||maximum>1000000)throw new Error('Invalid sparse step limit');
+  const k32=new Int32Array(d.ksab),k64=new BigInt64Array(d.ksab),base=(256+d.slot*128)>>2,b64=base>>1;
+  const scratch=new DataView(d.mem.buffer,d.tb+B.ABI.scratchOffset,B.ABI.scratchBytes),view=new DataView(d.mem.buffer);
+  const ripAt=d.tb+cfg.ctx+cfg.ripOff;
+  let memorySequence=0,boundarySequence=0,executed=0,status=0;
+  function exchange(nr,sequence,phase=0,stepStatus=0) {
+    if(!Number.isInteger(sequence)||sequence<1||sequence>0xffffffff)throw new Error('Sparse transport sequence exhausted');
+    if(Atomics.load(k32,base)!==0)throw new Error('Sparse mailbox is already occupied');
+    k64[b64+1]=BigInt(nr);k64[b64+2]=BigInt.asIntN(64,d.lease);k64[b64+3]=BigInt(sequence);
+    k64[b64+4]=BigInt(phase);k64[b64+5]=BigInt(stepStatus);k32[base+1]=0;
+    Atomics.store(k32,base,1);Atomics.add(k32,0,1);Atomics.notify(k32,0);
+    const deadline=performance.now()+(d.requestTimeoutMs??30000);
+    while(Atomics.load(k32,base)!==2) {
+      const seen=Atomics.load(k32,base);if(seen===2)break;
+      Atomics.wait(k32,base,seen,Math.max(1,Math.min(100,deadline-performance.now())));
+      if(performance.now()>=deadline&&Atomics.load(k32,base)!==2)throw new Error('Sparse mailbox deadline exceeded');
+    }
+    const flags=k32[base+1],result=k64[b64+8];Atomics.store(k32,base,0);
+    if(flags!==0)throw new Error('Sparse memory/boundary transport cannot redirect or deliver signals');
+    return Number(result);
+  }
+  function memory() {
+    scratch.setUint32(B.FIELD.sequence,++memorySequence,true);scratch.setBigUint64(B.FIELD.lease,d.lease,true);
+    const result=exchange(B.ABI.memoryRequest,memorySequence);
+    if(![0,1,2].includes(result)||scratch.getUint32(B.FIELD.completedSequence,true)!==memorySequence||
+       scratch.getUint32(B.FIELD.status,true)!==result)throw new Error('Invalid typed memory completion');
+    return result;
+  }
+  for(;executed<maximum;) {
+    const rip=view.getBigUint64(ripAt,true);
+    if(d.stopRip!==undefined&&rip===d.stopRip)break;
+    const unit=await env.stepBroker(d.space,rip);
+    if(!unit||unit.status===B.STEP.UNSUPPORTED){status=B.STEP.UNSUPPORTED;break;}
+    if(unit.status!==0||unit.rip!==rip||!(unit.module instanceof WebAssembly.Module))throw new Error('Wrong broker step unit');
+    const imports=WebAssembly.Module.imports(unit.module);
+    if(imports.some(i=>i.module!=='e'||!['mem','tb','memory'].includes(i.name)))throw new Error('Uncovered broker module import');
+    const instance=await WebAssembly.instantiate(unit.module,{e:{mem:d.mem,tb:new WebAssembly.Global({value:'i32'},d.tb),memory}});
+    exchange(B.ABI.instructionBoundary,++boundarySequence,1);
+    status=instance.exports.run();executed++;
+    if(![0,1,2].includes(status))throw new Error('Invalid typed step exit');
+    exchange(B.ABI.instructionBoundary,++boundarySequence,2,status);
+    env.onStep?.({status,rip:view.getBigUint64(ripAt,true),executed});
+    if(status!==B.STEP.OK)break;
+  }
+  if(executed===maximum&&status===0&&view.getBigUint64(ripAt,true)!==d.stopRip)
+    throw new Error('Sparse instruction limit exceeded');
+  exchange(B.ABI.instructionBoundary,++boundarySequence,3,status);
+  return {status,executed,memoryRequests:memorySequence,rip:view.getBigUint64(ripAt,true),
+    internalBytes:d.mem.buffer.byteLength};
+}
+
 function parseUnit(b) {
   if (b.length < 24) return null;
   const dv = new DataView(b.buffer, b.byteOffset, b.length);
@@ -626,5 +702,5 @@ function UnitCache(xlat, fetchImpl, epochBytes = 0) {
   }
   return { get, module, stats, epoch, close };
 }
-G.FexLinuxThread = { UnitCache, runThread, readMemoryTrace };
+G.FexLinuxThread = { UnitCache, runThread, readMemoryTrace, parseBrokerStep, runSparseThread };
 })(typeof globalThis !== 'undefined' ? globalThis : self);

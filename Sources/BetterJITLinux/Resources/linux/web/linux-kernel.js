@@ -1103,17 +1103,7 @@ class Kernel {
     const k32 = this.k32;
     for (;;) {
       const seen = Atomics.load(k32, 0);
-      let did = false;
-      for (let i = 0; i < MAX_SLOTS; i++) {
-        const t = this.slots[i];
-        if (!t) continue;
-        const base = (SLOT_BASE + i * SLOT_SIZE) >> 2;
-        if (Atomics.load(k32, base) === S_REQ) {
-          Atomics.store(k32, base, S_BUSY);
-          this.request(t);
-          did = true;
-        }
-      }
+      let did = this.serviceRequests();
       this.checkInput();
       // parked syscalls whose wait may be over
       while (this.runnable.length || this.pollDirty) {
@@ -1159,6 +1149,115 @@ class Kernel {
       Atomics.wait(k32, 0, seen, next === Infinity ? 1000 : Math.max(0, next - now));
       this.stats.idleMs += performance.now() - w0;
     }
+  }
+
+  serviceRequests() {
+    let did = false;
+    for(let i=0;i<MAX_SLOTS;i++) {
+      const t=this.slots[i];if(!t)continue;
+      const base=(SLOT_BASE+i*SLOT_SIZE)>>2;
+      if(Atomics.compareExchange(this.k32,base,S_REQ,S_BUSY)!==S_REQ)continue;
+      // Before syscall counters, freeze hooks, syncShared, attempt or signals.
+      if(t.sparse) this.sparseRequest(t);
+      else this.request(t);
+      did=true;
+    }
+    return did;
+  }
+
+  // Experimental fixture entry: one actual kernel Process/Thread and one
+  // bounded internal memory per independent guest address space. No ELF boot,
+  // fork syscall or legacy Mm/thread-block allocator is implied by this API.
+  createSparseProcess({space,entryRip,plans,parentPid=0}) {
+    const B=globalThis.BetterJITGuestMemoryBroker;
+    if(this.cfg.guestMemory!=='broker1'||!B||this.cfg.memoryABI!==B.ABI.version||this.cfg.stepABI!==B.ABI.stepVersion||
+       this.cfg.coverageVersion!==B.ABI.coverageVersion||this.cfg.memPages!==B.ABI.internalPages||
+       this.cfg.memMaxPages!==B.ABI.internalPages||this.cfg.threadBase!==B.ABI.threadBase||
+       this.cfg.regArgs!==0||this.cfg.callsViaDispatcher!==false||this.cfg.maxInstructions!==1||this.cfg.shared!==true||
+       this.cfg.checkpoint?.cpu?.offset!==this.cfg.ctx||this.cfg.checkpoint?.cpu?.size!==this.cfg.stateSize||
+       this.cfg.checkpoint?.cpu?.ripOffset!==this.cfg.ripOff)
+      throw new Error('Incompatible broker step configuration');
+    if(this.freezing)throw new Error('Sparse snapshots are unsupported');
+    if(space.stats().virtualLimit>(1n<<47n))throw new Error('Broker1 requires the low canonical x86 user address window');
+    if([...this.procs.values()].some(p=>p.mm?.guest===space))throw new Error('Sparse process address spaces must be independent');
+    const approved=new Map();
+    for(const p of plans) {
+      if(p.status!==0||typeof p.rip!=='bigint'||p.rip<0n||p.rip>=(1n<<64n)||
+         !Number.isInteger(p.length)||p.length<1||p.length>15||p.nextRip!==p.rip+BigInt(p.length)||
+         !(p.instruction instanceof Uint8Array)||p.instruction.length!==p.length||approved.has(p.rip)||
+         !((p.operation===0&&p.width===0)||([1,2].includes(p.operation)&&[1,2,4,8].includes(p.width))))
+        throw new Error('Invalid admitted instruction metadata');
+      const actual=space.executableSnapshot(p.rip,p.length);
+      if(!actual.every((x,i)=>x===p.instruction[i]))throw new Error('Executable bytes differ from the compiled step');
+      approved.set(p.rip,Object.freeze({...p,instruction:p.instruction.slice()}));
+    }
+    if(!approved.has(entryRip)||!(this.host.state instanceof Uint8Array)||this.host.state.length!==this.cfg.stateSize)
+      throw new Error('Sparse entry/state is unavailable');
+    const memory=B.createInternalMemory(),slot=this.allocSlot(),pid=this.newTid();
+    const proc=new Process(this,pid,parentPid),t=new Thread(proc,pid,slot,B.ABI.threadBase);
+    proc.space=this.nextSpace++;proc.mm={mem:memory,dv:new DataView(memory.buffer),guest:space,sparse:true};
+    const state=new Uint8Array(memory.buffer,t.tb+this.cfg.ctx,this.cfg.stateSize);state.set(this.host.state);
+    proc.mm.dv.setBigUint64(t.tb+this.cfg.ctx+this.cfg.ripOff,entryRip,true);
+    this.sparseBroker??=new B.GuestMemoryBroker();
+    const token=this.sparseBroker.register(slot,{space,memory,checkpointLayout:this.cfg.checkpoint});
+    t.sparse={token,plans:approved,boundarySequence:0,active:null,steps:0,last:null};
+    this.procs.set(pid,proc);this.threads.set(pid,t);this.slots[slot]=t;proc.threads.set(pid,t);
+    this.procs.get(parentPid)?.children.add(pid);
+    new Int32Array(this.ksab,SLOT_BASE+slot*SLOT_SIZE,SLOT_SIZE>>2).fill(0);
+    Atomics.store(this.k32,((SLOT_BASE+slot*SLOT_SIZE)>>2)+W_OCCUPIED,1);
+    return {proc,thread:t,worker:{pid,tid:pid,tb:t.tb,mem:memory,space:proc.space,slot,ksab:this.ksab,
+      lease:token.generation,cfg:this.cfg}};
+  }
+
+  sparseRequest(t) {
+    const B=globalThis.BetterJITGuestMemoryBroker,s=t.sparse;
+    const b64=(SLOT_BASE+t.slot*SLOT_SIZE)>>3,b32=b64*2;
+    const nr=Number(this.k64[b64+1]),lease=BigInt.asUintN(64,this.k64[b64+2]),seq=this.k64[b64+3];
+    const view=t.proc.mm.dv,scratch=t.tb+B.ABI.scratchOffset;
+    // The slot supplies t/space/token. Check the mailbox lease before scratch.
+    if(this.slots[t.slot]!==t||t.dead||lease!==s.token.generation)throw new Error('Stale sparse thread request');
+    let result=0n;
+    if(nr===B.ABI.memoryRequest) {
+      if(seq<1n||seq>0xffffffffn)throw new Error('Invalid memory request sequence');
+      const r=this.sparseBroker.dispatch(s.token,{lease,sequence:Number(seq)});
+      if(!r.accepted)throw new Error('Rejected sparse memory transport: '+r.reason);
+      result=BigInt(r.status);
+    } else if(nr===B.ABI.instructionBoundary) {
+      if(seq!==BigInt(s.boundarySequence)+1n||seq>0xffffffffn)throw new Error('Invalid boundary sequence');
+      s.boundarySequence=Number(seq);
+      const phase=Number(this.k64[b64+4]);
+      if(phase===1) {
+        // Signal frame/snapshot semantics are not implemented for this fixture.
+        // Refuse at this safe boundary; never deliver while Wasm locals live.
+        if(this.freezing||t.pending||t.proc.pending)throw new Error('Sparse signals/snapshots are unsupported');
+        const rip=view.getBigUint64(t.tb+this.cfg.ctx+this.cfg.ripOff,true),plan=s.plans.get(rip);
+        if(!plan)throw new Error('No admitted sparse instruction at '+rip.toString(16));
+        const code=t.proc.mm.guest.executableSnapshot(rip,plan.length);
+        if(!code.every((x,i)=>x===plan.instruction[i]))throw new Error('Sparse executable bytes changed');
+        const generation=this.sparseBroker.beginInstruction(s.token,{rip,operation:plan.operation,width:plan.width});
+        s.active=plan;
+        view.setBigUint64(scratch+B.FIELD.checkpoint,generation,true);
+        view.setBigUint64(scratch+B.FIELD.checkpointRip,rip,true);
+      } else if(phase===2) {
+        if(!s.active)throw new Error('Sparse finish without an instruction');
+        const status=Number(this.k64[b64+5]);
+        s.last=this.sparseBroker.finishInstruction(s.token,{status,nextRip:s.active.nextRip});
+        s.active=null;s.steps++;
+        this.host.sparseStep?.(t,s.last);
+      } else if(phase===3) {
+        if(s.active)throw new Error('Sparse exit during an instruction');
+        const status=Number(this.k64[b64+5]);
+        if(![0,1,2].includes(status))throw new Error('Invalid sparse terminal status');
+        s.terminalStatus=status;t.proc.exitStatus=status;
+        this.sparseBroker.unregister(s.token);t.dead=true;t.proc.zombie=true;
+        // Host worker termination must acknowledge W_OCCUPIED separately.
+        this.host.sparseExit?.(t,s.last);
+      } else throw new Error('Unsupported sparse instruction boundary');
+    } else throw new Error('Unsupported sparse syscall/request '+nr);
+    // Deliberately bypass reply(): it computes pending signals and redirect
+    // flags. This route only completes transport after typed scratch output.
+    this.k64[b64+8]=result;this.k32[b32+1]=0;
+    Atomics.store(this.k32,b32,S_DONE);Atomics.notify(this.k32,b32);
   }
 
   // --- MAP_SHARED file mappings --------------------------------------------------
@@ -1380,6 +1479,7 @@ class Kernel {
 
   // A request from thread t's slot.
   request(t) {
+    if(t.sparse||this.cfg?.guestMemory==='broker1')throw new Error('Sparse requests cannot enter syscall dispatch');
     t.awaiting = true; // exactly one reply per request
     const base = (SLOT_BASE + t.slot * SLOT_SIZE) >> 3;
     const nr = Number(this.k64[base + 1]);
@@ -1588,6 +1688,7 @@ class Kernel {
 
   // Starts a thread's worker. The CPUState at tb must be ready (rip included).
   startThread(proc, tid, tb) {
+    if(this.cfg?.guestMemory==='broker1')throw new Error('Sparse threads require independent internal allocation');
     const slot = this.allocSlot();
     const t = new Thread(proc, tid, slot, tb);
     this.slots[slot] = t;
@@ -1615,6 +1716,7 @@ class Kernel {
     return envp.concat(add);
   }
   boot(argv, envp) {
+    if(this.cfg?.guestMemory==='broker1')throw new Error('Sparse ELF/syscall boot is not implemented');
     // Direct loading is an explicitly requested session policy. Wine clears
     // WINELOADERNOEXEC during initialization, but its later Wine children still
     // need the same policy when exec_wineloader names the native preloader.
@@ -1863,6 +1965,7 @@ class Kernel {
   }
 
   exitThread(t, status) {
+    if(t.sparse)throw new Error('Sparse retirement requires an explicit step boundary');
     if (t.dead) return;
     t.dead = true;
     const proc = t.proc;
@@ -1893,6 +1996,7 @@ class Kernel {
 
   // All threads gone: the process becomes a zombie for its parent.
   exitProcess(proc, status) {
+    if(proc.mm?.sparse)throw new Error('Sparse retirement requires an explicit step boundary');
     if (proc.zombie) return;
     this.syncShared(proc);
     if (this.host.traceExec) this.log(`[${((performance.now() - this.t0) / 1000).toFixed(2)}s] [pid ${proc.pid}] exit ${status} (${(proc.argv[1] || proc.argv[0] || '').slice(0, 60)})`);
@@ -1982,6 +2086,7 @@ class Kernel {
     }
   }
   killProcess(proc, sig) {
+    if(proc.mm?.sparse)return this.signalProcess(proc,sig);
     this.exitProcess(proc, sig & 0x7f);
   }
 
@@ -2007,6 +2112,11 @@ class Kernel {
   }
   signalProcess(proc, sig, info) {
     if (proc.zombie || !sig) return;
+    if(proc.mm?.sparse) {
+      const t=[...proc.threads.values()].find(t=>!t.dead);
+      if(t)this.signalThread(t,sig,info);
+      return;
+    }
     if (this.sigIgnored(proc, sig)) return;
     if (proc.actions[sig].handler === 0n || sig === SIG.KILL) {
       this.log(`[pid ${proc.pid}] killed by signal ${sig}`);
@@ -2020,6 +2130,14 @@ class Kernel {
   }
   signalThread(t, sig, info) {
     const proc = t.proc;
+    if(t.sparse) {
+      if(proc.zombie||t.dead||!sig)return;
+      t.pending|=1n<<BigInt(sig-1);
+      (t.sigInfo||(t.sigInfo=new Map())).set(sig,info||{code:0,pid:0});
+      // No default kill/frame/redirect path while guest Wasm locals may live.
+      // The next explicit BEGIN boundary refuses unsupported signal handling.
+      return;
+    }
     if (proc.zombie || !sig || this.sigIgnored(proc, sig)) return;
     if (proc.actions[sig].handler === 0n || sig === SIG.KILL) {
       this.log(`[pid ${proc.pid}] killed by signal ${sig}`);
@@ -2035,6 +2153,7 @@ class Kernel {
   }
   // Tells t there is a signal: interrupts its syscall, or flags its worker.
   kick(t) {
+    if(t.sparse)return;
     const b32 = (SLOT_BASE + t.slot * SLOT_SIZE) >> 2;
     Atomics.store(this.k32, b32 + W_SIGPEND, 1);
     const fa = Atomics.load(this.k32, b32 + W_FUTEX);
@@ -2050,6 +2169,7 @@ class Kernel {
   // handler. result: the interrupted syscall's result (null: restart it, or
   // for REDIRECTED: the context in CPUState is already where to resume).
   deliver(t, result, restart) {
+    if(t.sparse)throw new Error('Sparse signal frames are unsupported');
     const proc = t.proc, mm = proc.mm, dv = mm.dv, c = this.cpu(t), R = Kernel.R;
     const b32 = (SLOT_BASE + t.slot * SLOT_SIZE) >> 2;
     let sig;
@@ -4409,6 +4529,7 @@ const DISPATCH_AREA = 0x2_0000; // a thread block's dispatcher tables start here
 // Freezes the system: done(null) once every thread is parked, or
 // done(reason) after timeoutMs (the system then thaws again).
 Kernel.prototype.freeze = function (timeoutMs, done) {
+  if([...this.threads.values()].some(t=>t.sparse))return done('Sparse snapshots are unsupported');
   if (this.freezing) return done('already freezing');
   this.freezing = { done, timer: this.addTimer(timeoutMs, () => this.freezeTimedOut()) };
   for (const t of this.threads.values()) this.freezeThread(t);

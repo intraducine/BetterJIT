@@ -14,6 +14,7 @@
 // Op semantics follow FEX's arm64 backend (FEXCore/Source/Interface/Core/JIT),
 // which defines what each IR op means.
 #include "backend.h"
+#include "broker_step.h"
 #include <optional>
 #include "coalesce.h"
 #include "wasm_emit.h"
@@ -222,6 +223,7 @@ enum FuncRef : uint32_t {
   FUNC_FPREM1,
   FUNC_HOT,
   FUNC_SYSCALL,
+  FUNC_MEMORY,
   FUNC_RUN,
   FUNC_NUM
 };
@@ -257,6 +259,7 @@ constexpr FuncInfo Funcs[FUNC_NUM] = {
   {"fprem1", "dd>d"},
   {"hot", "i>"},        // a unit reached its hot threshold: the runtime may build a region
   {"syscall", "IIIIIII>I"}, // (number, 6 arguments) -> result: the guest's syscall instruction
+  {"memory", ">i"},     // broker scratch request -> typed status; never a syscall
   {nullptr, ">i"},      // run
 };
 using CallSiteList = std::vector<std::pair<size_t, uint32_t>>;
@@ -1524,6 +1527,22 @@ private:
 
   void SysBase() {
     B.get(S.SysBase);
+  }
+  void BrokerRequest(uint32_t Operation, uint32_t Width) {
+    const uint32_t At = broker::Scratch;
+    auto Word = [&](uint32_t Offset, uint32_t Value) {
+      SysBase(); B.i32c(int32_t(Value)); B.mem(op::i32_store, 2, At + Offset);
+    };
+    Word(0, 0x314d4a42); Word(4, broker::MemoryABI);
+    Word(16, Operation); Word(20, Width); Word(24, Operation == 1 ? 1 : 2);
+    SysBase(); B.i64c(int64_t(Entry)); B.mem(op::i64_store, 3, At + 40);
+    Call(FUNC_MEMORY);
+    B.set(TC);
+    B.get(TC); B.u8(op::if_); B.u8(0x40);
+    // No epilogue on a fault: the kernel restores the pre-state only after
+    // this typed exit has unwound the instruction's Wasm locals.
+    B.get(TC); Return();
+    B.u8(op::end);
   }
   // Pushes a GPR operand as i64.
   void GPR(OrderedNodeWrapper W) {
@@ -4564,6 +4583,14 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
   case OP_LOADMEM:
   case OP_LOADMEMTSO: {
     auto Op = IROp->C<IROp_LoadMem>();
+    if (Cfg.BrokerMemory) {
+      SysBase(); Address(Op->Addr, Op->Offset, Op->OffsetType, Op->OffsetScale);
+      B.mem(op::i64_store, 3, broker::Scratch + 32);
+      BrokerRequest(1, uint32_t(Size));
+      SysBase(); B.mem(op::i64_load, 3, broker::Scratch + 72);
+      SetNode(Node);
+      break;
+    }
     if (Op->Class == RegClass::FPR) {
       const uint32_t Off = WasmAddress(Op->Addr, Op->Offset, Op->OffsetType, Op->OffsetScale);
       if ((uint32_t(Size) == 4 || uint32_t(Size) == 8) && !Demand.empty()) {
@@ -4607,6 +4634,13 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
   case OP_STOREMEM:
   case OP_STOREMEMTSO: {
     auto Op = IROp->C<IROp_StoreMem>();
+    if (Cfg.BrokerMemory) {
+      SysBase(); Address(Op->Addr, Op->Offset, Op->OffsetType, Op->OffsetScale);
+      B.mem(op::i64_store, 3, broker::Scratch + 32);
+      SysBase(); GPR(Op->Value); B.mem(op::i64_store, 3, broker::Scratch + 56);
+      BrokerRequest(2, uint32_t(Size));
+      break;
+    }
     const bool TSO = IROp->Op == OP_STOREMEMTSO && Cfg.TSOMode;
     if (TSO && Cfg.TSOMode == 3 && Op->Class == RegClass::GPR) {
       // seq-cst atomic store (aligned) or fence + store (misaligned)
@@ -5014,6 +5048,13 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
   }
   case OP_EXITFUNCTION: {
     auto Op = IROp->C<IROp_ExitFunction>();
+    if (Cfg.BrokerMemory) {
+      Epilogue();
+      SysBase(); B.i64c(int64_t(Cfg.BrokerNextRIP)); B.mem(op::i64_store, 3, Cfg.CtxAddr + offsetof(CPUState, rip));
+      SysBase(); B.i64c(int64_t(Cfg.BrokerNextRIP)); B.mem(op::i64_store, 3, broker::Scratch + 104);
+      B.i32c(0); Return();
+      break;
+    }
     if (auto It = InlineAt.find(ID(Node)); It != InlineAt.end()) {
       uint32_t RetIndex;
       CallReturnIndex(Op, &RetIndex);
@@ -8112,7 +8153,7 @@ void Emitter::EmitBlockOps(uint32_t X) {
                               (Ops[J].second->Op == OP_LOADREGISTER && RegAliased.count(ID(Ops[J].first))))) {
       J++;
     }
-    if (!NoStackify && RegSetLocal != UINT32_MAX && RegSetEnd == B.size() && J < Ops.size()) {
+    if (!Cfg.BrokerMemory && !NoStackify && RegSetLocal != UINT32_MAX && RegSetEnd == B.size() && J < Ops.size()) {
       // A register store: tee it for the next op if that reads the register
       // first (verified when it's emitted).
       switch (Ops[J].second->Op) {
@@ -8126,7 +8167,7 @@ void Emitter::EmitBlockOps(uint32_t X) {
         continue;
       }
     }
-    if (NoStackify || LastSetNode != ID(CodeNode) || LastSetEnd != B.size() || CodeNode->GetUses() != 1 || J >= Ops.size()) {
+    if (Cfg.BrokerMemory || NoStackify || LastSetNode != ID(CodeNode) || LastSetEnd != B.size() || CodeNode->GetUses() != 1 || J >= Ops.size()) {
       continue;
     }
     const IROp_Header* Next = Ops[J].second;
@@ -9225,7 +9266,7 @@ void Emitter::ComputeDemand() {
 // Inlined calls keep everything live. In a structured region, a jump to
 // another unit needs what that unit's entry needs (EntryLive, per unit).
 bool Emitter::ComputeLiveness(const std::vector<uint64_t>* EntryLive) {
-  LivenessOK = Structured && InlineLevel == 0 && !ContextTouchesRegs && !ENV_FLAG("FEXWASM_NOLIVENESS");
+  LivenessOK = !Cfg.BrokerMemory && Structured && InlineLevel == 0 && !ContextTouchesRegs && !ENV_FLAG("FEXWASM_NOLIVENESS");
   if (!LivenessOK) {
     return false;
   }
@@ -10264,8 +10305,8 @@ CompileResult Emitter::Finish() {
     // region) instead of an anonymous wasm-function[N].
     static const char* const HelperNames[FUNC_NUM] = {"dispatch", "cycles", "rdrand", "mat", "umulh", "smulh", "div128u", "div128s",
                                                       "pdep", "pext", "cpuid", "f80tof64", "f64tof80", "i64tof80", "sin", "cos", "tan",
-                                                      "atan2", "f2xm1", "fyl2x", "fyl2xp1", "fscale", "fprem", "fprem1", "hot", "syscall", "run"};
-    static_assert(FUNC_NUM == 27, "HelperNames");
+                                                      "atan2", "f2xm1", "fyl2x", "fyl2xp1", "fscale", "fprem", "fprem1", "hot", "syscall", "memory", "run"};
+    static_assert(FUNC_NUM == 28, "HelperNames");
     Buf Names;
     uint32_t Count = 0;
     Buf List;
@@ -10275,7 +10316,8 @@ CompileResult Emitter::Finish() {
       }
       char Name[40];
       if (Fn == FUNC_RUN) {
-        snprintf(Name, sizeof(Name), "%c%x", NumThunks || S.IsRegion ? 'r' : 'u', uint32_t(S.FunctionEntry));
+        if (Cfg.BrokerMemory) snprintf(Name, sizeof(Name), "u%llx", (unsigned long long)S.FunctionEntry);
+        else snprintf(Name, sizeof(Name), "%c%x", NumThunks || S.IsRegion ? 'r' : 'u', uint32_t(S.FunctionEntry));
       } else {
         snprintf(Name, sizeof(Name), "%s", HelperNames[Fn]);
       }
@@ -11026,6 +11068,73 @@ std::vector<uint8_t> BuildDispatcher(const BackendConfig& Cfg, const std::vector
 }
 
 CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConfig& Cfg) {
+  if (Cfg.BrokerMemory) {
+    if (Cfg.RegArgs || Cfg.RegArgMask || Cfg.Relocs || !Cfg.SharedMemory || !Cfg.ThreadBaseGlobal ||
+        Cfg.MemPages != broker::Pages || Cfg.MemMaxPages != broker::Pages || Cfg.CallsViaDispatcher || Cfg.FetchIR ||
+        Cfg.HotThreshold || Cfg.ABILocalFlags || Cfg.ABI != BackendConfig::GuestABI::None || Cfg.FlagsDeadAt) {
+      CompileResult R; R.Error = "invalid broker backend contract"; return R;
+    }
+    // Admission of raw MOV/NOP semantics and this complete IR allowlist both
+    // precede execution. No unknown memory or architectural side-effect path
+    // can reach a legacy direct-access emitter.
+    uint32_t Reads = 0, Writes = 0, Exits = 0, Blocks = 0;
+    auto Reject = [](const IROp_Header* H) {
+      CompileResult R; R.Error = "broker unsupported IR " + std::string(GetName(H->Op)); return R;
+    };
+    for (auto [Block, Header] : IR.GetBlocks()) { Blocks++; for (auto [Node, H] : IR.GetCode(Block)) {
+      switch (H->Op) {
+      case OP_IRHEADER: case OP_CODEBLOCK: case OP_BEGINBLOCK: case OP_ENDBLOCK:
+      case OP_GUESTOPCODE: case OP_INLINECONSTANT: case OP_INLINEENTRYPOINTOFFSET:
+      case OP_CONSTANT: case OP_ENTRYPOINTOFFSET:
+      case OP_ADD: case OP_SUB: case OP_AND: case OP_OR: case OP_XOR:
+      case OP_LSHL: case OP_LSHR: case OP_ASHR: case OP_ADDSHIFT:
+      case OP_BFE: case OP_SBFE: case OP_BFI: case OP_ORLSHL: break;
+      case OP_LOADREGISTER: {
+        auto O = H->C<IROp_LoadRegister>();
+        if (O->Class != RegClass::GPR || O->Reg >= 16) return Reject(H);
+        break;
+      }
+      case OP_STOREREGISTER: {
+        auto R = PhysicalRegister(Node);
+        if (R.AsRegClass() != RegClass::GPRFixed || R.Reg >= 16) return Reject(H);
+        break;
+      }
+      case OP_LOADCONTEXT: {
+        auto O = H->C<IROp_LoadContext>();
+        if (O->Class != RegClass::GPR || uint32_t(H->Size) != 8 ||
+            (O->Offset != offsetof(CPUState, fs_cached) && O->Offset != offsetof(CPUState, gs_cached))) return Reject(H);
+        break;
+      }
+      case OP_LOADMEM: case OP_LOADMEMTSO:
+        if (H->C<IROp_LoadMem>()->Class != RegClass::GPR || Cfg.BrokerOperation != 1 || uint32_t(H->Size) != Cfg.BrokerWidth)
+          return Reject(H);
+        Reads++; break;
+      case OP_STOREMEM: case OP_STOREMEMTSO:
+        if (H->C<IROp_StoreMem>()->Class != RegClass::GPR || Cfg.BrokerOperation != 2 || uint32_t(H->Size) != Cfg.BrokerWidth)
+          return Reject(H);
+        Writes++; break;
+      case OP_EXITFUNCTION: {
+        auto O = H->C<IROp_ExitFunction>();
+        if (O->Hint == BranchHint::Call || O->Hint == BranchHint::Return) return Reject(H);
+        const auto* Target = IR.GetOp<IROp_Header>(O->NewRIP);
+        uint64_t Next;
+        switch (Target->Op) {
+        case OP_INLINEENTRYPOINTOFFSET: Next = EntryRIP + Target->C<IROp_InlineEntrypointOffset>()->Offset; break;
+        case OP_ENTRYPOINTOFFSET: Next = EntryRIP + Target->C<IROp_EntrypointOffset>()->Offset; break;
+        case OP_INLINECONSTANT: Next = Target->C<IROp_InlineConstant>()->Constant; break;
+        case OP_CONSTANT: Next = Target->C<IROp_Constant>()->Constant; break;
+        default: return Reject(H);
+        }
+        if (Next != Cfg.BrokerNextRIP) return Reject(H);
+        Exits++; break;
+      }
+      default: return Reject(H);
+      }
+    }}
+    if (Blocks != 1 || Exits != 1 || Reads != (Cfg.BrokerOperation == 1) || Writes != (Cfg.BrokerOperation == 2)) {
+      CompileResult R; R.Error = "broker instruction effect count mismatch"; return R;
+    }
+  }
   SharedState S;
   S.RelocOn = Cfg.Relocs;
   BackendConfig UCfg = Cfg; // units: most stay cold, so they inline only small callees

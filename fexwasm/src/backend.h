@@ -25,6 +25,11 @@ struct BackendConfig {
   // declared maximum (0: MemPages).
   uint32_t MemPages = 1;
   uint32_t MemMaxPages = 0;
+  // Experimental broker step. Guest accesses never use direct Wasm offsets;
+  // run() returns a typed status and writes the full next RIP to CPUState.
+  bool BrokerMemory = false;
+  uint32_t BrokerOperation = 0, BrokerWidth = 0;
+  uint64_t BrokerNextRIP = 0;
   // FEX's named vector constant pool (NAMED_VECTOR_CONST_POOL_MAX x 16 bytes)
   // and indexed constant tables, as FEX's CPUBackend installs them; folded into
   // v128.const at compile time.
