@@ -202,6 +202,7 @@ jobs:
           node tests/sdk/linux-host/sparse-live.cjs .build/host-fex/fexserve .build/sparse-live-results.json
           node tests/sdk/linux-host/sparse-scalars.cjs .build/host-fex/fexserve .build/sparse-scalar-results.json
           node tests/sdk/linux-host/sparse-sync.cjs .build/host-fex/fexserve .build/sparse-sync-results.json
+          node tests/sdk/linux-host/sparse-clone.cjs .build/host-fex/fexserve .build/sparse-clone-results.json
       - name: Preserve experimental host execution evidence
         if: always() && github.ref == 'refs/heads/experimental/sparse-guest-backing'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -211,6 +212,7 @@ jobs:
             .build/sparse-live-results.json
             .build/sparse-scalar-results.json
             .build/sparse-sync-results.json
+            .build/sparse-clone-results.json
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 14

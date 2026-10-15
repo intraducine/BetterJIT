@@ -1168,6 +1168,7 @@ class Kernel {
       else this.request(t);
       did=true;
     }
+    if(this.sparseClones?.size)did=this.serviceSparseClones()||did;
     return did;
   }
 
@@ -1185,7 +1186,7 @@ class Kernel {
     if(this.procs.get(proc.pid)!==proc||!proc.mm?.sparse||proc.zombie)throw new Error('Live owned sparse process required');
     return this.allocateSparseThread(proc,{entryRip,plans},this.newTid());
   }
-  allocateSparseThread(proc,{entryRip,plans},tid) {
+  allocateSparseThread(proc,{entryRip,plans,publish=true},tid) {
     const B=globalThis.BetterJITGuestMemoryBroker;
     if(this.cfg.guestMemory!=='broker1'||!B||this.cfg.memoryABI!==B.ABI.version||this.cfg.stepABI!==B.ABI.stepVersion||
        this.cfg.coverageVersion!==B.ABI.coverageVersion||this.cfg.memPages!==B.ABI.internalPages||
@@ -1195,7 +1196,7 @@ class Kernel {
        this.cfg.checkpoint?.cpu?.ripOffset!==this.cfg.ripOff)
       throw new Error('Incompatible broker step configuration');
     if(this.freezing)throw new Error('Sparse snapshots are unsupported');
-    if(this.threads.size>=B.ABI.maximumThreads)throw new Error('Sparse internal thread capacity exhausted');
+    if((this.sparseContexts||0)>=B.ABI.maximumThreads)throw new Error('Sparse internal thread capacity exhausted');
     const space=proc.mm.guest;
     if(space.stats().virtualLimit>(1n<<47n))throw new Error('Broker1 requires the low canonical x86 user address window');
     const approved=new Map();
@@ -1213,6 +1214,7 @@ class Kernel {
     if(!approved.has(entryRip)||!(this.host.state instanceof Uint8Array)||this.host.state.length!==this.cfg.stateSize)
       throw new Error('Sparse entry/state is unavailable');
     const memory=B.createInternalMemory(),view=new DataView(memory.buffer),slot=this.allocSlot(),t=new Thread(proc,tid,slot,B.ABI.threadBase);
+    this.sparseContexts=(this.sparseContexts||0)+1;
     const state=new Uint8Array(memory.buffer,t.tb+this.cfg.ctx,this.cfg.stateSize);state.set(this.host.state);
     view.setBigUint64(t.tb+this.cfg.ctx+this.cfg.ripOff,entryRip,true);
     this.sparseBroker??=new B.GuestMemoryBroker();
@@ -1221,7 +1223,7 @@ class Kernel {
     // Compatibility diagnostics may inspect the primary context; sparse paths
     // always use the authenticated thread's own view, never this alias.
     if(!proc.mm.mem){proc.mm.mem=memory;proc.mm.dv=view;}
-    this.threads.set(tid,t);this.slots[slot]=t;proc.threads.set(tid,t);
+    if(publish){this.threads.set(tid,t);this.slots[slot]=t;proc.threads.set(tid,t);}
     new Int32Array(this.ksab,SLOT_BASE+slot*SLOT_SIZE,SLOT_SIZE>>2).fill(0);
     Atomics.store(this.k32,((SLOT_BASE+slot*SLOT_SIZE)>>2)+W_OCCUPIED,1);
     return {proc,thread:t,worker:{pid:proc.pid,tid,tb:t.tb,mem:memory,space:proc.space,slot,ksab:this.ksab,
@@ -1260,23 +1262,25 @@ class Kernel {
       } else if(phase===2) {
         if(!s.active)throw new Error('Sparse finish without an instruction');
         let status=Number(this.k64[b64+5]);
-        if(status===B.STEP.SYSCALL&&!this.sparseFutexSupported(t))status=B.STEP.UNSUPPORTED;
+        const syscallRip=s.active.rip;
+        if(status===B.STEP.SYSCALL&&!this.sparseSyscallSupported(t))status=B.STEP.UNSUPPORTED;
         s.last=this.sparseBroker.finishInstruction(s.token,{status,nextRip:s.active.nextRip});
         s.active=null;s.steps++;
         if(status===B.STEP.SYSCALL) {
           s.syscalls++;
-          const completed=this.sparseFutex(t,lease,seq);
+          const completed=this.sparseSyscall(t,lease,seq,syscallRip);
           if(!completed.parked)this.completeSparseSyscall(t,lease,seq,completed.result);
           return;
         }
         result=BigInt(status);
         this.host.sparseStep?.(t,s.last);
       } else if(phase===3) {
-        if(s.active||s.parked)throw new Error('Sparse exit during an instruction or parked syscall');
+        if(s.active||s.parked||s.clonePending)throw new Error('Sparse exit during an instruction or parked syscall');
         const status=Number(this.k64[b64+5]);
         if(![0,1,2].includes(status))throw new Error('Invalid sparse terminal status');
         s.terminalStatus=status;t.proc.exitStatus=status;
         this.sparseBroker.unregister(s.token);t.dead=true;t.proc.zombie=[...t.proc.threads.values()].every(th=>th.dead);
+        if(t.proc.zombie&&s.guestExitCode!==undefined)t.proc.sparseGuestExit={lastThreadCode:s.guestExitCode};
         // Host worker termination must acknowledge W_OCCUPIED separately.
         this.host.sparseExit?.(t,s.last);
       } else throw new Error('Unsupported sparse instruction boundary');
@@ -1314,7 +1318,7 @@ class Kernel {
     const check=()=>{
       if(this.cfg.guestMemory!=='broker1'||!broker||!space||!s||t.sparse!==s||s.token!==token||
          t.proc!==proc||t.slot!==slot||t.tid!==tid||t.dead||s.retired||
-         this.sparseBroker!==broker||this.threads.get(tid)!==t||this.slots[slot]!==t||proc.mm!==mm||mm?.guest!==space||s.active||s.parked||
+         this.sparseBroker!==broker||this.threads.get(tid)!==t||this.slots[slot]!==t||proc.mm!==mm||mm?.guest!==space||s.active||s.parked||s.clonePending||
          !Atomics.load(this.k32,((SLOT_BASE+slot*SLOT_SIZE)>>2)+W_OCCUPIED))
         throw new Error('Authenticated runnable sparse user-memory owner required');
     };
@@ -1336,6 +1340,96 @@ class Kernel {
     const v=t.sparse.view,g=t.tb+this.cfg.ctx+this.cfg.gregsOff;
     const op=Number(v.getBigUint64(g+6*8,true)&0xffffffffn);
     return v.getBigUint64(g,true)===202n&&[0,1,128,129].includes(op);
+  }
+  sparseSyscallSupported(t) {
+    if(this.sparseFutexSupported(t))return true;
+    const s=t.sparse,v=s.view,g=t.tb+this.cfg.ctx+this.cfg.gregsOff,reg=i=>v.getBigUint64(g+i*8,true),nr=reg(0);
+    if(this.host.sparseLifecycleVersion!==1||typeof this.host.spawnSparseThread!=='function'||
+       typeof this.host.stopSparseThread!=='function'||t.pending||t.proc.pending||
+       this.threads.get(t.tid)!==t||this.procs.get(t.proc.pid)!==t.proc||t.proc.mm.guest!==s.space||
+       t.proc.actions.some(a=>a.handler!==0n))return false;
+    if(nr===60n)return true;
+    // One bounded Linux x86-64 same-process thread profile. No TLS/TID stores,
+    // exit signal, vfork, namespace or unknown flag behavior is inferred.
+    if(nr!==56n||reg(7)!==0x10f00n||!reg(6)||reg(2)||reg(10)||reg(8)||
+       !s.plans.has(v.getBigUint64(t.tb+this.cfg.ctx+this.cfg.ripOff,true)))return false;
+    try {
+      const stack=reg(6);if(stack%16n||stack<16n)return false;
+      if(t.proc.mm.guest.mappingInfo(stack-8n)?.kind!=='private')return false;
+      const tx=t.proc.mm.guest.prepareWrite(stack-8n,8);tx.cancel();return true;
+    }catch(error){if(error instanceof globalThis.BetterJITGuestMemory.MemoryFault||
+      error instanceof globalThis.BetterJITGuestMemory.PreparedWriteConflict)return false;throw error;}
+  }
+  sparseSyscall(t,lease,seq,rip) {
+    const B=globalThis.BetterJITGuestMemoryBroker,s=t.sparse,g=t.tb+this.cfg.ctx+this.cfg.gregsOff,nr=s.view.getBigUint64(g,true);
+    if(nr===202n)return this.sparseFutex(t,lease,seq);
+    if(nr===60n) {
+      this.sparseBroker.assertCopiesComplete(s.token);
+      s.guestExitCode=Number(s.view.getBigUint64(g+7*8,true)&255n);
+      this.completeSparseTransport(t,lease,seq,BigInt(B.LIFECYCLE.syscallExit));return {parked:true};
+    }
+    if(nr!==56n)throw new Error('Unadmitted sparse syscall');
+    if((this.sparseContexts||0)>=B.ABI.maximumThreads)return {parked:false,result:-11n};
+    const entryRip=s.view.getBigUint64(t.tb+this.cfg.ctx+this.cfg.ripOff,true),stack=s.view.getBigUint64(g+6*8,true);
+    let made,gate,control;
+    try{gate=new SharedArrayBuffer(16);control=new Int32Array(gate);
+      made=this.allocateSparseThread(t.proc,{entryRip,plans:s.plans.values(),publish:false},this.newTid());}
+    catch(error){if(error instanceof RangeError)return {parked:false,result:-12n};throw error;}
+    const child=made.thread;
+    for(const span of [this.cfg.checkpoint.cpu,this.cfg.checkpoint.lazyFlags,this.cfg.checkpoint.roundMode])
+      new Uint8Array(child.sparse.memory.buffer,child.tb+span.offset,span.size).set(new Uint8Array(s.memory.buffer,t.tb+span.offset,span.size));
+    child.sparse.view.setBigUint64(g,0n,true);child.sparse.view.setBigUint64(g+4*8,stack,true);child.sigmask=t.sigmask;
+    control[1]=B.LIFECYCLE.version;new BigUint64Array(gate)[1]=child.sparse.token.generation;
+    const rec={parent:t,mm:t.proc.mm,lease,seq,rip,made,control,cancelled:false,error:-11n};
+    this.sparseClones??=new Map();this.sparseClones.set(child.slot,rec);s.clonePending=rec;
+    rec.timer=this.addTimer(30000,()=>{rec.cancelled=true;});
+    Atomics.store(this.k32,(SLOT_BASE+t.slot*SLOT_SIZE)>>2,B.ABI.parkedState);
+    // This host callback provisions only the already prepared worker. It must
+    // report readiness/failure through the gate and acknowledge actual exit via
+    // W_OCCUPIED, including synchronous no-worker failures. It cannot publish.
+    try{this.host.spawnSparseThread({...made.worker,startGate:gate});}
+    catch(error){rec.cancelled=true;} // Stop the exact lease even if creation's outcome is uncertain.
+    return {parked:true};
+  }
+  serviceSparseClones() {
+    const B=globalThis.BetterJITGuestMemoryBroker,L=B.LIFECYCLE;let did=false;
+    for(const [slot,r]of this.sparseClones) {
+      const t=r.parent,child=r.made.thread,c=r.control,base=(SLOT_BASE+slot*SLOT_SIZE)>>2,
+        owner=this.ownsSparseTransport(t,r.lease,r.seq)&&this.threads.get(t.tid)===t&&this.procs.get(t.proc.pid)===t.proc&&
+          t.proc.mm===r.mm&&t.sparse.clonePending===r;
+      const state=Atomics.load(c,0),occupied=Atomics.load(this.k32,base+W_OCCUPIED);
+      if(!owner||t.pending||t.proc.pending||[L.FAILED,L.CANCEL].includes(state)||!occupied||
+         c[1]!==L.version||new BigUint64Array(c.buffer)[1]!==child.sparse.token.generation||
+         ![L.PENDING,L.READY,L.CANCEL,L.FAILED].includes(state)) {
+        r.cancelled=true;if(t.pending||t.proc.pending)r.error=-4n;
+      }
+      if(!r.cancelled&&state===L.READY) {
+        try {
+          const rip=child.sparse.view.getBigUint64(child.tb+this.cfg.ctx+this.cfg.ripOff,true),p=child.sparse.plans.get(rip),
+            code=r.mm.guest.executableSnapshot(rip,p.length),stack=child.sparse.view.getBigUint64(child.tb+this.cfg.ctx+this.cfg.gregsOff+4*8,true);
+          if(!code.every((x,i)=>x===p.instruction[i])||r.mm.guest.mappingInfo(stack-8n)?.kind!=='private')r.cancelled=true;
+          else {const tx=r.mm.guest.prepareWrite(stack-8n,8);tx.cancel();}
+        }catch(error){if(error instanceof globalThis.BetterJITGuestMemory.MemoryFault||
+          error instanceof globalThis.BetterJITGuestMemory.PreparedWriteConflict)r.cancelled=true;else throw error;}
+      }
+      if(r.cancelled) {
+        if(state!==L.CANCEL){Atomics.store(c,0,L.CANCEL);Atomics.notify(c,0);did=true;}
+        if(occupied&&!r.stopRequested){r.stopRequested=true;this.host.stopSparseThread({slot,lease:child.sparse.token.generation});did=true;}
+        if(occupied)continue; // No timer is a worker-exit acknowledgement.
+        this.sparseBroker.unregister(child.sparse.token);child.dead=true;child.sparse.retired=true;
+        this.sparseClones.delete(slot);r.timer.dead=true;if(t.sparse.clonePending===r)t.sparse.clonePending=null;
+        if(owner)this.completeSparseSyscall(t,r.lease,r.seq,r.error);did=true;continue;
+      }
+      if(state!==L.READY)continue;
+      // Only the authority publishes the prepared same-mm thread. Its guest
+      // continuation and full CPU/lazy/round state came from the spilled caller.
+      this.threads.set(child.tid,child);this.slots[slot]=child;child.proc.threads.set(child.tid,child);
+      child.sparse.createdBy=Object.freeze({syscall:56,parentTid:t.tid,rip:r.rip,stack:child.sparse.view.getBigUint64(child.tb+this.cfg.ctx+this.cfg.gregsOff+4*8,true)});
+      this.sparseClones.delete(slot);r.timer.dead=true;t.sparse.clonePending=null;
+      Atomics.store(c,0,L.RUN);Atomics.notify(c,0);
+      this.completeSparseSyscall(t,r.lease,r.seq,BigInt(child.tid));this.host.sparseCloneCreated?.(child);did=true;
+    }
+    return did;
   }
   completeSparseSyscall(t,lease,seq,result) {
     if(!this.ownsSparseTransport(t,lease,seq))return false;

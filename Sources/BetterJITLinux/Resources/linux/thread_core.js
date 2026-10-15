@@ -573,6 +573,20 @@ function parseBrokerStep(bytes) {
 }
 
 async function runSparseThread(env) {
+  try{return await executeSparseThread(env);}catch(error){
+    const d=env.data,L=G.BetterJITGuestMemoryBroker?.LIFECYCLE,gate=d.startGate;
+    if(L&&gate instanceof SharedArrayBuffer&&gate.byteLength===16) {
+      const c=new Int32Array(gate);
+      if(c[1]===L.version&&new BigUint64Array(gate)[1]===d.lease) {
+        const state=Atomics.load(c,0);
+        if([L.PENDING,L.READY].includes(state))Atomics.compareExchange(c,0,state,L.FAILED);
+        const k=new Int32Array(d.ksab);Atomics.add(k,0,1);Atomics.notify(k,0);
+      }
+    }
+    throw error;
+  }
+}
+async function executeSparseThread(env) {
   const B=G.BetterJITGuestMemoryBroker,d=env.data,cfg=d.cfg;
   if(!B||cfg.memoryABI!==B.ABI.version||cfg.stepABI!==B.ABI.stepVersion||cfg.coverageVersion!==B.ABI.coverageVersion||
      cfg.memPages!==B.ABI.internalPages||cfg.memMaxPages!==B.ABI.internalPages||d.tb!==B.ABI.threadBase||
@@ -583,7 +597,11 @@ async function runSparseThread(env) {
   const k32=new Int32Array(d.ksab),k64=new BigInt64Array(d.ksab),base=(256+d.slot*128)>>2,b64=base>>1;
   const scratch=new DataView(d.mem.buffer,d.tb+B.ABI.scratchOffset,B.ABI.scratchBytes),view=new DataView(d.mem.buffer);
   const ripAt=d.tb+cfg.ctx+cfg.ripOff;
-  let memorySequence=0,boundarySequence=0,executed=0,status=0;
+  let memorySequence=0,boundarySequence=0,executed=0,status=0,guestExitCode;
+  let start=d.startGate;
+  if(start!==undefined&&(!(start instanceof SharedArrayBuffer)||start.byteLength!==16||
+     new Int32Array(start)[1]!==B.LIFECYCLE.version||new BigUint64Array(start)[1]!==d.lease))
+    throw new Error('Invalid sparse startup gate');
   function exchange(nr,sequence,phase=0,stepStatus=0) {
     if(!Number.isInteger(sequence)||sequence<1||sequence>0xffffffff)throw new Error('Sparse transport sequence exhausted');
     if(Atomics.load(k32,base)!==0)throw new Error('Sparse mailbox is already occupied');
@@ -619,27 +637,41 @@ async function runSparseThread(env) {
     const rip=view.getBigUint64(ripAt,true);
     if(d.stopRip!==undefined&&rip===d.stopRip)break;
     const unit=await env.stepBroker(d.space,rip);
-    if(!unit||unit.status===B.STEP.UNSUPPORTED){status=B.STEP.UNSUPPORTED;break;}
+    if(!unit||unit.status===B.STEP.UNSUPPORTED){if(start)throw new Error('Sparse startup continuation unavailable');status=B.STEP.UNSUPPORTED;break;}
     if(unit.status!==0||unit.rip!==rip||!(unit.module instanceof WebAssembly.Module))throw new Error('Wrong broker step unit');
     const imports=WebAssembly.Module.imports(unit.module);
     if(imports.some(i=>i.module!=='e'||!['mem','tb','memory'].includes(i.name)))throw new Error('Uncovered broker module import');
     const instance=await WebAssembly.instantiate(unit.module,{e:{mem:d.mem,tb:new WebAssembly.Global({value:'i32'},d.tb),memory}});
+    if(start) {
+      const c=new Int32Array(start),L=B.LIFECYCLE;
+      if(Atomics.compareExchange(c,0,L.PENDING,L.READY)!==L.PENDING)throw new Error('Sparse startup cancelled');
+      Atomics.add(k32,0,1);Atomics.notify(k32,0);
+      const until=performance.now()+(d.requestTimeoutMs??30000);
+      while(Atomics.load(c,0)===L.READY) {
+        Atomics.wait(c,0,L.READY,100);
+        if(performance.now()>until&&Atomics.load(c,0)===L.READY)throw new Error('Sparse startup deadline exceeded');
+      }
+      if(Atomics.load(c,0)!==L.RUN)throw new Error('Sparse startup cancelled');start=null;
+    }
     exchange(B.ABI.instructionBoundary,++boundarySequence,1);
     status=instance.exports.run();executed++;
     if(![0,1,2,3].includes(status))throw new Error('Invalid typed step exit');
     const completion=exchange(B.ABI.instructionBoundary,++boundarySequence,2,status);
     if(status===B.STEP.SYSCALL) {
-      if(![0,2].includes(completion))throw new Error('Invalid spilled syscall completion');
-      status=completion;
+      if(![0,2,B.LIFECYCLE.syscallExit].includes(completion))throw new Error('Invalid spilled syscall completion');
+      if(completion===B.LIFECYCLE.syscallExit) {
+        guestExitCode=Number(view.getBigUint64(d.tb+cfg.ctx+cfg.gregsOff+7*8,true)&255n);status=0;
+      }else status=completion;
     }
     env.onStep?.({status,rip:view.getBigUint64(ripAt,true),executed});
-    if(status!==B.STEP.OK)break;
+    if(status!==B.STEP.OK||guestExitCode!==undefined)break;
   }
-  if(executed===maximum&&status===0&&view.getBigUint64(ripAt,true)!==d.stopRip)
+  if(executed===maximum&&status===0&&guestExitCode===undefined&&view.getBigUint64(ripAt,true)!==d.stopRip)
     throw new Error('Sparse instruction limit exceeded');
+  if(start)throw new Error('Sparse startup did not prepare an instruction');
   exchange(B.ABI.instructionBoundary,++boundarySequence,3,status);
   return {status,executed,memoryRequests:memorySequence,rip:view.getBigUint64(ripAt,true),
-    internalBytes:d.mem.buffer.byteLength};
+    internalBytes:d.mem.buffer.byteLength,...(guestExitCode===undefined?{}:{guestExitCode})};
 }
 
 function parseUnit(b) {

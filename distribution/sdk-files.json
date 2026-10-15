@@ -191,6 +191,13 @@
     "tests/sdk/linux-host/sparse-sync.cjs": "tests/sdk/linux-host/sparse-sync.cjs",
     "tests/sdk/linux-sparse-futex.test.mjs": "tests/sdk/linux-sparse-futex.test.mjs",
     "docs/sdk/sparse-user-copies.md": "docs/sdk/sparse-user-copies.md",
-    "docs/sdk/sparse-prepared-copyout.md": "docs/sdk/sparse-prepared-copyout.md"
+    "docs/sdk/sparse-prepared-copyout.md": "docs/sdk/sparse-prepared-copyout.md",
+    "docs/sdk/sparse-clone.md": "docs/sdk/sparse-clone.md",
+    "tests/sdk/linux-sparse-clone.test.mjs": "tests/sdk/linux-sparse-clone.test.mjs",
+    "tests/sdk/linux-host/sparse-clone-fixture.cjs": "tests/sdk/linux-host/sparse-clone-fixture.cjs",
+    "tests/sdk/linux-host/sparse-clone-thread.cjs": "tests/sdk/linux-host/sparse-clone-thread.cjs",
+    "tests/sdk/linux-host/sparse-clone-kernel.cjs": "tests/sdk/linux-host/sparse-clone-kernel.cjs",
+    "tests/sdk/linux-host/sparse-clone.cjs": "tests/sdk/linux-host/sparse-clone.cjs",
+    "tests/sdk/linux-host/sparse-clone-oracle.c": "tests/sdk/linux-host/sparse-clone-oracle.c"
   }
 }
