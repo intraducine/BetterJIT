@@ -6,7 +6,8 @@ with aligned atomics, bounded futex syscalls and multiple internal thread contex
 The later opt-in [guest clone/exit profile](sparse-clone.md) creates a same-mm
 thread from an actual translated guest syscall; B2/B3's original process
 records remain host-created fixtures.
-The current step/coverage versions are 2/2. Default execution
+The current step/coverage versions are 3/3; [bounded control flow](sparse-control-flow.md)
+adds TEST/CMP and direct finite continuations. Default execution
 keeps its existing memory model. The fixture creates kernel Process/Thread
 records with independent address spaces and separate workers; it does not load
 ELF, implement Linux fork/exec or run Wine.
@@ -52,7 +53,7 @@ other atomics, SIMD/masked/gather, REP and address-size override remain explicit
 unsupported results before execution. This is not a general x86 opcode implementation. Expanding admission requires
 complete effect, flag, fault and restart semantics.
 
-`fexwasm_step(T, uint64_t RIP)` returns an 80-byte little-endian BJS1 header:
+`fexwasm_step(T, uint64_t RIP)` returns a 96-byte little-endian BJS1 header:
 
 | Offset | Type | Field |
 | ---: | --- | --- |
@@ -64,7 +65,9 @@ complete effect, flag, fault and restart semantics.
 | 48 | u64 | Module hash |
 | 56, 60 | u32 each | Module byte count and decoded instruction length |
 | 64 | 16 bytes | Original instruction bytes, zero-padded |
-| 80 | bytes | Wasm module, absent for unsupported results |
+| 80 | u64 | Full direct branch target, zero for fallthrough instructions |
+| 88, 92 | u32 each | Continuation kind (0 fallthrough, 1 jump, 2 conditional) and reserved zero |
+| 96 | bytes | Wasm module, absent for unsupported results |
 
 The worker parser requires matching versions and exact sizes. At instruction
 boundaries the kernel also compares immutable private RX bytes with the

@@ -198,6 +198,11 @@
     "tests/sdk/linux-host/sparse-clone-thread.cjs": "tests/sdk/linux-host/sparse-clone-thread.cjs",
     "tests/sdk/linux-host/sparse-clone-kernel.cjs": "tests/sdk/linux-host/sparse-clone-kernel.cjs",
     "tests/sdk/linux-host/sparse-clone.cjs": "tests/sdk/linux-host/sparse-clone.cjs",
-    "tests/sdk/linux-host/sparse-clone-oracle.c": "tests/sdk/linux-host/sparse-clone-oracle.c"
+    "tests/sdk/linux-host/sparse-clone-oracle.c": "tests/sdk/linux-host/sparse-clone-oracle.c",
+    "tests/sdk/linux-host/sparse-flow-fixture.cjs": "tests/sdk/linux-host/sparse-flow-fixture.cjs",
+    "tests/sdk/linux-host/sparse-flow.cjs": "tests/sdk/linux-host/sparse-flow.cjs",
+    "tests/sdk/linux-host/sparse-flow-oracle.c": "tests/sdk/linux-host/sparse-flow-oracle.c",
+    "tests/sdk/linux-host/sparse-flow-oracle.json": "tests/sdk/linux-host/sparse-flow-oracle.json",
+    "docs/sdk/sparse-control-flow.md": "docs/sdk/sparse-control-flow.md"
   }
 }

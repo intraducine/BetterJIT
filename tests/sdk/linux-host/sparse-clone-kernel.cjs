@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 const {workerData:d,parentPort}=require('worker_threads'),fs=require('fs'),path=require('path'),vm=require('vm'),assert=require('node:assert/strict');
-const F=require('./sparse-clone-fixture.cjs');globalThis.self=globalThis;
+const F=require(d.fixtureFile||'./sparse-clone-fixture.cjs');globalThis.self=globalThis;
 for(const n of ['guest_memory.js','guest_memory_broker.js','web/linux-kernel.js'])vm.runInThisContext(fs.readFileSync(path.join(d.resources,'linux',n),'utf8'));
 const M=BetterJITGuestMemory,{Kernel}=LinuxBundle.require('./kernel.js'),budget=new M.BackingBudget(),space=new M.GuestAddressSpace(budget,{virtualLimit:1n<<47n});
 let kernel;const births=[],exits=[],expectedThreads=d.scenario==='success'?2:1;
@@ -27,7 +27,7 @@ try {
  assert.equal(read(F.PARENT_STACK-8n),child?BigInt(child.tid):BigInt.asUintN(64,-11n));assert.equal(read(F.CHILD_STACK-8n),0n);
  for(const top of [F.PARENT_STACK,F.CHILD_STACK])assert.deepEqual(space.read((top&0xffffffffn)-8n,8),new Uint8Array(8).fill(0x77));
  assert.equal(initial.proc.zombie,true);
- assert.deepEqual(exits.map(x=>x.code).sort((a,b)=>a-b),child?[0,child.tid&255]:[245]);for(const e of exits)assert.equal(e.status,0);
+ assert.deepEqual(exits.map(x=>x.code).sort((a,b)=>a-b),child?[F.childExitCode??0,F.parentExitCode??(child.tid&255)].sort((a,b)=>a-b):[F.parentExitCode??245]);for(const e of exits)assert.equal(e.status,0);
  const records=[...kernel.threads.values()].map(t=>({tid:t.tid,pid:t.proc.pid,steps:t.sparse.steps,syscalls:t.sparse.syscalls,guestExitCode:t.sparse.guestExitCode,retired:t.sparse.retired,internalBytes:t.sparse.memory.buffer.byteLength}));
  space.close();assert.equal(budget.stats().ownedPayloadBytes,0);
  parentPort.postMessage({op:'kernel-result',births,exits,records,afterClose:budget.stats(),broker:kernel.sparseBroker.stats()});

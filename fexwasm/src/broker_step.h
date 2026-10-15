@@ -5,12 +5,13 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 2, Coverage = 2;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 3;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
-constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 80;
+constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
   bool Supported = false;
   uint32_t Operation = 0, Width = 0; // 0 register-only, 1 read, 2 write
+  uint32_t Flow = 0; // 0 fallthrough, 1 direct jump, 2 conditional jump
 };
 // FEX supplies/validates the complete instruction length separately. This only
 // admits an explicit semantic family; unsupported prefixes/opcodes never run.
@@ -35,6 +36,11 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
   if (I < Size && Bytes[I] >= 0x40 && Bytes[I] <= 0x4f) Rex = Bytes[I++];
   if (I >= Size) return {};
   const uint8_t Op = Bytes[I++];
+  if (I == 1 && (Op == 0xeb || Op == 0xe9)) return {true, 7, 0, 1};
+  if (I == 1 && (Op == 0x74 || Op == 0x75 ||
+      (Op == 0x0f && I < Size && (Bytes[I] == 0x84 || Bytes[I] == 0x85)))) return {true, 7, 0, 2};
+  if (!Word && !Segment && !Lock && (Op == 0x85 || Op == 0x39 || Op == 0x3b) &&
+      I < Size && (Bytes[I] & 0xc0) == 0xc0) return {true, 6, 0}; // register TEST/CMP, 32/64-bit
   const uint32_t Width = Rex & 8 ? 8 : Word ? 2 : 4;
   if (Lock && Op != 0x0f) return {};
   if (Op == 0x90 && I == 1) return {true, 0, 0}; // plain NOP only

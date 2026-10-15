@@ -4,7 +4,7 @@
   'use strict';
   const storage=root.BetterJITGuestMemory;
   if(!storage||storage.STORAGE_VERSION!==1)throw new Error('Guest storage contract 1 required');
-  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:2,coverageVersion:2,
+  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:3,coverageVersion:3,stepHeaderBytes:96,
     magic:0x314d4a42,internalPages:33,threadBase:0x10000,threadBytes:0x200000,
     scratchOffset:0x1f0000,scratchBytes:128,memoryRequest:0x10003,instructionBoundary:0x10004,maximumThreads:8,parkedState:4,
     userCopyBytes:65536});
@@ -12,7 +12,7 @@
     address:32,rip:40,checkpoint:48,operand0:56,operand1:64,result0:72,result1:80,faultAddress:88,
     checkpointRip:96,nextRip:104,completedSequence:112,boundaryControl:116,lease:120});
   const STATUS=Object.freeze({OK:0,FAULT:1,UNSUPPORTED:2});
-  const OP=Object.freeze({READ:1,WRITE:2,CAS:3,FETCH_ADD:4,SYSCALL:5});
+  const OP=Object.freeze({READ:1,WRITE:2,CAS:3,FETCH_ADD:4,SYSCALL:5,FLAGS:6,BRANCH:7});
   const STEP=Object.freeze({OK:0,FAULT:1,UNSUPPORTED:2,SYSCALL:3});
   // Host startup gate / spilled syscall completion, separate from native step exits.
   const LIFECYCLE=Object.freeze({version:1,PENDING:0,READY:1,RUN:2,CANCEL:3,FAILED:4,syscallExit:4});
@@ -23,6 +23,20 @@
   function u64(value) {
     if(typeof value!=='bigint'||value<-(1n<<63n)||value>=U64)throw new TypeError('Exact i64 BigInt required');
     return BigInt.asUintN(64,value);
+  }
+  function instructionContinuations(p) {
+    const kind=p.continuationKind??0,target=p.branchTarget??0n;
+    if(p.operation!==OP.BRANCH) {
+      if(kind!==0||target!==0n)throw new TypeError('Unexpected branch metadata');
+      return Object.freeze([p.nextRip]);
+    }
+    const b=p.instruction,v=new DataView(b.buffer,b.byteOffset,b.byteLength);let flow,offset;
+    if(b.length===2&&[0x74,0x75,0xeb].includes(b[0])){flow=b[0]===0xeb?1:2;offset=BigInt(v.getInt8(1));}
+    else if(b.length===5&&b[0]===0xe9){flow=1;offset=BigInt(v.getInt32(1,true));}
+    else if(b.length===6&&b[0]===0x0f&&[0x84,0x85].includes(b[1])){flow=2;offset=BigInt(v.getInt32(2,true));}
+    else throw new TypeError('Uncovered branch instruction');
+    if(kind!==flow||typeof target!=='bigint'||target!==BigInt.asUintN(64,p.nextRip+offset))throw new TypeError('Invalid branch continuation');
+    return Object.freeze(kind===1?[target]:[p.nextRip,target]);
   }
   function createInternalMemory() {
     const memory=new WebAssembly.Memory({initial:ABI.internalPages,maximum:ABI.internalPages,shared:true});
@@ -133,19 +147,23 @@
     }
     // Called at a safe boundary after native code has spilled the full CPU state.
     // operation/width must come from compile-time admission, never guest input.
-    beginInstruction(token,{rip,operation=0,width=0}) {
+    beginInstruction(token,{rip,operation=0,width=0,continuations}) {
       const s=requireOwner(this,token);rip=u64(rip);
       if(s.preparedCopies.size)throw new BrokerInvariantError('Prepared copyout must complete before BEGIN');
       if(s.active||s.waits.size)invariant(s,'Instruction already active or parked');
       s.spilledSyscall=false;
-      if(!(([0,OP.SYSCALL].includes(operation)&&width===0)||([OP.READ,OP.WRITE].includes(operation)&&[1,2,4,8].includes(width))||
+      if(!(([0,OP.SYSCALL,OP.FLAGS,OP.BRANCH].includes(operation)&&width===0)||([OP.READ,OP.WRITE].includes(operation)&&[1,2,4,8].includes(width))||
            ([OP.CAS,OP.FETCH_ADD].includes(operation)&&[4,8].includes(width))))
         throw new TypeError('Unsupported instruction admission');
+      if(operation===OP.BRANCH) {
+        if(!Array.isArray(continuations)||continuations.length<1||continuations.length>2)throw new TypeError('Finite branch continuations required');
+        continuations=Object.freeze(continuations.map(u64));
+      }
       if(cpuRip(s)!==rip)invariant(s,'Full pre-instruction RIP was not spilled');
       if(s.checkpoint===U64-1n)invariant(s,'Checkpoint generation exhausted');
       const snapshot=s.layout.spans.map(p=>({offset:p.offset,
         bytes:new Uint8Array(s.memory.buffer,ABI.threadBase+p.offset,p.size).slice()}));
-      s.active={rip,generation:++s.checkpoint,operation,width,snapshot,result:null};return s.checkpoint;
+      s.active={rip,generation:++s.checkpoint,operation,width,continuations,snapshot,result:null};return s.checkpoint;
     }
     // The caller uses its authenticated thread record's token, not a request PID.
     // This synchronous route has no syscall, signal, redirect or await callbacks.
@@ -202,8 +220,10 @@
       const s=requireOwner(this,token),a=s.active;
       if(!a)invariant(s,'No instruction checkpoint');
       if(status===STEP.OK) {
-        nextRip=u64(nextRip);
-        if((a.operation&&a.operation!==OP.SYSCALL&&a.result?.status!==STATUS.OK)||(!a.operation&&a.result)||
+        nextRip=a.operation===OP.BRANCH?cpuRip(s):u64(nextRip);
+        if((a.operation===OP.BRANCH&&!a.continuations.includes(nextRip))||
+           ([OP.READ,OP.WRITE,OP.CAS,OP.FETCH_ADD].includes(a.operation)&&a.result?.status!==STATUS.OK)||
+           ([0,OP.FLAGS,OP.BRANCH].includes(a.operation)&&a.result)||
            a.operation===OP.SYSCALL||cpuRip(s)!==nextRip)
           invariant(s,'Full successful post-state was not spilled');
       } else if(status===STEP.SYSCALL) {
@@ -300,6 +320,6 @@
         faults:b.faults,unsupported:b.unsupported,rejected:b.rejected});
     }
   }
-  root.BetterJITGuestMemoryBroker=Object.freeze({ABI,FIELD,STATUS,REASON,OP,STEP,LIFECYCLE,createInternalMemory,
+  root.BetterJITGuestMemoryBroker=Object.freeze({ABI,FIELD,STATUS,REASON,OP,STEP,LIFECYCLE,instructionContinuations,createInternalMemory,
     BrokerInvariantError,UserCopyUnsupported,GuestMemoryBroker});
 })(typeof globalThis!=='undefined'?globalThis:self);

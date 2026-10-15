@@ -4,7 +4,8 @@ B3 extends the [B2 scalar path](sparse-execution.md) with actual translated
 atomic instructions, bounded Linux futex syscalls and separate internal CPU
 contexts for threads sharing an address space. Select `linux=1 guestmem=broker1`
 explicitly. Memory ABI 1 and checkpoint format 1 remain unchanged; step ABI and
-coverage revision are now 2. Older step modules are rejected.
+coverage revision were 2 at B3; the later [control-flow increment](sparse-control-flow.md)
+uses 3/3 with a 96-byte header. Older step modules are rejected.
 
 ## Admission and atomic effects
 

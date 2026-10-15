@@ -11,11 +11,11 @@ function nativeOracle() {
   assert.equal(run.status,0,run.stderr||String(run.error));return JSON.parse(run.stdout);
  }finally{fs.rmSync(directory,{recursive:true,force:true});}
 }
-async function execute(cfg,state,units,scenario) {
+async function execute(cfg,state,units,scenario,fixtureFile) {
  const workers=new Map(),results=[],startupFailures=[];let kernel,timer;
  try{return await new Promise((resolve,reject)=>{
   timer=setTimeout(()=>reject(Error('Actual guest clone fixture exceeded 30 seconds')),30000);
-  kernel=new Worker(path.join(__dirname,'sparse-clone-kernel.cjs'),{workerData:{cfg,state,resources,scenario,plans:units.map(({code,module,...p})=>p)}});
+  kernel=new Worker(path.join(__dirname,'sparse-clone-kernel.cjs'),{workerData:{cfg,state,resources,scenario,fixtureFile,plans:units.map(({code,module,...p})=>p)}});
   kernel.on('error',reject);kernel.on('message',m=>{
    if(m.op==='fatal')return reject(Error(m.message));
    if(m.op==='spawn') {
@@ -39,4 +39,5 @@ async function main(){const oracle=nativeOracle();await serve('guestmem=broker1'
  const result={evidence:'Actual guest-initiated Linux x86-64 clone(0x10f00, guest high stack) and thread exits through FEX-generated Wasm, plus two real-worker startup failures returning EAGAIN without a published child. Only initial process is host-created; child executes the same guest continuation. No fork/exec, ELF loader, stock Wine, device or RAM-saving claim.',cfg,native,oracle,cases};
  const text=JSON.stringify(result,(_k,x)=>typeof x==='bigint'?'0x'+x.toString(16):x,2);if(process.argv[3])fs.writeFileSync(process.argv[3],text+'\n');console.log(text);
 });}
-main().catch(error=>{console.error(error);process.exitCode=1;});
+module.exports={execute};
+if(require.main===module)main().catch(error=>{console.error(error);process.exitCode=1;});

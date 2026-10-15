@@ -1190,6 +1190,7 @@ class Kernel {
     const B=globalThis.BetterJITGuestMemoryBroker;
     if(this.cfg.guestMemory!=='broker1'||!B||this.cfg.memoryABI!==B.ABI.version||this.cfg.stepABI!==B.ABI.stepVersion||
        this.cfg.coverageVersion!==B.ABI.coverageVersion||this.cfg.memPages!==B.ABI.internalPages||
+       this.cfg.stepHeaderBytes!==B.ABI.stepHeaderBytes||
        this.cfg.memMaxPages!==B.ABI.internalPages||this.cfg.threadBase!==B.ABI.threadBase||
        this.cfg.regArgs!==0||this.cfg.callsViaDispatcher!==false||this.cfg.maxInstructions!==1||this.cfg.shared!==true||
        this.cfg.checkpoint?.cpu?.offset!==this.cfg.ctx||this.cfg.checkpoint?.cpu?.size!==this.cfg.stateSize||
@@ -1204,12 +1205,12 @@ class Kernel {
       if(p.status!==0||typeof p.rip!=='bigint'||p.rip<0n||p.rip>=(1n<<64n)||
          !Number.isInteger(p.length)||p.length<1||p.length>15||p.nextRip!==p.rip+BigInt(p.length)||
          !(p.instruction instanceof Uint8Array)||p.instruction.length!==p.length||approved.has(p.rip)||
-         !(([0,5].includes(p.operation)&&p.width===0)||([1,2].includes(p.operation)&&[1,2,4,8].includes(p.width))||
+         !(([0,5,6,7].includes(p.operation)&&p.width===0)||([1,2].includes(p.operation)&&[1,2,4,8].includes(p.width))||
            ([3,4].includes(p.operation)&&[4,8].includes(p.width))))
         throw new Error('Invalid admitted instruction metadata');
       const actual=space.executableSnapshot(p.rip,p.length);
       if(!actual.every((x,i)=>x===p.instruction[i]))throw new Error('Executable bytes differ from the compiled step');
-      approved.set(p.rip,Object.freeze({...p,instruction:p.instruction.slice()}));
+      approved.set(p.rip,Object.freeze({...p,continuations:B.instructionContinuations(p),instruction:p.instruction.slice()}));
     }
     if(!approved.has(entryRip)||!(this.host.state instanceof Uint8Array)||this.host.state.length!==this.cfg.stateSize)
       throw new Error('Sparse entry/state is unavailable');
@@ -1255,7 +1256,7 @@ class Kernel {
         if(!plan)throw new Error('No admitted sparse instruction at '+rip.toString(16));
         const code=t.proc.mm.guest.executableSnapshot(rip,plan.length);
         if(!code.every((x,i)=>x===plan.instruction[i]))throw new Error('Sparse executable bytes changed');
-        const generation=this.sparseBroker.beginInstruction(s.token,{rip,operation:plan.operation,width:plan.width});
+        const generation=this.sparseBroker.beginInstruction(s.token,{rip,operation:plan.operation,width:plan.width,continuations:plan.continuations});
         s.active=plan;
         view.setBigUint64(scratch+B.FIELD.checkpoint,generation,true);
         view.setBigUint64(scratch+B.FIELD.checkpointRip,rip,true);

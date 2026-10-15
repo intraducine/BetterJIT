@@ -556,20 +556,24 @@ function runThread(env) {
 // displacement, u32 n, n u32 inline cache slots, the module.
 function parseBrokerStep(bytes) {
   const B=G.BetterJITGuestMemoryBroker;
-  if(!B||!(bytes instanceof Uint8Array)||bytes.length<80)throw new Error('Broker step header required');
+  if(!B||!(bytes instanceof Uint8Array)||bytes.length<B.ABI.stepHeaderBytes)throw new Error('Broker step header required');
   const v=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
   if(v.getUint32(0,true)!==0x31534a42||v.getUint32(4,true)!==B.ABI.version||
      v.getUint32(8,true)!==B.ABI.checkpointVersion||v.getUint32(12,true)!==B.ABI.stepVersion||
      v.getUint32(16,true)!==B.ABI.coverageVersion)throw new Error('Incompatible broker step ABI');
   const status=v.getUint32(20,true),operation=v.getUint32(24,true),width=v.getUint32(28,true),
     rip=v.getBigUint64(32,true),nextRip=v.getBigUint64(40,true),size=v.getUint32(56,true),length=v.getUint32(60,true);
-  if(bytes.length!==80+size||![0,2].includes(status)||
+  if(bytes.length!==B.ABI.stepHeaderBytes+size||![0,2].includes(status)||
      (status===2&&(size||length))||(status===0&&(!size||length<1||length>15||nextRip!==rip+BigInt(length)||
-       !(([0,5].includes(operation)&&width===0)||([1,2].includes(operation)&&[1,2,4,8].includes(width))||
+       !(([0,5,6,7].includes(operation)&&width===0)||([1,2].includes(operation)&&[1,2,4,8].includes(width))||
          ([3,4].includes(operation)&&[4,8].includes(width))))))
     throw new Error('Invalid broker step metadata');
-  return {status,operation,width,rip,nextRip,length,hash:v.getBigUint64(48,true),
-    instruction:bytes.slice(64,64+length),code:bytes.slice(80)};
+  if(v.getUint32(92,true)!==0)throw new Error('Invalid broker step reserved field');
+  const result={status,operation,width,rip,nextRip,length,hash:v.getBigUint64(48,true),
+    continuationKind:v.getUint32(88,true),branchTarget:v.getBigUint64(80,true),
+    instruction:bytes.slice(64,64+length),code:bytes.slice(B.ABI.stepHeaderBytes)};
+  if(status===0)try{result.continuations=B.instructionContinuations(result);}catch(error){throw new Error('Invalid broker continuation metadata: '+error.message);}
+  return result;
 }
 
 async function runSparseThread(env) {
@@ -589,6 +593,7 @@ async function runSparseThread(env) {
 async function executeSparseThread(env) {
   const B=G.BetterJITGuestMemoryBroker,d=env.data,cfg=d.cfg;
   if(!B||cfg.memoryABI!==B.ABI.version||cfg.stepABI!==B.ABI.stepVersion||cfg.coverageVersion!==B.ABI.coverageVersion||
+     cfg.stepHeaderBytes!==B.ABI.stepHeaderBytes||
      cfg.memPages!==B.ABI.internalPages||cfg.memMaxPages!==B.ABI.internalPages||d.tb!==B.ABI.threadBase||
      d.mem.buffer.byteLength!==B.ABI.internalPages*65536||typeof d.lease!=='bigint'||!env.stepBroker)
     throw new Error('Incompatible sparse worker configuration');
