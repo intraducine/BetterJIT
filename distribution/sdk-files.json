@@ -189,6 +189,7 @@
     "tests/sdk/linux-host/sparse-sync-fixture.cjs": "tests/sdk/linux-host/sparse-sync-fixture.cjs",
     "tests/sdk/linux-host/sparse-sync-kernel.cjs": "tests/sdk/linux-host/sparse-sync-kernel.cjs",
     "tests/sdk/linux-host/sparse-sync.cjs": "tests/sdk/linux-host/sparse-sync.cjs",
-    "tests/sdk/linux-sparse-futex.test.mjs": "tests/sdk/linux-sparse-futex.test.mjs"
+    "tests/sdk/linux-sparse-futex.test.mjs": "tests/sdk/linux-sparse-futex.test.mjs",
+    "docs/sdk/sparse-user-copies.md": "docs/sdk/sparse-user-copies.md"
   }
 }

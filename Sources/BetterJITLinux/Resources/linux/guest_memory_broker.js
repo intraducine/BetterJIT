@@ -6,7 +6,8 @@
   if(!storage||storage.STORAGE_VERSION!==1)throw new Error('Guest storage contract 1 required');
   const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:2,coverageVersion:2,
     magic:0x314d4a42,internalPages:33,threadBase:0x10000,threadBytes:0x200000,
-    scratchOffset:0x1f0000,scratchBytes:128,memoryRequest:0x10003,instructionBoundary:0x10004,maximumThreads:8,parkedState:4});
+    scratchOffset:0x1f0000,scratchBytes:128,memoryRequest:0x10003,instructionBoundary:0x10004,maximumThreads:8,parkedState:4,
+    userCopyBytes:65536});
   const FIELD=Object.freeze({magic:0,version:4,sequence:8,status:12,operation:16,width:20,access:24,reason:28,
     address:32,rip:40,checkpoint:48,operand0:56,operand1:64,result0:72,result1:80,faultAddress:88,
     checkpointRip:96,nextRip:104,completedSequence:112,boundaryControl:116,lease:120});
@@ -28,6 +29,18 @@
   class BrokerInvariantError extends Error {
     constructor(message){super(message);this.name='BrokerInvariantError';}
   }
+  class UserCopyUnsupported extends Error {
+    constructor(){super('User copy exceeds the bounded transfer limit');this.name='UserCopyUnsupported';}
+  }
+  function copyLength(length) {
+    if(typeof length==='number') {
+      if(!Number.isSafeInteger(length))throw new TypeError('Exact user copy length required');
+      length=BigInt(length);
+    }
+    if(typeof length!=='bigint'||length<0n)throw new TypeError('Nonnegative user copy length required');
+    if(length>BigInt(ABI.userCopyBytes))throw new UserCopyUnsupported();
+    return Number(length);
+  }
   function invariant(s,message) {s.poisoned=true;throw new BrokerInvariantError(message);}
   function current(broker,token) {
     const s=owners.get(token),b=brokers.get(broker);
@@ -37,6 +50,11 @@
     const s=current(broker,token);
     if(!s)throw new BrokerInvariantError('Retired or foreign thread registration');
     if(s.poisoned)throw new BrokerInvariantError('Thread registration failed an invariant');
+    return s;
+  }
+  function userOwner(broker,token) {
+    const s=requireOwner(broker,token);
+    if(!s.spilledSyscall||s.active||s.waits.size)throw new BrokerInvariantError('User copy requires a runnable spilled syscall boundary');
     return s;
   }
   function layoutFor(layout) {
@@ -98,7 +116,7 @@
       const generation=b.nextLease++,token=Object.freeze({generation});
       const s={broker:this,slot,generation,space,memory,layout,view:new DataView(memory.buffer),
         scratch:new DataView(memory.buffer,ABI.threadBase+ABI.scratchOffset,ABI.scratchBytes),
-        lastSequence:0,checkpoint:0n,active:null,closed:false,poisoned:false,waits:new Set()};
+        lastSequence:0,checkpoint:0n,active:null,spilledSyscall:false,closed:false,poisoned:false,waits:new Set()};
       new Uint8Array(memory.buffer,ABI.threadBase+ABI.scratchOffset,ABI.scratchBytes).fill(0);
       s.scratch.setUint32(FIELD.magic,ABI.magic,true);s.scratch.setUint32(FIELD.version,ABI.version,true);
       s.scratch.setBigUint64(FIELD.lease,generation,true);
@@ -114,6 +132,7 @@
     beginInstruction(token,{rip,operation=0,width=0}) {
       const s=requireOwner(this,token);rip=u64(rip);
       if(s.active||s.waits.size)invariant(s,'Instruction already active or parked');
+      s.spilledSyscall=false;
       if(!(([0,OP.SYSCALL].includes(operation)&&width===0)||([OP.READ,OP.WRITE].includes(operation)&&[1,2,4,8].includes(width))||
            ([OP.CAS,OP.FETCH_ADD].includes(operation)&&[4,8].includes(width))))
         throw new TypeError('Unsupported instruction admission');
@@ -192,7 +211,25 @@
         if(a.result&&a.result.status!==STATUS.UNSUPPORTED)invariant(s,'Unsupported instruction after a memory effect');
         restore(s);nextRip=a.rip;
       } else invariant(s,'Unknown step result');
-      const result=Object.freeze({status,rip:nextRip,memory:a.result});s.active=null;return result;
+      const result=Object.freeze({status,rip:nextRip,memory:a.result});
+      s.active=null;s.spilledSyscall=status===STEP.SYSCALL;return result;
+    }
+    // Kernel copyin/copyout only, after Wasm has fully unwound. These never
+    // return backing views and do not consume a memory-RPC sequence or call I/O.
+    copyIn(token,address,length) {
+      const s=userOwner(this,token);return s.space.read(u64(address),copyLength(length));
+    }
+    copyOut(token,address,bytes) {
+      const s=userOwner(this,token);address=u64(address);
+      if(!(bytes instanceof Uint8Array)||!(bytes.buffer instanceof ArrayBuffer)||bytes.buffer.resizable)
+        throw new TypeError('Fixed ordinary user copy bytes required');
+      copyLength(bytes.byteLength);
+      // Snapshot before storage allocation callbacks; write() validates all
+      // pages and stages every private-view detachment before publishing bytes.
+      s.space.write(address,new Uint8Array(bytes));
+    }
+    readUserU64(token,address) {
+      const bytes=this.copyIn(token,address,8);return new DataView(bytes.buffer,bytes.byteOffset,8).getBigUint64(0,true);
     }
     // Called at a spilled syscall boundary. Comparison and enqueue have no
     // await/reply gap. Only the requester parks; the authority keeps running.
@@ -235,5 +272,5 @@
     }
   }
   root.BetterJITGuestMemoryBroker=Object.freeze({ABI,FIELD,STATUS,REASON,OP,STEP,createInternalMemory,
-    BrokerInvariantError,GuestMemoryBroker});
+    BrokerInvariantError,UserCopyUnsupported,GuestMemoryBroker});
 })(typeof globalThis!=='undefined'?globalThis:self);

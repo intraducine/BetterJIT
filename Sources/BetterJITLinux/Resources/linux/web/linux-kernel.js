@@ -1217,7 +1217,7 @@ class Kernel {
     view.setBigUint64(t.tb+this.cfg.ctx+this.cfg.ripOff,entryRip,true);
     this.sparseBroker??=new B.GuestMemoryBroker();
     const token=this.sparseBroker.register(slot,{space,memory,checkpointLayout:this.cfg.checkpoint});
-    t.sparse={token,memory,view,plans:approved,boundarySequence:0,active:null,steps:0,last:null,parked:null,syscalls:0};
+    t.sparse={token,space,memory,view,plans:approved,boundarySequence:0,active:null,steps:0,last:null,parked:null,syscalls:0};
     // Compatibility diagnostics may inspect the primary context; sparse paths
     // always use the authenticated thread's own view, never this alias.
     if(!proc.mm.mem){proc.mm.mem=memory;proc.mm.dv=view;}
@@ -1309,6 +1309,22 @@ class Kernel {
     const b=(SLOT_BASE+t.slot*SLOT_SIZE)>>3;
     this.k64[b+8]=result;this.k32[b*2+1]=0;Atomics.store(this.k32,b*2,S_DONE);Atomics.notify(this.k32,b*2);return true;
   }
+  sparseUserMemory(t) {
+    const s=t.sparse,proc=t.proc,slot=t.slot,tid=t.tid,token=s?.token,space=s?.space,broker=this.sparseBroker;
+    const check=()=>{
+      if(this.cfg.guestMemory!=='broker1'||!broker||!space||!s||t.sparse!==s||s.token!==token||
+         t.proc!==proc||t.slot!==slot||t.tid!==tid||t.dead||s.retired||
+         this.threads.get(tid)!==t||this.slots[slot]!==t||proc.mm?.guest!==space||s.active||s.parked||
+         !Atomics.load(this.k32,((SLOT_BASE+slot*SLOT_SIZE)>>2)+W_OCCUPIED))
+        throw new Error('Authenticated runnable sparse user-memory owner required');
+    };
+    check();
+    return Object.freeze({
+      copyIn:(address,length)=>{check();return broker.copyIn(token,address,length);},
+      copyOut:(address,bytes)=>{check();broker.copyOut(token,address,bytes);},
+      readU64:address=>{check();return broker.readUserU64(token,address);}
+    });
+  }
   sparseFutexSupported(t) {
     const v=t.sparse.view,g=t.tb+this.cfg.ctx+this.cfg.gregsOff;
     const op=Number(v.getBigUint64(g+6*8,true)&0xffffffffn);
@@ -1334,7 +1350,7 @@ class Kernel {
       if(t.pending)return immediate(-4n);
       let timeout=Infinity;const pointer=reg(10);
       if(pointer) {
-        const bytes=t.proc.mm.guest.read(pointer,16),time=new DataView(bytes.buffer,bytes.byteOffset,16),
+        const bytes=this.sparseUserMemory(t).copyIn(pointer,16),time=new DataView(bytes.buffer,bytes.byteOffset,16),
           sec=time.getBigInt64(0,true),ns=time.getBigInt64(8,true);
         if(sec<0n||ns<0n||ns>=1000000000n)return immediate(-22n);
         timeout=Number(sec)*1000+Number(ns)/1e6;

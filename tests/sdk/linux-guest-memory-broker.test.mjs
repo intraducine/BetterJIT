@@ -30,6 +30,73 @@ function fixture(t,{budget=new BackingBudget(),broker=new GuestMemoryBroker(),sl
  return {budget,broker,slot,space,memory,view,scratch,token,cpu,setRip,begin,request};
 }
 function complete(f,rip=RIP+3n){f.setRip(rip);return f.broker.finishInstruction(f.token,{status:STEP.OK,nextRip:rip});}
+function spillSyscall(f) {
+ f.begin(OP.SYSCALL,0);f.setRip(RIP+2n);
+ return f.broker.finishInstruction(f.token,{status:STEP.SYSCALL,nextRip:RIP+2n});
+}
+
+test('user copies require a completed spilled syscall and never expose backing views',t=>{
+ const f=fixture(t);f.space.mapAnonymous(AT,2n*P,RW);
+ assert.throws(()=>f.broker.copyIn(f.token,AT,8),/spilled syscall/);
+ f.begin(OP.SYSCALL,0);assert.throws(()=>f.broker.copyOut(f.token,AT,Uint8Array.of(1)),/spilled syscall/);
+ f.setRip(RIP+2n);f.broker.finishInstruction(f.token,{status:STEP.SYSCALL,nextRip:RIP+2n});
+ const bytes=Uint8Array.of(255,255,255,255,255,255,255,255),at=AT+P-3n;
+ f.broker.copyOut(f.token,at,bytes);bytes.fill(0);
+ assert.equal(f.broker.readUserU64(f.token,at),0xffffffffffffffffn);
+ const read=f.broker.copyIn(f.token,at,8n);read.fill(0);assert.equal(f.space.read(at,1)[0],255);
+ assert.equal(f.scratch.getUint32(F.magic,true),ABI.magic);assert.equal(f.broker.stats().requests,0);
+ f.begin(OP.SYSCALL,0);assert.throws(()=>f.broker.copyIn(f.token,at,8),/spilled syscall/);
+});
+test('user copies bound exact lengths and accept only full BigInt pointers and fixed ordinary output bytes',t=>{
+ const f=fixture(t);f.space.mapAnonymous(AT,BigInt(ABI.userCopyBytes),RW);spillSyscall(f);
+ assert.equal(f.broker.copyIn(f.token,AT,ABI.userCopyBytes).length,65536);
+ assert.equal(f.broker.copyIn(f.token,AT,0).length,0);
+ for(const n of [65537,65537n,1n<<64n])assert.throws(()=>f.broker.copyIn(f.token,AT,n),BetterJITGuestMemoryBroker.UserCopyUnsupported);
+ for(const n of [-1,-1n,0.5,Number.MAX_SAFE_INTEGER+1,'8'])assert.throws(()=>f.broker.copyIn(f.token,AT,n),TypeError);
+ assert.throws(()=>f.broker.copyIn(f.token,Number(AT),8),TypeError);
+ assert.throws(()=>f.broker.copyOut(f.token,AT,new Uint8Array(65537)),BetterJITGuestMemoryBroker.UserCopyUnsupported);
+ assert.throws(()=>f.broker.copyOut(f.token,AT,new Uint8Array(new SharedArrayBuffer(8))),TypeError);
+ if(typeof ArrayBuffer.prototype.resize==='function')assert.throws(()=>f.broker.copyOut(f.token,AT,
+  new Uint8Array(new ArrayBuffer(8,{maxByteLength:16}))),TypeError);
+ assert.deepEqual(f.space.read(AT,8),new Uint8Array(8));
+});
+test('user copyout validates all pages and keeps the original access separate from its first invalid byte',t=>{
+ const space=new GuestAddressSpace(new BackingBudget(),{virtualLimit:AT+P}),f=fixture(t,{space});
+ space.mapAnonymous(AT,P,RW);spillSyscall(f);
+ assert.throws(()=>f.broker.copyOut(f.token,AT+P-4n,new Uint8Array(8).fill(7)),e=>
+  e instanceof BetterJITGuestMemory.MemoryFault&&e.guestAddress===AT+P-4n&&e.faultAddress===AT+P);
+ assert.deepEqual(space.read(AT+P-4n,4),new Uint8Array(4));
+ const g=fixture(t);g.space.mapAnonymous(AT,P,RW);g.space.mapAnonymous(AT+P,P,PROT.READ);spillSyscall(g);
+ assert.throws(()=>g.broker.copyOut(g.token,AT+P-4n,new Uint8Array(8).fill(9)),e=>e.reason==='protection'&&e.faultAddress===AT+P);
+ assert.deepEqual(g.space.read(AT+P-4n,8),new Uint8Array(8));
+});
+test('user copyout rolls back every private-view detachment on later allocation failure',t=>{
+ const budget=new BackingBudget({limitBytes:3*PAGE}),object=new SharedBacking(budget,2n*P);t.after(()=>object.close());
+ const f=fixture(t,{budget});f.space.mapShared(AT,2n*P,object,0n,{privateView:true});spillSyscall(f);
+ const ids=[AT,AT+P].map(at=>f.space.mappingInfo(at).frameId);
+ assert.throws(()=>f.broker.copyOut(f.token,AT+P-4n,new Uint8Array(8).fill(42)),BetterJITGuestMemory.AllocationFailure);
+ assert.deepEqual([AT,AT+P].map(at=>f.space.mappingInfo(at).frameId),ids);
+ assert.deepEqual(f.space.read(AT+P-4n,8),new Uint8Array(8));assert.equal(budget.stats().ownedPayloadBytes,2*PAGE);
+});
+test('user copies use the registered address space and canonical shared aliases with no low32 substitution',t=>{
+ const budget=new BackingBudget(),broker=new GuestMemoryBroker(),object=new SharedBacking(budget,P);t.after(()=>object.close());
+ const a=fixture(t,{budget,broker}),b=fixture(t,{budget,broker,slot:1});
+ for(const f of [a,b]){f.space.mapAnonymous(AT,P,RW);f.space.mapAnonymous(AT&0xffffffffn,P,RW);spillSyscall(f);}
+ a.broker.copyOut(a.token,AT,Uint8Array.of(7));b.broker.copyOut(b.token,AT,Uint8Array.of(9));
+ assert.equal(a.broker.copyIn(a.token,AT,1)[0],7);assert.equal(b.broker.copyIn(b.token,AT,1)[0],9);
+ assert.equal(a.space.read(AT&0xffffffffn,1)[0],0);
+ a.space.mapShared(AT+P,P,object);b.space.mapShared(AT+2n*P,P,object);
+ a.broker.copyOut(a.token,AT+P,Uint8Array.of(33));assert.equal(b.broker.copyIn(b.token,AT+2n*P,1)[0],33);
+});
+test('user copy authority refuses parked, retired and foreign registrations',t=>{
+ const f=fixture(t);f.space.mapAnonymous(AT,P,RW);spillSyscall(f);
+ const wait=f.broker.waitFutex(f.token,{address:AT,expected:0n},()=>{});
+ assert.equal(wait.parked,true);assert.throws(()=>f.broker.copyIn(f.token,AT,4),/spilled syscall/);
+ f.broker.cancelFutex(wait.handle,-4n,{notify:false});assert.equal(f.broker.copyIn(f.token,AT,1)[0],0);
+ assert.throws(()=>new GuestMemoryBroker().copyIn(f.token,AT,1),/foreign/);
+ f.broker.unregister(f.token);assert.throws(()=>f.broker.copyOut(f.token,AT,Uint8Array.of(9)),/Retired/);
+ assert.equal(f.space.read(AT,1)[0],0);
+});
 
 test('internal memory has an actual fixed 33-page maximum independent of guest VA',t=>{
  const f=fixture(t);assert.equal(f.memory.buffer.byteLength,33*65536);assert.throws(()=>f.memory.grow(1),RangeError);

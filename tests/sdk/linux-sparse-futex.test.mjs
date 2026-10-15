@@ -81,6 +81,23 @@ test('recognized bad futex arguments return errno while uncovered syscalls resto
  assert.equal(a.v.getBigUint64(a.thread.tb+cfg.ctx+cfg.ripOff,true),RIP);assert.equal(a.result(),39n);
 });
 
+test('kernel user-copy capabilities recheck thread, occupancy and image ownership on every use',t=>{
+ const f=setup(t),a=f.make(0),b=f.make(1);
+ // An immediate mismatch gives a fully spilled runnable syscall boundary.
+ assert.equal(a.begin({value:1n}),S_DONE);a.ack();
+ const copy=f.k.sparseUserMemory(a.thread);assert.equal(copy.readU64(AT),0n);
+ copy.copyOut(AT,Uint8Array.of(17));assert.equal(copy.copyIn(AT,1)[0],17);
+ const cfgBefore=f.k.cfg;f.k.cfg={...cfgBefore,guestMemory:'direct'};
+ assert.throws(()=>copy.copyIn(AT,1),/owner/);f.k.cfg=cfgBefore;
+ const original=a.proc.mm.guest;a.proc.mm.guest=b.space;
+ assert.throws(()=>copy.copyIn(AT,1),/owner/);a.proc.mm.guest=original;
+ Atomics.store(f.k.k32,a.b32+W_OCCUPIED,0);
+ assert.throws(()=>copy.copyOut(AT,Uint8Array.of(99)),/owner/);assert.equal(original.read(AT,1)[0],17);
+ f.k.serviceRequests();assert.throws(()=>copy.copyIn(AT,1),/owner/);
+ const fresh=f.make(2);assert.equal(fresh.thread.slot,a.thread.slot);
+ assert.throws(()=>copy.copyIn(AT,1),/owner/);assert.equal(fresh.space.read(AT+2n*P,1)[0],17);
+});
+
 // Real worker transport, with a synthetic spilled producer rather than FEX.
 // The constant Wasm return exercises runSparseThread's blocking exchange loop;
 // this controller supplies the post-state at FINISH, before kernel validation.

@@ -5,6 +5,7 @@ for(const n of ['guest_memory.js','guest_memory_broker.js','web/linux-kernel.js'
 const M=BetterJITGuestMemory,{Kernel}=LinuxBundle.require('./kernel.js'),budget=new M.BackingBudget({limitBytes:64*M.PAGE}),
  shared=new M.SharedBacking(budget,F.PAGE),spaces=[],made=[],oldValues=[],events=[],control=new Int32Array(d.barrier);
 let kernel,exited=0,otherProcessProgressed=false;
+const userCopies={copyIn:0,bytes:0};
 const reg=(t,index)=>t.sparse.view.getBigUint64(t.tb+d.cfg.ctx+d.cfg.gregsOff+index*8,true);
 try {
  kernel=new Kernel({vfs:{},state:d.state,log:()=>{},
@@ -51,7 +52,12 @@ try {
  extra.thread.sparse.fixtureIndex=3;made.push(extra);
  assert.notEqual(extra.worker.mem,made[0].worker.mem);assert.equal(extra.proc,made[0].proc);
  parentPort.postMessage({op:'spawn',...extra.worker,index:3,stopRip:observer.stopRip,maximumSteps:observer.entries.length,pauses:observer.pauses});
- kernel.run();assert.equal(otherProcessProgressed,true);assert.equal(oldValues.length,48);
+ const copyIn=kernel.sparseBroker.copyIn.bind(kernel.sparseBroker);
+ kernel.sparseBroker.copyIn=(token,address,length)=>{
+  assert.equal(token,made[2].thread.sparse.token);assert.equal(address,F.PRIVATE+0x100n);assert.equal(length,16);
+  userCopies.copyIn++;userCopies.bytes+=length;return copyIn(token,address,length);
+ };
+ kernel.run();assert.deepEqual(userCopies,{copyIn:1,bytes:16});assert.equal(otherProcessProgressed,true);assert.equal(oldValues.length,48);
  assert.deepEqual([...oldValues].sort((a,b)=>Number(a-b)),Array.from({length:48},(_,i)=>BigInt(i)));
  assert.equal(new DataView(spaces[0].read(F.SHARED,8).buffer).getBigUint64(0,true),99n);
  assert.equal(reg(made[0].thread,12),0n);assert.equal(reg(made[0].thread,13),0n);
@@ -66,6 +72,6 @@ try {
   internalBytes:m.worker.mem.buffer.byteLength,terminalStatus:m.proc.exitStatus,privateFrame:m.proc.mm.guest.mappingInfo(F.PRIVATE).frameId}));
  for(const m of made)assert.throws(()=>m.worker.mem.grow(1),RangeError);
  const backing=budget.stats();for(const s of spaces)s.close();shared.close();assert.equal(budget.stats().ownedPayloadBytes,0);
- parentPort.postMessage({op:'result',records,events,atomicOldValues:oldValues,finalCounter:99n,otherProcessProgressed,
+ parentPort.postMessage({op:'result',records,events,userCopies,atomicOldValues:oldValues,finalCounter:99n,otherProcessProgressed,
   broker:kernel.sparseBroker.stats(),futex:kernel.sparseBroker.futexStats(),backing,afterClose:budget.stats(),syscalls:kernel.stats.syscalls});
 }catch(error){parentPort.postMessage({op:'fatal',message:error.stack||String(error)});}

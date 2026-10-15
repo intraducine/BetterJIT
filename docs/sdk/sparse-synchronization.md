@@ -57,6 +57,9 @@ timer/wake race from writing abandoned state before the retirement scan. A live
 worker cannot be retired by this acknowledgement API. CPU helpers require the
 authenticated live sparse thread and select its own internal view.
 
+The [spilled user-copy prerequisite](sparse-user-copies.md) now routes the
+futex timespec read through an authenticated bounded copyin capability.
+
 ## Ownership and capacity
 
 `createSparseProcess` and `createSparseThread` are trusted host fixture APIs,
