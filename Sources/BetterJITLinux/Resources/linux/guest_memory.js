@@ -16,6 +16,18 @@
   class AllocationFailure extends Error {
     constructor(reason) {super('Guest backing allocation failed: '+reason);this.name='AllocationFailure';this.reason=reason;}
   }
+  class PreparedWriteConflict extends Error {
+    constructor(message){super(message);this.name='PreparedWriteConflict';}
+  }
+  function writeReady(s) {
+    if(s.preparing||s.pending)throw new PreparedWriteConflict('Address space has a prepared write');
+  }
+  function cancelPrepared(s,rec) {
+    if(!rec.live)return false;
+    rec.live=false;if(s.pending===rec)s.pending=null;
+    for(const p of rec.parts)if(p.staged&&!p.published)release(p.staged.frame);
+    return true;
+  }
   function integer(value,label) {
     if(typeof value==='number') {
       if(!Number.isSafeInteger(value))throw new TypeError(label+' must be an exact integer');
@@ -43,7 +55,7 @@
       b.failures++;throw new AllocationFailure('invalid or aliased allocator page');
     }
     data.fill(0);if(initial)data.set(initial);
-    const frame={id:nextFrame++,budget,kind,data,refs:1};
+    const frame={id:nextFrame++,budget,kind,data,refs:1,revision:0};
     b.frames.set(frame.id,frame);liveBuffers.add(data.buffer);b.allocations++;
     b.peak=Math.max(b.peak,b.frames.size*PAGE);return frame;
   }
@@ -137,7 +149,7 @@
   }
   function atomicScalar(space,at,width,kind,operand,desired=0n) {
     if(![4,8].includes(width))throw new TypeError('Atomic width must be 4 or 8');
-    const s=spaces.get(space),r=range(s,at,width,'atomic');
+    const s=spaces.get(space);writeReady(s);const r=range(s,at,width,'atomic');
     segments(s,r,'atomic',PROT.READ|PROT.WRITE); // includes failed compare/exchange write intent
     const before=space.read(r.start,width);let old=0n;
     for(let i=width-1;i>=0;i--)old=old<<8n|BigInt(before[i]);
@@ -154,10 +166,10 @@
       if(!budgets.has(budget))throw new TypeError('BackingBudget required');
       const limit=integer(virtualLimit,'Virtual limit'),minimum=integer(minimumAddress,'Minimum address');
       if(limit>U64||minimum<0n||minimum>=limit||limit%P||minimum%P)throw new TypeError('Invalid virtual window');
-      spaces.set(this,{budget,limit,minimum,id:nextSpace++,regions:[],pages:new Map(),closed:false});
+      spaces.set(this,{budget,limit,minimum,id:nextSpace++,regions:[],pages:new Map(),closed:false,preparing:false,pending:null});
     }
     mapAnonymous(at,length,prot=PROT.READ|PROT.WRITE,{replace=false}={}) {
-      const s=spaces.get(this),r=range(s,at,length,'map',true);protection(prot);
+      const s=spaces.get(this);writeReady(s);const r=range(s,at,length,'map',true);protection(prot);
       if(!replace&&overlaps(s,r))throw new MemoryFault('overlap',r.start,r.len,'map');
       const staged=stagePages(s,r,prot); // Old mappings survive any allocation failure.
       dropPages(s,r);regionsReplace(s,r,prot);for(const [p,e]of staged)s.pages.set(p,e);
@@ -166,22 +178,22 @@
     reserve(at,length){return this.mapAnonymous(at,length,PROT.NONE);}
     commit(at,length,prot=PROT.READ|PROT.WRITE){return this.protect(at,length,prot);}
     protect(at,length,prot) {
-      const s=spaces.get(this),r=range(s,at,length,'protect',true);protection(prot);covered(s,r,'protect');
+      const s=spaces.get(this);writeReady(s);const r=range(s,at,length,'protect',true);protection(prot);covered(s,r,'protect');
       const staged=stagePages(s,r,prot,true);
       regionsReplace(s,r,prot);for(const [p,e]of staged)s.pages.set(p,e);return r.start;
     }
     decommit(at,length) {
-      const s=spaces.get(this),r=range(s,at,length,'decommit',true);covered(s,r,'decommit');
+      const s=spaces.get(this);writeReady(s);const r=range(s,at,length,'decommit',true);covered(s,r,'decommit');
       for(const [p,e]of s.pages)if(p>=r.start&&p<r.end&&e.kind!=='private')
         throw new MemoryFault('unsupported-shared-decommit',r.start,r.len,'decommit',p);
       dropPages(s,r);regionsReplace(s,r,PROT.NONE);
     }
     unmap(at,length) {
-      const s=spaces.get(this),r=range(s,at,length,'unmap',true);
+      const s=spaces.get(this);writeReady(s);const r=range(s,at,length,'unmap',true);
       dropPages(s,r);regionsReplace(s,r,null);
     }
     mapShared(at,length,backing,offset=0n,{prot=PROT.READ|PROT.WRITE,privateView=false,replace=false}={}) {
-      const s=spaces.get(this),r=range(s,at,length,'map-shared',true),b=backings.get(backing);
+      const s=spaces.get(this);writeReady(s);const r=range(s,at,length,'map-shared',true),b=backings.get(backing);
       const off=integer(offset,'Backing offset');protection(prot);
       if(!b||b.closed||b.budget!==s.budget||off<0n||off%P||off+r.len>b.length)throw new TypeError('Invalid shared backing range');
       if(!replace&&overlaps(s,r))throw new MemoryFault('overlap',r.start,r.len,'map-shared');
@@ -204,23 +216,60 @@
         throw new MemoryFault('unsupported-executable-alias',r.start,r.len,'execute');
       return this.read(r.start,r.len,{execute:true});
     }
+    prepareWrite(at,length) {
+      const s=spaces.get(this);writeReady(s);const r=range(s,at,length,'write');
+      if(r.len>BigInt(Number.MAX_SAFE_INTEGER))throw new TypeError('Prepared write is too large');
+      const parts=segments(s,r,'write',PROT.WRITE),bytes=new Uint8Array(Number(r.len));
+      const rec={live:true,parts,bytes,length:bytes.length,stamp:Symbol()};let off=0;
+      s.preparing=true;
+      try {
+        for(const p of parts) {
+          p.bufferOffset=off;off+=p.length;p.revision=p.pte.frame.revision;
+          if(p.pte.kind==='private-view')p.staged={frame:frameAllocate(s.budget,'private',p.pte.frame.data),kind:'private'};
+        }
+        s.pending=rec;
+      }catch(error){cancelPrepared(s,rec);throw error;}
+      finally{s.preparing=false;}
+      const validate=()=>{
+        if(!rec.live||s.pending!==rec||s.closed)throw new PreparedWriteConflict('Prepared write is closed');
+        if(bytes.byteLength!==rec.length){cancelPrepared(s,rec);throw new PreparedWriteConflict('Prepared buffer was detached');}
+        for(const p of parts)if(s.pages.get(p.page)!==p.pte||p.pte.frame.revision!==p.revision) {
+          cancelPrepared(s,rec);throw new PreparedWriteConflict('Prepared backing changed');
+        }
+        return true;
+      };
+      validate();
+      return Object.freeze({bytes,length:rec.length,validate,cancel:()=>cancelPrepared(s,rec),
+        commit(count=rec.length) {
+          if(!Number.isSafeInteger(count)||count<0||count>rec.length)throw new TypeError('Invalid prepared prefix length');
+          validate();
+          // No frame allocation, callback or asynchronous gap after validation.
+          // Prefix commits publish only touched COW pages; unused staging is freed.
+          for(const p of parts) {
+            const n=Math.max(0,Math.min(p.length,count-p.bufferOffset));
+            if(!n){if(p.staged)release(p.staged.frame);continue;}
+            const target=p.staged||p.pte;
+            if(p.staged){s.pages.set(p.page,target);p.published=true;release(p.pte.frame);}
+            for(let i=0;i<n;i++)target.frame.data[p.offset+i]=bytes[p.bufferOffset+i];
+            target.frame.revision=rec.stamp;
+          }
+          rec.live=false;s.pending=null;return count;
+        }
+      });
+    }
     write(at,bytes) {
       if(!(bytes instanceof Uint8Array))throw new TypeError('Uint8Array required');
-      const s=spaces.get(this),r=range(s,at,bytes.byteLength,'write'),parts=segments(s,r,'write',PROT.WRITE),staged=[];
-      try {for(const p of parts)if(p.pte.kind==='private-view')
-        staged.push([p,{frame:frameAllocate(s.budget,'private',p.pte.frame.data),kind:'private'}]);}
-      catch(error){for(const [,e]of staged)release(e.frame);throw error;}
-      for(const [p,e]of staged){s.pages.set(p.page,e);release(p.pte.frame);p.pte=e;}
-      let off=0;for(const p of parts){p.pte.frame.data.set(bytes.subarray(off,off+p.length),p.offset);off+=p.length;}
+      const prepared=this.prepareWrite(at,bytes.byteLength);
+      try{prepared.bytes.set(bytes);prepared.commit();}finally{prepared.cancel();}
     }
     copy(destination,source,length) {
-      const s=spaces.get(this),r=range(s,destination,length,'write');segments(s,r,'write',PROT.WRITE);
+      const s=spaces.get(this);writeReady(s);const r=range(s,destination,length,'write');segments(s,r,'write',PROT.WRITE);
       const bytes=this.read(source,length);this.write(destination,bytes); // Explicit memmove snapshot semantics.
     }
     compareExchange(at,width,expected,desired){return atomicScalar(this,at,width,'cas',expected,desired);}
     fetchAdd(at,width,operand){return atomicScalar(this,at,width,'add',operand);}
     fork() {
-      const s=spaces.get(this);range(s,s.minimum,0,'fork');
+      const s=spaces.get(this);writeReady(s);range(s,s.minimum,0,'fork');
       const child=new GuestAddressSpace(s.budget,{virtualLimit:s.limit,minimumAddress:s.minimum}),c=spaces.get(child);
       c.regions=s.regions.map(v=>({...v}));
       try {
@@ -258,9 +307,12 @@
         regionCount:s.regions.length,committedPages:s.pages.size,uniqueMappedPayloadBytes:unique.size*PAGE});
     }
     close() {
-      const s=spaces.get(this);if(s.closed)return;s.closed=true;
+      const s=spaces.get(this);if(s.closed)return;
+      if(s.preparing)throw new PreparedWriteConflict('Cannot close during preparation');
+      if(s.pending)cancelPrepared(s,s.pending);s.closed=true;
       for(const e of s.pages.values())release(e.frame);s.pages.clear();s.regions=[];
     }
   }
-  root.BetterJITGuestMemory=Object.freeze({STORAGE_VERSION:1,PAGE,PROT,MemoryFault,AllocationFailure,BackingBudget,SharedBacking,GuestAddressSpace});
+  root.BetterJITGuestMemory=Object.freeze({STORAGE_VERSION:1,PAGE,PROT,MemoryFault,AllocationFailure,PreparedWriteConflict,
+    BackingBudget,SharedBacking,GuestAddressSpace});
 })(typeof globalThis!=='undefined'?globalThis:self);

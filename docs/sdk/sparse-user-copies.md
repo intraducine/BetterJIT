@@ -9,7 +9,7 @@ The broker accepts copies only after a successful STEP_SYSCALL spill, when no
 instruction is active and the owner is not parked. BEGIN revokes that boundary;
 retired, foreign or poisoned registrations cannot copy. The kernel's frozen
 `sparseUserMemory(thread)` capability rechecks the exact thread/slot/token,
-W_OCCUPIED and original guest address-space identity on every use. It refuses
+W_OCCUPIED, original memory-owner object and guest address-space identity on every use. It refuses
 image replacement, retirement, active instructions and parked calls. There is
 no guest-supplied process/address-space selector or backing-page view.
 
@@ -30,11 +30,13 @@ timespec traverses the capability exactly once while retaining the existing
 created. Storage/capability regressions use synthetic spilled producers and
 test isolation, stale owners, exact lengths, cross-page faults and rollback.
 
-This is a pure-memory boundary. It is not a prepared copyout transaction spanning
-file input consumption, nor an implementation of Linux partial I/O, string/vector
-arguments or image preparation. Those remain the next stages of the reviewed
+This is a pure-memory boundary. The next increment adds a
+[prepared-copyout transaction](sparse-prepared-copyout.md) that allocates and
+validates the full destination before a caller can acquire input. General I/O
+handlers, Linux partial I/O, string/vector arguments and image preparation remain
+later stages of the reviewed
 [lifecycle proposal](https://github.com/intraducine/BetterJIT/blob/d144603471f2564067fefe1a6c20ff323cfe5dac/docs/sparse-process-lifecycle-plan.md).
-Do not call legacy direct-buffer helpers or consume file input before the later
-prepared-copyout contract exists. Memory/checkpoint/step/coverage ABIs remain
+Future input handlers must use that transaction's synchronous acquisition and
+commit contract, rather than legacy direct-buffer helpers. Memory/checkpoint/step/coverage ABIs remain
 1/1/2/2; this adds no native import or opcode family. Host tests establish no
 device compatibility, sparse WebKit lifecycle support or RAM savings.

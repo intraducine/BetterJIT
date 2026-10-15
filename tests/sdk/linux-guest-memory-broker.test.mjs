@@ -35,6 +35,45 @@ function spillSyscall(f) {
  return f.broker.finishInstruction(f.token,{status:STEP.SYSCALL,nextRip:RIP+2n});
 }
 
+test('prepared user copyout holds the spilled owner until prefix commit or cancellation',t=>{
+ const f=fixture(t);f.space.mapAnonymous(AT,P,RW);spillSyscall(f);
+ const tx=f.broker.prepareCopyOut(f.token,AT,8);tx.bytes.fill(4);
+ assert.throws(()=>f.broker.copyIn(f.token,AT,1),/Prepared/);
+ assert.throws(()=>f.begin(OP.SYSCALL,0),/Prepared/);
+ assert.throws(()=>f.broker.waitFutex(f.token,{address:AT,expected:0n},()=>{}),/Prepared/);
+ assert.throws(()=>f.broker.wakeFutex(f.token,{address:AT,count:1}),/Prepared/);
+ assert.equal(tx.validate(),true);assert.equal(tx.commit(2),2);assert.equal(tx.cancel(),false);
+ assert.deepEqual(f.broker.copyIn(f.token,AT,8),Uint8Array.of(4,4,0,0,0,0,0,0));
+ const next=f.broker.prepareCopyOut(f.token,AT,8);assert.equal(next.cancel(),true);f.begin(OP.SYSCALL,0);
+});
+test('prepared user copyout cancels COW resources on retirement and cannot target a reused lease',t=>{
+ const b=new BackingBudget(),o=new SharedBacking(b,P);t.after(()=>o.close());const f=fixture(t,{budget:b});
+ f.space.mapShared(AT,P,o,0n,{privateView:true});spillSyscall(f);
+ const tx=f.broker.prepareCopyOut(f.token,AT,8);tx.bytes.fill(99);assert.equal(b.stats().ownedPayloadBytes,2*PAGE);
+ f.broker.unregister(f.token);assert.equal(b.stats().ownedPayloadBytes,PAGE);assert.equal(tx.cancel(),false);
+ const fresh=fixture(t,{budget:b,broker:f.broker,space:f.space});spillSyscall(fresh);
+ fresh.broker.copyOut(fresh.token,AT,Uint8Array.of(7));assert.throws(()=>tx.commit(),/Retired|foreign/);
+ assert.equal(f.space.read(AT,1)[0],7);
+});
+test('prepared copyout errors release the owner and keep typed bounds and allocation failures',t=>{
+ const b=new BackingBudget({limitBytes:PAGE}),o=new SharedBacking(b,P);t.after(()=>o.close());const f=fixture(t,{budget:b});
+ f.space.mapShared(AT,P,o,0n,{privateView:true});spillSyscall(f);
+ assert.throws(()=>f.broker.prepareCopyOut(f.token,AT,65537),BetterJITGuestMemoryBroker.UserCopyUnsupported);
+ assert.throws(()=>f.broker.prepareCopyOut(f.token,AT,8),BetterJITGuestMemory.AllocationFailure);
+ assert.equal(f.broker.copyIn(f.token,AT,1)[0],0);
+ const g=fixture(t);g.space.mapAnonymous(AT,P,RW);spillSyscall(g);const tx=g.broker.prepareCopyOut(g.token,AT,8);
+ assert.throws(()=>tx.commit(9),TypeError);assert.equal(tx.cancel(),false);assert.equal(g.broker.copyIn(g.token,AT,1)[0],0);
+});
+test('retirement during COW preparation cannot publish or leak a prepared capability',t=>{
+ let f,retire=false;const b=new BackingBudget({allocatePage:n=>{
+  if(retire)f.broker.unregister(f.token);return new Uint8Array(n);
+ }}),o=new SharedBacking(b,P);t.after(()=>o.close());f=fixture(t,{budget:b});
+ f.space.mapShared(AT,P,o,0n,{privateView:true});spillSyscall(f);retire=true;
+ assert.throws(()=>f.broker.prepareCopyOut(f.token,AT,8),/Retired/);
+ assert.equal(b.stats().ownedPayloadBytes,PAGE);retire=false;
+ f.space.write(AT,Uint8Array.of(7));assert.equal(f.space.read(AT,1)[0],7);
+});
+
 test('user copies require a completed spilled syscall and never expose backing views',t=>{
  const f=fixture(t);f.space.mapAnonymous(AT,2n*P,RW);
  assert.throws(()=>f.broker.copyIn(f.token,AT,8),/spilled syscall/);

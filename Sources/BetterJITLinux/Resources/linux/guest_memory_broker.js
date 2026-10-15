@@ -52,9 +52,10 @@
     if(s.poisoned)throw new BrokerInvariantError('Thread registration failed an invariant');
     return s;
   }
-  function userOwner(broker,token) {
+  function userOwner(broker,token,prepared=false) {
     const s=requireOwner(broker,token);
     if(!s.spilledSyscall||s.active||s.waits.size)throw new BrokerInvariantError('User copy requires a runnable spilled syscall boundary');
+    if(!prepared&&s.preparedCopies.size)throw new BrokerInvariantError('Prepared copyout must complete first');
     return s;
   }
   function layoutFor(layout) {
@@ -116,7 +117,7 @@
       const generation=b.nextLease++,token=Object.freeze({generation});
       const s={broker:this,slot,generation,space,memory,layout,view:new DataView(memory.buffer),
         scratch:new DataView(memory.buffer,ABI.threadBase+ABI.scratchOffset,ABI.scratchBytes),
-        lastSequence:0,checkpoint:0n,active:null,spilledSyscall:false,closed:false,poisoned:false,waits:new Set()};
+        lastSequence:0,checkpoint:0n,active:null,spilledSyscall:false,closed:false,poisoned:false,waits:new Set(),preparedCopies:new Set()};
       new Uint8Array(memory.buffer,ABI.threadBase+ABI.scratchOffset,ABI.scratchBytes).fill(0);
       s.scratch.setUint32(FIELD.magic,ABI.magic,true);s.scratch.setUint32(FIELD.version,ABI.version,true);
       s.scratch.setBigUint64(FIELD.lease,generation,true);
@@ -124,6 +125,7 @@
     }
     unregister(token) {
       const s=current(this,token);if(!s)return false;
+      for(const rec of [...s.preparedCopies])rec.cancel();
       for(const rec of [...s.waits])finishWait(brokers.get(this),rec,-4n,false);
       brokers.get(this).slots.delete(s.slot);owners.delete(token);s.closed=true;s.active=null;return true;
     }
@@ -131,6 +133,7 @@
     // operation/width must come from compile-time admission, never guest input.
     beginInstruction(token,{rip,operation=0,width=0}) {
       const s=requireOwner(this,token);rip=u64(rip);
+      if(s.preparedCopies.size)throw new BrokerInvariantError('Prepared copyout must complete before BEGIN');
       if(s.active||s.waits.size)invariant(s,'Instruction already active or parked');
       s.spilledSyscall=false;
       if(!(([0,OP.SYSCALL].includes(operation)&&width===0)||([OP.READ,OP.WRITE].includes(operation)&&[1,2,4,8].includes(width))||
@@ -231,10 +234,33 @@
     readUserU64(token,address) {
       const bytes=this.copyIn(token,address,8);return new DataView(bytes.buffer,bytes.byteOffset,8).getBigUint64(0,true);
     }
+    prepareCopyOut(token,address,length) {
+      const s=userOwner(this,token),tx=s.space.prepareWrite(u64(address),copyLength(length));
+      // A custom frame allocator can retire the registration during preparation.
+      try{userOwner(this,token);}catch(error){tx.cancel();throw error;}
+      const rec={open:true,cancel:()=>{
+        if(!rec.open)return false;rec.open=false;s.preparedCopies.delete(rec);tx.cancel();return true;
+      }};
+      s.preparedCopies.add(rec);
+      const guard=(commit,count)=>{
+        try {
+          userOwner(this,token,true);
+          if(!rec.open||!s.preparedCopies.has(rec))throw new BrokerInvariantError('Prepared copyout is closed');
+          if(!commit)return tx.validate();
+          const n=tx.commit(count);rec.open=false;s.preparedCopies.delete(rec);return n;
+        }catch(error){rec.cancel();throw error;}
+      };
+      return Object.freeze({bytes:tx.bytes,length:tx.length,cancel:rec.cancel,
+        validate:()=>guard(false),commit:count=>guard(true,count)});
+    }
+    assertCopiesComplete(token) {
+      if(requireOwner(this,token).preparedCopies.size)throw new BrokerInvariantError('Prepared copyout must complete before syscall reply');
+    }
     // Called at a spilled syscall boundary. Comparison and enqueue have no
     // await/reply gap. Only the requester parks; the authority keeps running.
     waitFutex(token,{address,expected,private:priv=false},complete,onClose) {
       const s=requireOwner(this,token),b=brokers.get(this);
+      if(s.preparedCopies.size)throw new BrokerInvariantError('Prepared copyout cannot park');
       if(s.active||s.waits.size)invariant(s,'Futex wait requires an idle spilled thread');
       if(typeof complete!=='function'||(onClose!==undefined&&typeof onClose!=='function'))throw new TypeError('Futex completion required');
       const value=Number(BigInt.asUintN(32,u64(expected))),pin=s.space.pinFutex(address,{private:priv});
@@ -250,6 +276,7 @@
     }
     wakeFutex(token,{address,count,private:priv=false}) {
       const s=requireOwner(this,token),b=brokers.get(this);
+      if(s.preparedCopies.size)throw new BrokerInvariantError('Prepared copyout must complete before wake');
       if(s.active||s.waits.size)invariant(s,'Futex wake requires a runnable spilled thread');
       if(!Number.isInteger(count)||count<0||count>0x7fffffff)throw new TypeError('Invalid futex wake count');
       const pin=s.space.pinFutex(address,{private:priv});let key;

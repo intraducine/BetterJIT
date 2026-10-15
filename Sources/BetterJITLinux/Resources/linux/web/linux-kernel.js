@@ -1310,11 +1310,11 @@ class Kernel {
     this.k64[b+8]=result;this.k32[b*2+1]=0;Atomics.store(this.k32,b*2,S_DONE);Atomics.notify(this.k32,b*2);return true;
   }
   sparseUserMemory(t) {
-    const s=t.sparse,proc=t.proc,slot=t.slot,tid=t.tid,token=s?.token,space=s?.space,broker=this.sparseBroker;
+    const s=t.sparse,proc=t.proc,mm=proc.mm,slot=t.slot,tid=t.tid,token=s?.token,space=s?.space,broker=this.sparseBroker;
     const check=()=>{
       if(this.cfg.guestMemory!=='broker1'||!broker||!space||!s||t.sparse!==s||s.token!==token||
          t.proc!==proc||t.slot!==slot||t.tid!==tid||t.dead||s.retired||
-         this.threads.get(tid)!==t||this.slots[slot]!==t||proc.mm?.guest!==space||s.active||s.parked||
+         this.sparseBroker!==broker||this.threads.get(tid)!==t||this.slots[slot]!==t||proc.mm!==mm||mm?.guest!==space||s.active||s.parked||
          !Atomics.load(this.k32,((SLOT_BASE+slot*SLOT_SIZE)>>2)+W_OCCUPIED))
         throw new Error('Authenticated runnable sparse user-memory owner required');
     };
@@ -1322,7 +1322,14 @@ class Kernel {
     return Object.freeze({
       copyIn:(address,length)=>{check();return broker.copyIn(token,address,length);},
       copyOut:(address,bytes)=>{check();broker.copyOut(token,address,bytes);},
-      readU64:address=>{check();return broker.readUserU64(token,address);}
+      readU64:address=>{check();return broker.readUserU64(token,address);},
+      prepareCopyOut:(address,length)=>{
+        check();const tx=broker.prepareCopyOut(token,address,length);
+        try{check();}catch(error){tx.cancel();throw error;}
+        const guard=(commit,count)=>{try{check();return commit?tx.commit(count):tx.validate();}catch(error){tx.cancel();throw error;}};
+        return Object.freeze({bytes:tx.bytes,length:tx.length,cancel:tx.cancel,
+          validate:()=>guard(false),commit:count=>guard(true,count)});
+      }
     });
   }
   sparseFutexSupported(t) {
@@ -1332,6 +1339,7 @@ class Kernel {
   }
   completeSparseSyscall(t,lease,seq,result) {
     if(!this.ownsSparseTransport(t,lease,seq))return false;
+    this.sparseBroker.assertCopiesComplete(t.sparse.token);
     const v=t.sparse.view,g=t.tb+this.cfg.ctx+this.cfg.gregsOff;
     v.setBigUint64(g,BigInt.asUintN(64,result),true);
     t.sparse.last=Object.freeze({...t.sparse.last,status:0,syscall:true,result});

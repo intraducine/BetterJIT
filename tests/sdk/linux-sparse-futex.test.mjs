@@ -9,13 +9,13 @@ import {once} from 'node:events';
 globalThis.self=globalThis;
 for(const name of ['guest_memory.js','guest_memory_broker.js','web/linux-kernel.js'])vm.runInThisContext(fs.readFileSync(
  new URL('../../Sources/BetterJITLinux/Resources/linux/'+name,import.meta.url),'utf8'));
-const M=BetterJITGuestMemory,B=BetterJITGuestMemoryBroker,{Kernel,SLOT_BASE,SLOT_SIZE,S_REQ,S_DONE,W_OCCUPIED}=LinuxBundle.require('./kernel.js');
+const M=BetterJITGuestMemory,B=BetterJITGuestMemoryBroker,{Kernel,SLOT_BASE,SLOT_SIZE,S_REQ,S_DONE,S_BUSY,W_OCCUPIED}=LinuxBundle.require('./kernel.js');
 const RIP=0x123400004000n,AT=0x123456780000n,P=4096n;
 const cfg={guestMemory:'broker1',memoryABI:1,stepABI:2,coverageVersion:2,memPages:33,memMaxPages:33,threadBase:65536,
  regArgs:0,callsViaDispatcher:false,maxInstructions:1,shared:true,ctx:256,stateSize:1024,ripOff:24,gregsOff:32,
  checkpoint:{version:1,cpu:{offset:256,size:1024,ripOffset:24},lazyFlags:{offset:64,size:24},roundMode:{offset:112,size:4}}};
-function setup(t) {
- const budget=new M.BackingBudget(),object=new M.SharedBacking(budget,P);t.after(()=>object.close());const spaces=[],steps=[];
+function setup(t,options) {
+ const budget=new M.BackingBudget(options),object=new M.SharedBacking(budget,P);t.after(()=>object.close());const spaces=[],steps=[];
  const k=new Kernel({vfs:{},state:new Uint8Array(cfg.stateSize),log:()=>{},sparseStep:(th,r)=>steps.push({tid:th.tid,result:r.result})},cfg);
  const plan={status:0,rip:RIP,nextRip:RIP+2n,length:2,operation:5,width:0,instruction:Uint8Array.of(0x0f,0x05)};
  function make(index) {
@@ -96,6 +96,39 @@ test('kernel user-copy capabilities recheck thread, occupancy and image ownershi
  f.k.serviceRequests();assert.throws(()=>copy.copyIn(AT,1),/owner/);
  const fresh=f.make(2);assert.equal(fresh.thread.slot,a.thread.slot);
  assert.throws(()=>copy.copyIn(AT,1),/owner/);assert.equal(fresh.space.read(AT+2n*P,1)[0],17);
+});
+
+test('prepared kernel copies cancel on memory-owner replacement even when the guest space is the same',t=>{
+ const f=setup(t),a=f.make(0);assert.equal(a.begin({value:1n}),S_DONE);a.ack();
+ const copy=f.k.sparseUserMemory(a.thread),tx=copy.prepareCopyOut(AT,8);tx.bytes.fill(99);const mm=a.proc.mm;
+ a.proc.mm={...mm};assert.throws(()=>tx.commit(),/owner/);a.proc.mm=mm;
+ assert.equal(a.space.read(AT,1)[0],0);a.space.write(AT,Uint8Array.of(3));assert.equal(tx.cancel(),false);
+});
+test('memory-owner replacement during preparation cancels staging before exposing a handle',t=>{
+ let a,replace=false;const f=setup(t,{allocatePage:n=>{
+  if(replace)a.proc.mm={...a.proc.mm};return new Uint8Array(n);
+ }});a=f.make(0);assert.equal(a.begin({value:1n}),S_DONE);a.ack();
+ a.space.mapShared(AT+3n*P,P,f.object,0n,{privateView:true});const before=f.budget.stats().ownedPayloadBytes;
+ const copy=f.k.sparseUserMemory(a.thread);replace=true;
+ assert.throws(()=>copy.prepareCopyOut(AT+3n*P,8),/owner/);assert.equal(f.budget.stats().ownedPayloadBytes,before);
+ replace=false;a.space.write(AT+3n*P,Uint8Array.of(7));assert.equal(a.space.read(AT+3n*P,1)[0],7);
+});
+test('host-acknowledged worker death releases prepared COW staging before slot reuse',t=>{
+ const f=setup(t),a=f.make(0);assert.equal(a.begin({value:1n}),S_DONE);a.ack();
+ a.space.mapShared(AT+3n*P,P,f.object,0n,{privateView:true});const before=f.budget.stats().ownedPayloadBytes;
+ const tx=f.k.sparseUserMemory(a.thread).prepareCopyOut(AT+3n*P,8);tx.bytes.fill(99);
+ assert.equal(f.budget.stats().ownedPayloadBytes,before+4096);Atomics.store(f.k.k32,a.b32+W_OCCUPIED,0);
+ f.k.serviceRequests();assert.equal(f.budget.stats().ownedPayloadBytes,before);assert.throws(()=>tx.commit(),/owner/);
+ const fresh=f.make(1);assert.equal(fresh.thread.slot,a.thread.slot);assert.equal(fresh.space.read(AT+P,1)[0],0);
+});
+test('a syscall cannot publish its result while prepared copyout remains outstanding',t=>{
+ const f=setup(t),a=f.make(0);assert.equal(a.begin({value:1n}),S_DONE);a.ack();
+ const tx=f.k.sparseUserMemory(a.thread).prepareCopyOut(AT,8),before=a.result(),seq=f.k.k64[a.b32/2+3];
+ Atomics.store(f.k.k32,a.b32,S_BUSY); // synthetic busy FINISH transport
+ assert.throws(()=>f.k.completeSparseSyscall(a.thread,a.worker.lease,seq,123n),/Prepared/);
+ assert.equal(a.result(),before);assert.equal(Atomics.load(f.k.k32,a.b32),S_BUSY);
+ tx.cancel();assert.equal(f.k.completeSparseSyscall(a.thread,a.worker.lease,seq,123n),true);
+ assert.equal(a.result(),123n);assert.equal(Atomics.load(f.k.k32,a.b32),S_DONE);
 });
 
 // Real worker transport, with a synthetic spilled producer rather than FEX.

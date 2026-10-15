@@ -11,6 +11,73 @@ const P=BigInt(PAGE),LOW=0x10000n,HIGH=0x7ffe0000n,RW=PROT.READ|PROT.WRITE;
 const fault=(reason,fn)=>assert.throws(fn,e=>e instanceof MemoryFault&&e.reason===reason);
 const own=(t,budget,options)=>{const s=new GuestAddressSpace(budget,options);t.after(()=>s.close());return s;};
 
+test('prepared copyout preallocates every COW page and commits only the returned prefix',t=>{
+ const b=new BackingBudget(),o=new SharedBacking(b,2n*P);t.after(()=>o.close());const s=own(t,b);
+ s.mapShared(HIGH,2n*P,o,0n,{privateView:true});const second=s.mappingInfo(HIGH+P).frameId;
+ const tx=s.prepareWrite(HIGH+P-4n,8);assert.equal(b.stats().ownedPayloadBytes,4*PAGE);
+ tx.bytes.fill(42);assert.deepEqual(s.read(HIGH+P-4n,8),new Uint8Array(8));
+ const attempts=b.stats().allocationAttempts;assert.equal(tx.validate(),true);assert.equal(tx.commit(3),3);
+ assert.equal(b.stats().allocationAttempts,attempts);assert.equal(b.stats().ownedPayloadBytes,3*PAGE);
+ assert.deepEqual(s.read(HIGH+P-4n,8),Uint8Array.of(42,42,42,0,0,0,0,0));
+ assert.equal(s.mappingInfo(HIGH+P).frameId,second);assert.equal(tx.cancel(),false);
+ assert.throws(()=>tx.commit(),BetterJITGuestMemory.PreparedWriteConflict);
+});
+test('prepared cancellation and zero-byte commit preserve bytes and mapping identities',t=>{
+ const b=new BackingBudget(),o=new SharedBacking(b,P);t.after(()=>o.close());const s=own(t,b);
+ s.mapShared(HIGH,P,o,0n,{privateView:true});const id=s.mappingInfo(HIGH).frameId;
+ let tx=s.prepareWrite(HIGH,8);tx.bytes.fill(9);assert.equal(tx.cancel(),true);assert.equal(tx.cancel(),false);
+ assert.equal(b.stats().ownedPayloadBytes,PAGE);assert.equal(s.mappingInfo(HIGH).frameId,id);
+ tx=s.prepareWrite(HIGH,8);tx.bytes.fill(8);assert.throws(()=>tx.commit(9),TypeError);
+ assert.throws(()=>tx.commit(-1),TypeError);assert.throws(()=>tx.commit(0.5),TypeError);assert.equal(tx.commit(0),0);
+ assert.equal(b.stats().ownedPayloadBytes,PAGE);assert.equal(s.mappingInfo(HIGH).frameId,id);
+ assert.deepEqual(s.read(HIGH,8),new Uint8Array(8));s.write(HIGH,Uint8Array.of(7));assert.equal(s.read(HIGH,1)[0],7);
+});
+test('prepared allocation and protection failures occur before input can be consumed',t=>{
+ const b=new BackingBudget({limitBytes:3*PAGE}),o=new SharedBacking(b,2n*P);t.after(()=>o.close());const s=own(t,b);
+ s.mapShared(HIGH,2n*P,o,0n,{privateView:true});const ids=[HIGH,HIGH+P].map(a=>s.mappingInfo(a).frameId);let consumed=0;
+ assert.throws(()=>{const tx=s.prepareWrite(HIGH+P-4n,8);consumed++;tx.commit();},AllocationFailure);
+ assert.equal(consumed,0);assert.equal(b.stats().ownedPayloadBytes,2*PAGE);
+ assert.deepEqual([HIGH,HIGH+P].map(a=>s.mappingInfo(a).frameId),ids);
+ s.protect(HIGH+P,P,PROT.READ);
+ assert.throws(()=>{s.prepareWrite(HIGH+P-4n,8);consumed++;},e=>e instanceof MemoryFault&&e.faultAddress===HIGH+P);
+ assert.equal(consumed,0);assert.deepEqual(s.read(HIGH+P-4n,8),new Uint8Array(8));
+});
+test('prepared destinations refuse mapping changes, writes, atomics and fork until cancelled',t=>{
+ const b=new BackingBudget(),s=own(t,b),o=new SharedBacking(b,P);t.after(()=>o.close());s.mapAnonymous(HIGH,P,RW);
+ const tx=s.prepareWrite(HIGH,8);
+ for(const fn of [()=>s.mapAnonymous(LOW,P),()=>s.mapShared(LOW,P,o),()=>s.protect(HIGH,P,PROT.NONE),
+  ()=>s.unmap(HIGH,P),()=>s.decommit(HIGH,P),()=>s.write(HIGH,Uint8Array.of(1)),()=>s.copy(HIGH,HIGH,1),
+  ()=>s.fetchAdd(HIGH,4,1n),()=>s.fork(),()=>s.prepareWrite(HIGH,1)])
+  assert.throws(fn,BetterJITGuestMemory.PreparedWriteConflict);
+ assert.equal(tx.validate(),true);assert.equal(s.read(HIGH,1)[0],0);tx.cancel();s.protect(HIGH,P,PROT.READ);
+});
+test('writes through a canonical alias invalidate staged snapshots before commit',t=>{
+ for(const privateView of [false,true]) {
+  const b=new BackingBudget(),o=new SharedBacking(b,P);t.after(()=>o.close());const a=own(t,b),c=own(t,b);
+  a.mapShared(HIGH,P,o,0n,{privateView});c.mapShared(LOW,P,o);
+  const id=a.mappingInfo(HIGH).frameId,tx=a.prepareWrite(HIGH,8);tx.bytes.fill(99);c.write(LOW+12n,Uint8Array.of(17));
+  assert.throws(()=>tx.validate(),BetterJITGuestMemory.PreparedWriteConflict);
+  assert.throws(()=>tx.commit(),BetterJITGuestMemory.PreparedWriteConflict);
+  assert.equal(a.mappingInfo(HIGH).frameId,id);assert.equal(a.read(HIGH+12n,1)[0],17);
+  assert.deepEqual(a.read(HIGH,8),new Uint8Array(8));assert.equal(b.stats().ownedPayloadBytes,PAGE);
+ }
+});
+test('closing a space or detaching its staging buffer cancels prepared backing safely',t=>{
+ const b=new BackingBudget(),o=new SharedBacking(b,P);t.after(()=>o.close());const s=own(t,b);
+ s.mapShared(HIGH,P,o,0n,{privateView:true});let tx=s.prepareWrite(HIGH,8);
+ structuredClone(tx.bytes.buffer,{transfer:[tx.bytes.buffer]});assert.throws(()=>tx.validate(),BetterJITGuestMemory.PreparedWriteConflict);
+ assert.equal(b.stats().ownedPayloadBytes,PAGE);tx=s.prepareWrite(HIGH,8);s.close();o.close();
+ assert.equal(b.stats().ownedPayloadBytes,0);assert.equal(tx.cancel(),false);assert.throws(()=>tx.commit(),BetterJITGuestMemory.PreparedWriteConflict);
+});
+test('allocator reentry cannot mutate or close a space during preparation',t=>{
+ let s,reenter;const b=new BackingBudget({allocatePage:n=>{if(reenter)reenter();return new Uint8Array(n);}});
+ const o=new SharedBacking(b,P);t.after(()=>o.close());s=own(t,b);s.mapShared(HIGH,P,o,0n,{privateView:true});
+ for(const action of [()=>s.unmap(HIGH,P),()=>s.close()]) {
+  reenter=action;assert.throws(()=>s.prepareWrite(HIGH,8),AllocationFailure);assert.equal(b.stats().ownedPayloadBytes,PAGE);
+ }
+ reenter=null;const tx=s.prepareWrite(HIGH,8);tx.bytes.fill(3);tx.commit();assert.equal(s.read(HIGH,1)[0],3);
+});
+
 test('three live spaces preserve high pointers and private bytes without backing their reserved holes',t=>{
  const b=new BackingBudget({limitBytes:6*PAGE}),ss=[0,1,2].map(()=>own(t,b,{virtualLimit:0x7fff0000n}));
  for(const [i,s]of ss.entries()){
