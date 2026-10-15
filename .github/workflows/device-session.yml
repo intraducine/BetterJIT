@@ -207,8 +207,12 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: Sparse-host-validation-${{ github.sha }}
-          path: .build/sparse-*-results.json
-          if-no-files-found: ignore
+          path: |
+            .build/sparse-live-results.json
+            .build/sparse-scalar-results.json
+            .build/sparse-sync-results.json
+          include-hidden-files: true
+          if-no-files-found: error
           retention-days: 14
       - name: Execute real Linux userspace through live FEX and the promoted runtime
         id: live-linux
