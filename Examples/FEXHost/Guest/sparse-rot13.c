@@ -16,4 +16,6 @@ __attribute__((noreturn,used)) void entry(const usize *stack){
  if(text[n]){write_bytes(2,"input too long\n",15);finish(65);}
  output[n++]='\n';finish(write_bytes(1,output,n)==(long)n?0:74);
 }
-__asm__(".text\n.global _start\n.type _start,@function\n_start:\nmov %rsp,%rdi\njmp entry\n.size _start,.-_start\n.section .note.GNU-stack,\"\",@progbits\n");
+/* Preserve the process stack argument and establish SysV callee alignment.
+ * entry never returns, so the reserved return-address slot is not read. */
+__asm__(".text\n.global _start\n.type _start,@function\n_start:\nmov %rsp,%rdi\nlea -8(%rsp),%rsp\njmp entry\n.size _start,.-_start\n.section .note.GNU-stack,\"\",@progbits\n");

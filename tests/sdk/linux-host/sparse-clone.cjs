@@ -25,7 +25,12 @@ async function execute(cfg,state,units,scenario,fixtureFile) {
     w.on('error',reject);w.on('message',r=>{if(r.op==='thread-failed'){if(expectedFailure)startupFailures.push(r);else reject(Error(r.message));}else if(r.op==='thread-result')results.push(r);});
     w.on('exit',code=>{workerExits.push({pid:m.pid,tid:m.tid,slot:m.slot,lease:m.lease,code,expectedStartupFailure:expectedFailure});const k=new Int32Array(m.ksab);Atomics.store(k,((256+m.slot*128)>>2)+26,0);Atomics.add(k,0,1);Atomics.notify(k,0);if(code!==0&&!expectedFailure)reject(Error('Clone worker exited '+code));});
     if(expectedFailure&&scenario==='terminate-before-ready')w.terminate();
-   }else if(m.op==='stop') {const owned=workers.get(m.slot);if(owned?.spec.lease===m.lease)owned.worker.terminate();}
+   }else if(m.op==='stop') {const owned=workers.get(m.slot);if(owned?.spec.lease===m.lease){
+    // A rejected continuation already unwound. Let its diagnostic and natural
+    // exit drain before the existing exact-worker exit acknowledgement. Killing
+    // it here can race the rejection handler's thread-failed postMessage.
+    if(!(scenario==='missing-continuation'&&owned.spec.startGate))owned.worker.terminate();
+   }}
    else if(m.op==='kernel-result') {assert.equal(results.length,scenario==='success'?2:1);for(const r of results)assert.equal(r.status,0);if(scenario==='missing-continuation')assert.equal(startupFailures.length,1);resolve({...m,scenario,startupFailures,workerExits,workers:results});}
   });
  });}finally{clearTimeout(timer);await Promise.allSettled([...workers.values()].map(x=>x.worker.terminate()).concat(kernel?[kernel.terminate()]:[]));}

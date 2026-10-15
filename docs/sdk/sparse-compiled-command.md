@@ -4,7 +4,9 @@ The convergence target is a small, useful command: `rot13 TEXT` transforms ASCII
 letters in one argument, preserves other UTF-8 bytes, writes a newline to stdout,
 and reports usage/length errors on stderr. It is freestanding C compiled by an
 ordinary Linux GCC and linker, with no libc. The only assembly is Linux syscall
-wrappers and a two-instruction entry shim that passes the initial stack to C.
+wrappers and a three-instruction entry shim that passes the original process
+stack to C and reserves eight bytes for System V callee stack alignment. The C
+entry never returns; its reserved return-address slot is not read.
 Neither the x86 instruction stream nor ELF headers are edited after compilation.
 This is compiled application logic, rather than a hand-authored instruction plan.
 The source, complete build flags, compiler version, source hash and ELF hash are
@@ -52,7 +54,7 @@ The initial host-created bootstrap forks. Guest code execs the GCC ELF by its
 path, the compiled C loop reads argv and writes its output, and the parent waits
 for the real guest status. Five cases match native Linux execution: ordinary
 text, empty input, ASCII boundaries plus UTF-8, missing argument, and an argument
-longer than 255 bytes. They execute 388/46/282/36/4123 FEX/Wasm steps with target
+longer than 255 bytes. They execute 389/47/283/37/4124 FEX/Wasm steps with target
 exit codes 0/0/0/64/65. Standard-output descriptions survive actual guest fork and
 exec. All worker/native owners drain before reaping/backing release on this Node
 route. The default fixtures remain in the source tree, but the target program

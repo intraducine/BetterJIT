@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Compile a freestanding C ROT13 command using an ordinary Linux x86-64 C compiler.
 
-The only assembly is syscall wrappers and a two-instruction process entry shim.
+The only assembly is syscall wrappers and a three-instruction process entry shim.
 No generated x86 instructions or ELF headers are rewritten.
 """
 import argparse,base64,hashlib,json,os,pathlib,platform,shlex,subprocess,tempfile
