@@ -35,6 +35,14 @@ test('virtual limits are independent of the small backing budget and preserve fu
  assert.throws(()=>s.read(1n<<64n,1),MemoryFault);
  assert.throws(()=>s.read(Number.MAX_SAFE_INTEGER+1,1),TypeError);
 });
+test('a valid access crossing the virtual limit reports its first inaccessible byte',t=>{
+ const s=own(t,new BackingBudget(),{virtualLimit:0x12000n});s.mapAnonymous(0x11000n,P,RW);
+ s.write(0x11ffcn,Uint8Array.of(1,2,3,4));
+ for(const fn of [()=>s.read(0x11ffcn,8),()=>s.write(0x11ffcn,new Uint8Array(8).fill(9))])
+  assert.throws(fn,e=>e instanceof MemoryFault&&e.reason==='range'&&e.guestAddress===0x11ffcn&&e.faultAddress===0x12000n&&e.width===8n);
+ assert.deepEqual(s.read(0x11ffcn,4),Uint8Array.of(1,2,3,4));
+ assert.throws(()=>s.read(0x12004n,1),e=>e.faultAddress===0x12004n&&e.guestAddress===0x12004n);
+});
 test('cross-page reads and writes gather nonadjacent backing frames and check every page before effects',t=>{
  const b=new BackingBudget(),s=own(t,b);s.mapAnonymous(LOW,P,RW);s.mapAnonymous(HIGH,P,RW);s.mapAnonymous(LOW+P,P,RW);
  const data=Uint8Array.of(1,2,3,4);s.write(LOW+P-2n,data);assert.deepEqual(s.read(LOW+P-2n,4),data);

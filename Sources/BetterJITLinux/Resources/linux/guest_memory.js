@@ -87,7 +87,8 @@
     const start=address(at),len=integer(length,'Length'),end=start+len;
     if(s.closed)throw new MemoryFault('closed',start,len,access);
     if(len<0n||start<s.minimum||end>s.limit||end<start)
-      throw new MemoryFault('range',start,len,access);
+      throw new MemoryFault('range',start,len,access,
+        len>=0n&&start>=s.minimum&&start<s.limit&&end>s.limit?s.limit:start);
     if(aligned&&(!len||start%P||len%P))throw new TypeError('Mapping range must contain aligned whole pages');
     return {start,end,len};
   }

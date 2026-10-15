@@ -82,6 +82,13 @@ test('full i64 endpoint and high unmapped address fault without low-address trun
  checkpoint=f.begin();r=f.request({address:0xffffffffffffffffn,checkpoint});assert.equal(r.status,S.FAULT);assert.equal(r.reason,R.RANGE);
  assert.equal(r.faultAddress,0xffffffffffffffffn);f.broker.finishInstruction(f.token,{status:STEP.FAULT});
 });
+test('typed limit fault keeps the original address distinct from the first inaccessible byte',t=>{
+ const budget=new BackingBudget(),space=new GuestAddressSpace(budget,{virtualLimit:AT+P});
+ const f=fixture(t,{budget,space});space.mapAnonymous(AT,P,RW);f.begin();
+ const r=f.request({address:AT+P-4n});assert.equal(r.status,S.FAULT);assert.equal(r.reason,R.RANGE);
+ assert.equal(r.faultAddress,AT+P);assert.equal(f.scratch.getBigUint64(F.address,true),AT+P-4n);
+ assert.equal(f.scratch.getBigUint64(F.faultAddress,true),AT+P);f.broker.finishInstruction(f.token,{status:STEP.FAULT});
+});
 test('canonical shared aliases are visible through the same synchronous authority',t=>{
  const b=new BackingBudget(),broker=new GuestMemoryBroker(),shared=new SharedBacking(b,P);t.after(()=>shared.close());
  const a=fixture(t,{budget:b,broker}),c=fixture(t,{budget:b,broker,slot:1});
