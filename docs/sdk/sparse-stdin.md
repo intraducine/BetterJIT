@@ -23,14 +23,14 @@ let process = try FEXProcess(
         standardIO: .captured, executionProfile: .sparseStatic,
         standardInput: Data("Hello from captured stdin.\n".utf8)),
     overlay: ["/test/cat": compiledELF])
-// Mount process.session.webView in the existing UI before running.
-let result = try await process.session.run()
-process.close()
+// Mount process.webView in the existing UI before running.
+let result = try await process.run() // closes after exit, failure or cancellation
 ```
 
 Captured output is still separate UTF-8 text, with streaming decoding across
 writes and explicit truncation; it is not a lossless binary-output API. Input
-accepts bytes, including zero bytes, but invalid output UTF-8 becomes U+FFFD.
+accepts bytes, including zero bytes. Valid BOM scalars are preserved at stream
+and write boundaries; invalid output UTF-8 becomes U+FFFD.
 Interactive input, asynchronous input producers, general open/read/seek/ioctl,
 CLOEXEC and arbitrary inherited descriptors remain unsupported.
 
@@ -84,12 +84,13 @@ node tests/sdk/linux-host/sparse-cat.cjs /path/to/fexserve /tmp/cat-live.json /t
 python3 tests/sdk/sparse-browser.py --program cat --translator /path/to/fexserve
 ```
 
-Seven real FEX/Wasm cases cover empty/text input, UTF-8 split at a 4096-byte read
+Ten real FEX/Wasm cases cover empty/text input, UTF-8 split at a 4096-byte read
 boundary, a 256 KiB stream, argument refusal, a closed stdin error using JS and a
-shared cursor across fork/exec. They compare actual output byte counts/hashes
+shared cursor across fork/exec, plus BOM scalars at stream start and split or
+aligned read boundaries. They compare actual output byte counts/hashes
 against direct native execution and finish with zero broker owners/backing after
 owned request/worker drains. The independent pipe oracle records ten memory/EOF
-cases. Chromium executes five public-profile cases with exact output and input
+cases. Chromium executes eight public-profile cases with exact output and input
 consumption; large stdout is hashed in evidence rather than printed in full.
 Linux CI also builds fresh compiler output for Apple FEX validation. An opt-in
 real macOS WKWebView test uses the production Swift session/server/resources;

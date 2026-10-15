@@ -246,6 +246,7 @@
     "tests/sdk/linux-host/sparse-cat-kernel.cjs": "tests/sdk/linux-host/sparse-cat-kernel.cjs",
     "tests/sdk/linux-host/sparse-cat.cjs": "tests/sdk/linux-host/sparse-cat.cjs",
     "tests/sdk/linux-host/sparse-stdin-oracle.c": "tests/sdk/linux-host/sparse-stdin-oracle.c",
-    "tests/sdk/linux-sparse-input.test.mjs": "tests/sdk/linux-sparse-input.test.mjs"
+    "tests/sdk/linux-sparse-input.test.mjs": "tests/sdk/linux-sparse-input.test.mjs",
+    "tests/sdk/linux-sparse-page.test.mjs": "tests/sdk/linux-sparse-page.test.mjs"
   }
 }

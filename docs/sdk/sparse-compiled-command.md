@@ -139,7 +139,8 @@ The report records that retention and the fixed 33-page internal context. Abrupt
 session teardown cancels owned workers/requests and closes the locked native
 backend; it does not generate a completed guest/reaping result.
 
-The same production page runs all five cases in real Chromium with live FEX,
+The same production page runs the five original cases and an additional BOM
+argument regression in real Chromium with live FEX,
 and CI invokes an opt-in real macOS WKWebView test after the host translator is
 built. That test uses the production Swift session/server/resources and live
 native FEX through a test-only HTTP backend. The linked device backend is compiled

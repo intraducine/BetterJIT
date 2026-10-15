@@ -72,7 +72,7 @@ final class SparseWebKitHostTests:XCTestCase {
         let root=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let object=try JSONSerialization.jsonObject(with:Data(contentsOf:root.appendingPathComponent("Examples/FEXHost/Guest/sparse-cat.json"))) as! [String:Any]
         let elf=try XCTUnwrap(Data(base64Encoded:try XCTUnwrap(object["elf"] as? String)))
-        let inputs:[(String,String,Bool)]=[("empty","",false),("text","Hello, BetterJIT stdin!\né🙂\n",false),("split-utf8",String(repeating:"x",count:4095)+"é🙂\n",false),("large",String(repeating:"line: BetterJIT stdin 0123456789\n",count:1024),false),("argument","unconsumed",true)]
+        let inputs:[(String,String,Bool)]=[("empty","",false),("text","Hello, BetterJIT stdin!\né🙂\n",false),("split-utf8",String(repeating:"x",count:4095)+"é🙂\n",false),("large",String(repeating:"line: BetterJIT stdin 0123456789\n",count:1024),false),("argument","unconsumed",true),("leading-bom","\u{FEFF}Hello BOM\n",false),("boundary-bom",String(repeating:"x",count:4096)+"\u{FEFF}After read boundary\n",false),("split-bom",String(repeating:"x",count:4095)+"\u{FEFF}Split across reads\n",false)]
         for (id,input,badArgument) in inputs {
             let backend=try SparseNativeHost(binary:native);defer{backend.close()};try await backend.ready()
             let files=try DirectoryLinuxFileSystem(root:root.appendingPathComponent(".build/sparse-input-empty-root"),overlay:["/test/cat":elf])
@@ -100,7 +100,7 @@ final class SparseWebKitHostTests:XCTestCase {
         let root=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let object=try JSONSerialization.jsonObject(with:Data(contentsOf:root.appendingPathComponent("Examples/FEXHost/Guest/sparse-rot13.json"))) as! [String:Any]
         let elf=try XCTUnwrap(Data(base64Encoded:try XCTUnwrap(object["elf"] as? String)))
-        let inputs:[(String?,Int,String,String)]=[("Hello, BetterJIT 2026!",0,"Uryyb, OrggreWVG 2026!\n",""),("",0,"\n",""),("AaNnZz09- é🙂",0,"NnAaMm09- é🙂\n",""),(nil,64,"","usage: rot13 TEXT\n"),(String(repeating:"x",count:256),65,"","input too long\n")]
+        let inputs:[(String?,Int,String,String)]=[("Hello, BetterJIT 2026!",0,"Uryyb, OrggreWVG 2026!\n",""),("",0,"\n",""),("AaNnZz09- é🙂",0,"NnAaMm09- é🙂\n",""),(nil,64,"","usage: rot13 TEXT\n"),(String(repeating:"x",count:256),65,"","input too long\n"),("\u{FEFF}BOM é🙂",0,"\u{FEFF}OBZ é🙂\n","")]
         for (arg,code,out,err) in inputs {
             let backend=try SparseNativeHost(binary:native);defer{backend.close()};try await backend.ready()
             let files=try DirectoryLinuxFileSystem(root:root.appendingPathComponent(".build/sparse-empty-root"),overlay:["/test/rot13":elf])

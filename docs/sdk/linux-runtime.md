@@ -95,7 +95,8 @@ or Files providers that cannot preserve Unix symlinks and executable modes.
 ## Boundaries
 
 `LinuxRuntimeConfiguration.standardIO` defaults to `.terminal`. Use `.captured`
-for headless output: stdin reaches EOF and terminal ioctls return ENOTTY.
+for headless output: stdin defaults to EOF and terminal ioctls return ENOTTY.
+The sparse profile can provide [finite captured stdin](sparse-stdin.md).
 These streams report FIFO file type instead
 of a terminal character device. The adapted command and nested Win64 tests use
 this mode so Wine handles them as redirected streams. The nested fixture checks

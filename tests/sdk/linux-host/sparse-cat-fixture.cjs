@@ -7,7 +7,10 @@ function cases(){return[
  {id:'large',input:new TextEncoder().encode('line: BetterJIT stdin 0123456789\n'.repeat(9000)).slice(0,256*1024)},
  {id:'argument',input:new TextEncoder().encode('unconsumed'),argument:'unexpected',exitCode:64},
  {id:'closed-stdin',input:new Uint8Array(0),closed:true,exitCode:74},
- {id:'shared-cursor',input:new TextEncoder().encode('A shared cursor survives fork and exec. é🙂\n'),preRead:true}
+ {id:'shared-cursor',input:new TextEncoder().encode('A shared cursor survives fork and exec. é🙂\n'),preRead:true},
+ {id:'leading-bom',input:new TextEncoder().encode('\ufeffHello BOM\n')},
+ {id:'boundary-bom',input:new TextEncoder().encode('x'.repeat(4096)+'\ufeffAfter read boundary\n')},
+ {id:'split-bom',input:new TextEncoder().encode('x'.repeat(4095)+'\ufeffSplit across reads\n')}
 ];}
 function bootstrap(preRead){const b=F.bootstrap();if(!preRead)return b;
  const program=[];let rip=F.CODE;const emit=(name,code,operation=0)=>{program.push({name,code:Uint8Array.from(code),rip,nextRip:rip+BigInt(code.length),operation,width:0});rip+=BigInt(code.length);},imm=n=>Array.from({length:8},(_,i)=>Number(n>>BigInt(i*8)&255n));

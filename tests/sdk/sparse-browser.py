@@ -38,10 +38,10 @@ def main():
     else:self.reply(b'',status=404)
    except Exception as e:self.reply(str(e).encode(),'text/plain',500)
  server=http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler);server.sequence=0;server.input=b'';threading.Thread(target=server.serve_forever,daemon=True).start();records=[]
- if a.program=='rot13':cases=[{'id':str(i),'argument':arg,'argv':['/test/rot13']+([]if arg is None else[arg]),'input':b'','expected':expected(arg)}for i,arg in enumerate(['Hello, BetterJIT 2026!','','AaNnZz09- é🙂',None,'x'*256])]
+ if a.program=='rot13':cases=[{'id':str(i),'argument':arg,'argv':['/test/rot13']+([]if arg is None else[arg]),'input':b'','expected':expected(arg)}for i,arg in enumerate(['Hello, BetterJIT 2026!','','AaNnZz09- é🙂',None,'x'*256,'\ufeffBOM é🙂'])]
  else:
-  data=[b'','Hello, BetterJIT stdin!\né🙂\n'.encode(),b'x'*4095+'é🙂\n'.encode(),(b'line: BetterJIT stdin 0123456789\n'*9000)[:256*1024],b'unconsumed']
-  cases=[{'id':name,'argument':None,'argv':['/test/cat']+(['unexpected']if i==4 else[]),'input':value,'expected':(64,'','')if i==4 else(0,value.decode(),'')}for i,(name,value)in enumerate(zip(['empty','text','split-utf8','large','argument'],data))]
+  data=[b'','Hello, BetterJIT stdin!\né🙂\n'.encode(),b'x'*4095+'é🙂\n'.encode(),(b'line: BetterJIT stdin 0123456789\n'*9000)[:256*1024],b'unconsumed','\ufeffHello BOM\n'.encode(),b'x'*4096+'\ufeffAfter read boundary\n'.encode(),b'x'*4095+'\ufeffSplit across reads\n'.encode()]
+  cases=[{'id':name,'argument':None,'argv':['/test/cat']+(['unexpected']if i==4 else[]),'input':value,'expected':(64,'','')if i==4 else(0,value.decode(),'')}for i,(name,value)in enumerate(zip(['empty','text','split-utf8','large','argument','leading-bom','boundary-bom','split-bom'],data))]
  try:
   for _ in range(200):
    try:cfg=json.loads(request('/xlat/config?space=1'));break
