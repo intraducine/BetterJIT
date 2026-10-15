@@ -14,6 +14,11 @@ combined load pages plus the 256 KiB stack are limited to 32 MiB of guest backin
 Load pages must be distinct, readable and R/RX/RW. Executable stacks, unknown
 segments, noncanonical interpreter paths, nested interpreters, overlapping
 images and unsupported GNU properties fail before guest execution.
+The prepared launcher's `GNU_PROPERTY_X86_FEATURE_2_USED` scalar-X86 marker
+(`0xc0010001`, value `1`) is recognized, as is baseline `ISA_1_USED` metadata.
+Other feature bits and unknown required properties remain refused. These
+constants follow the [LLVM ELF definitions](https://github.com/llvm/llvm-project/blob/main/llvm/include/llvm/BinaryFormat/ELF.h);
+recognizing them does not broaden the sparse instruction emitter or CPU features.
 
 The loader supports `ET_EXEC` at its linked addresses and `ET_DYN` with a fixed
 high load bias. The interpreter is `ET_DYN` at a separate high bias. These
