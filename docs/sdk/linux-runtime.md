@@ -145,7 +145,10 @@ before an undersized ready buffer is selected. With no fitting spare, constructi
 still starts small; the hint does not force growth, change maxima, or bypass
 guest mappings. Active memories are never swapped on a late growth failure.
 Bounded `memory-selected` events identify constructor versus pool selection,
-selected capacity, the selection target and time spent waiting.
+selected capacity, the selection target and time spent waiting. Later growth
+failures also include that memory's selection snapshot and the remaining pool
+at selection time, even after success-event sampling has reached its limit.
+The snapshot contains sizes and readiness only, retaining no memory buffers.
 
 The page explicitly owns every guest worker. Termination clears callback captures,
 removes ownership and rejects delayed translation replies for that worker. Slot

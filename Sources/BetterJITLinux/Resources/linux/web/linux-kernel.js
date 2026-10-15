@@ -311,20 +311,27 @@ class MemoryPool {
           throw error;
         }
       }
-      this.emit({event:'memory-selected',stage:'selection',source:'pool',maximumPages:maxPages,
-        initialPages,selectedBytes:e.mem.buffer.byteLength,selectionEnd:needed,...context});
-      return e;
+      return this.recordSelection(e,context,{source:'pool',maximumPages:maxPages,
+        initialPages,selectedBytes:e.mem.buffer.byteLength,selectionEnd:needed});
     }
     try {
       const mem=new WebAssembly.Memory({ initial: initialPages, maximum: maxPages, shared: true });
-      this.emit({event:'memory-selected',stage:'selection',source:'constructor',maximumPages:maxPages,
-        initialPages,selectedBytes:mem.buffer.byteLength,selectionEnd:needed,...context});
-      return {mem,dirty:[],maxPages};
+      return this.recordSelection({mem,dirty:[],maxPages},context,{source:'constructor',maximumPages:maxPages,
+        initialPages,selectedBytes:mem.buffer.byteLength,selectionEnd:needed});
     } catch (error) {
       this.emit({event:'failed',stage:'construct',maximumPages:maxPages,initialPages,
         errorName:error.name,errorMessage:String(error.message).slice(0,256),...context});
       throw error;
     }
+  }
+  recordSelection(entry,context,details) {
+    // Keep only plain metadata, never extra references to pooled buffers.
+    // A later failure must retain its selection even if success sampling ended.
+    const selection={...details,poolWaitMilliseconds:context.poolWaitMilliseconds||0,
+      remainingPool:this.free.map(e=>({maximumPages:e.maxPages,currentBytes:e.mem.buffer.byteLength,
+        ready:e.readyAt<=performance.now()}))};
+    this.emit({event:'memory-selected',stage:'selection',...details,...context});
+    return {...entry,selection};
   }
   give(mem, dirty, maxPages) {
     // Keep compatible reservations for simultaneous fork/exec demand. A
@@ -341,8 +348,8 @@ class Mm {
     this.maxPages = maxPages;
     // guest addresses: below the memory's maximum (and 4 GB)
     this.limit = Math.min(ADDR_LIMIT, maxPages * WASM_PAGE - WASM_PAGE);
-    this.allocationContext=allocationContext;
     const e = memoryPool.take(maxPages, initialPages || 16, allocationContext);
+    this.allocationContext={...allocationContext,selection:e.selection};
     this.mem = e.mem;
     // sorted, non-overlapping {start, end, prot, flags, name, file?, owner}.
     // owner: the process image that mapped it; several processes can share

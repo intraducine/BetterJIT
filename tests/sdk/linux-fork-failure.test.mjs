@@ -184,3 +184,20 @@ test('late growth failure never replaces a memory already bound to a running add
  assert.throws(()=>active.ensure(20*65536),e=>e instanceof KError&&e.code===r.abi.E.NOMEM);
  assert.equal(active.mem,memory);assert.equal(active.u8[8],41);
 });
+test('late failure preserves its selection snapshot after the success event budget is exhausted',()=>{
+ const r=runtime(),{Kernel,Mm,KError}=r.kernel,logs=[];
+ new Kernel({vfs:{},log:line=>logs.push(line)},{});r.setRemaining(40);
+ for(let i=0;i<16;i++)new Mm(32,1);
+ const small=new Mm(32,1),large=new Mm(32,24);small.retire();large.retire();r.setClock(1500);
+ const active=new Mm(32,1,{purpose:'exec',pid:900,reuseEnd:20*65536});
+ const before=JSON.stringify(active.allocationContext.selection);
+ new Mm(32,1); // Consume the remaining spare; the selection snapshot must not change.
+ r.setGrowthLimit(24);
+ assert.throws(()=>active.ensure(25*65536),e=>e instanceof KError&&e.code===r.abi.E.NOMEM);
+ const events=logs.map(line=>JSON.parse(line.slice(20)));
+ assert.equal(events.filter(e=>e.event==='memory-selected').length,16);
+ const failed=events.find(e=>e.event==='failed');assert.equal(failed.pid,900);
+ assert.equal(JSON.stringify(failed.selection),before);assert.equal(failed.selection.source,'pool');
+ assert.equal(failed.selection.selectedBytes,24*65536);assert.equal(failed.selection.selectionEnd,20*65536);
+ assert.deepEqual(failed.selection.remainingPool,[{maximumPages:32,currentBytes:65536,ready:true}]);
+});
