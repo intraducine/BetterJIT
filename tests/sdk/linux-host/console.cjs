@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Match actual terminal text without discarding the raw execution log.
-function windowsVersion(raw) {
- const plain=raw.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'');
- return plain.match(/^\s*(Microsoft )?Windows[^\n]*\d+\.\d+/im)?.[0].trim()??null;
+// Decode the Wine console sequences used by textual milestones. Keep raw logs.
+function consoleText(raw) {
+ return raw.replace(/\x1b\[([0-?]*)([ -/]*)([@-~])/g,(_escape,parameters,intermediates,command)=>{
+  // Wine emits cursor-forward instead of literal blanks when writing a console
+  // one character at a time. Bound padding from malformed/huge counts.
+  if(command==='C'&&!intermediates&&/^\d*$/.test(parameters))return ' '.repeat(Math.min(Number(parameters)||1,256));
+  return '';
+ });
 }
-module.exports={windowsVersion};
+function windowsVersion(raw) {
+ return consoleText(raw).match(/^\s*(Microsoft )?Windows[^\n]*\d+\.\d+/im)?.[0].trim()??null;
+}
+module.exports={consoleText,windowsVersion};

@@ -15,7 +15,14 @@ import Foundation
         report.records[0].status = .passed
         for i in 1..<report.records.count { report.records[i].status = .unsupported }
         report.state = .completed
-        check(report.overall=="PASS","unsupported readiness does not manufacture failure")
+        check(report.overall=="PARTIAL","unsupported readiness is partial rather than a complete pass or failure")
+        let partial=try JSONSerialization.jsonObject(with:report.data()) as! [String:Any]
+        check(partial["overall"] as? String == "PARTIAL","shared JSON preserves partial integration")
+        var complete=report
+        for i in complete.records.indices { complete.records[i].status = .passed }
+        check(complete.overall=="PASS","all passed checks are a complete pass")
+        for i in complete.records.indices { complete.records[i].status = .unsupported }
+        check(complete.overall=="UNSUPPORTED","no implemented checks do not produce a pass")
         report.records[1].status = .failed
         check(report.overall=="FAIL","failure dominates")
         var interrupted=DiagnosticReport(preset:.quick,includeStress:false,environment:[:],conditions:[:],specs:specs)

@@ -5,15 +5,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
 import vm from 'node:vm';
-function runtime() {
- let clock=0,remaining=10,allocations=0,waits=0;
+function runtime({maximumInitialPages=Infinity}={}) {
+ let clock=0,remaining=10,allocations=0,waits=0,growthLimit=Infinity;const descriptors=[];
  const context=vm.createContext({self:{},performance:{now:()=>clock},SharedArrayBuffer,Int32Array,Uint8Array,DataView,Map,Set,
-  RangeError,WebAssembly:{Memory:class {constructor(d){allocations++;if(remaining--<=0)throw new RangeError('engine memory reservation limit');return new WebAssembly.Memory(d);}}},
+  RangeError,WebAssembly:{Memory:class {constructor(d){allocations++;descriptors.push(d);if(remaining--<=0||d.initial>maximumInitialPages)throw new RangeError('engine memory reservation limit');const m=new WebAssembly.Memory(d),grow=m.grow.bind(m);m.grow=n=>{if(m.buffer.byteLength/65536+n>growthLimit)throw new RangeError('engine memory growth limit');return grow(n);};return m;}}},
   Atomics:{...Atomics,wait:(_a,_i,_v,ms)=>{clock+=ms;waits++;return 'timed-out';}}});
  vm.runInContext(fs.readFileSync(new URL('../../Sources/BetterJITLinux/Resources/linux/web/linux-kernel.js',import.meta.url),'utf8'),context);
  const req=context.self.LinuxBundle.require;
  return {kernel:req('./kernel.js'),sys:req('./syscalls.js').sys,abi:req('./abi.js'),
-  setRemaining:n=>{remaining=n;},stats:()=>({clock,allocations,waits})};
+  setRemaining:n=>{remaining=n;},setGrowthLimit:n=>{growthLimit=n;},setClock:n=>{clock=n;},stats:()=>({clock,allocations,waits,descriptors})};
 }
 test('fork allocation failure leaves no child, descriptor reference or waiter-visible ghost',()=>{
  const r=runtime(),{Mm,Process,Kernel,KError}=r.kernel;
@@ -36,4 +36,168 @@ test('capacity failure with no retired candidate returns ENOMEM without an unbou
  const r=runtime(),{MemoryPool,KError}=r.kernel;r.setRemaining(0);
  assert.throws(()=>new MemoryPool().take(32,1),e=>e instanceof KError&&e.code===r.abi.E.NOMEM);
  assert.equal(r.stats().waits,0);
+});
+test('fork stages allocation and copies only inherited mappings without aliasing or raising maximum',()=>{
+ const r=runtime({maximumInitialPages:16}),{Mm}=r.kernel,owner={},other={},childOwner={};
+ const parent=new Mm(1024,1);parent.ensure(512*65536);
+ parent.vmas=[{start:65536,end:3*65536,owner},{start:8*65536,end:9*65536,owner:other}];
+ parent.u8.set([1,2,3,4],65536);parent.markDirty(65536,65540);
+ const child=parent.clone(owner,childOwner,{parentPid:100});
+ assert.equal(child.maxPages,parent.maxPages);assert.equal(child.mem.buffer.byteLength,16*65536);
+ assert.equal(r.stats().descriptors.at(-1).initial,16);assert.equal(child.vmas.length,1);
+ assert.equal(child.vmas[0].owner,childOwner);assert.deepEqual([...child.u8.slice(65536,65540)],[1,2,3,4]);
+ child.u8[65536]=9;assert.equal(parent.u8[65536],1);
+});
+test('failed inherited-mapping growth reports exact stage and leaves no successful child copy',()=>{
+ const r=runtime(),{Mm,Kernel,KError}=r.kernel,owner={},logs=[];
+ const k=new Kernel({vfs:{},log:m=>logs.push(m)},{});
+ const parent=new Mm(1024,1);parent.ensure(512*65536);
+ parent.vmas=[{start:65536,end:512*65536,owner}];r.setGrowthLimit(16);
+ assert.throws(()=>parent.clone(owner,{}, {parentPid:100}),e=>e instanceof KError&&e.code===r.abi.E.NOMEM);
+ const events=logs.filter(x=>x.startsWith('[memory-allocation] ')).map(x=>JSON.parse(x.slice(20)));
+ const event=events.find(x=>x.event==='failed');assert.equal(event.stage,'grow');
+ assert.equal(event.currentBytes,16*65536);assert.equal(event.requestedEnd,512*65536);
+ assert.equal(event.maximumPages,1024);assert.equal(event.parentPid,100);
+ assert.match(event.scope,/not OS resident memory/);assert.equal(k.procs.size,0);
+});
+test('a different immutable maximum releases incompatible spares without clearing a worker-owned buffer',()=>{
+ const r=runtime(),{MemoryPool}=r.kernel,pool=new MemoryPool(),events=[];
+ pool.diagnostic=e=>events.push(e);
+ const retired=pool.take(32,1);new Uint8Array(retired.mem.buffer)[0]=73;
+ pool.give(retired.mem,[[0,1]],32);
+ const next=pool.take(64,1);
+ assert.equal(pool.free.length,0);assert.notEqual(next.mem,retired.mem);
+ assert.equal(new Uint8Array(retired.mem.buffer)[0],73);
+ assert.equal(r.stats().descriptors.at(-1).maximum,64);
+ const event=events.find(e=>e.event==='pool-pruned');assert.equal(event.requestedMaximumPages,64);
+ assert.equal(event.discarded[0].maximumPages,32);assert.equal(event.discarded[0].currentBytes,65536);
+ assert.equal(event.pool.length,0);assert.equal(r.stats().waits,0);
+});
+test('compatible reservations serve both children when new construction and collection cannot progress',()=>{
+ const r=runtime(),{MemoryPool}=r.kernel,pool=new MemoryPool();
+ const first=pool.take(32,1),second=pool.take(32,1);
+ pool.give(first.mem,[[0,1]],32);pool.give(second.mem,[[4,5]],32);
+ assert.equal(pool.free.length,2);r.setRemaining(0);
+ const left=pool.take(32,1),right=pool.take(32,1);
+ assert.notEqual(left.mem,right.mem);assert.equal(left.mem,first.mem);assert.equal(right.mem,second.mem);
+ assert.equal(r.stats().clock,1500);assert.equal(pool.free.length,0);
+});
+test('reuse chooses already-grown capacity instead of failing growth while a fitting spare exists',()=>{
+ const r=runtime(),{MemoryPool}=r.kernel,pool=new MemoryPool();
+ const small=pool.take(32,1),grown=pool.take(32,2);
+ pool.give(small.mem,[],32);pool.give(grown.mem,[[4,5]],32);
+ r.setClock(1500);r.setRemaining(0);r.setGrowthLimit(1);
+ assert.equal(pool.take(32,2).mem,grown.mem);assert.equal(pool.free[0].mem,small.mem);
+});
+test('compatible retention stays within the original six-entry budget',()=>{
+ const r=runtime(),{MemoryPool}=r.kernel,pool=new MemoryPool();
+ const entries=Array.from({length:7},()=>pool.take(32,1));
+ for(const e of entries)pool.give(e.mem,[],32);
+ assert.equal(pool.free.length,6);assert.equal(pool.free[0].mem,entries[1].mem);
+});
+test('failed image staging retires only its new memory and preserves the running image',()=>{
+ const r=runtime(),{Kernel,Mm,KError}=r.kernel;
+ const swift=fs.readFileSync(new URL('../../Examples/FEXHost/LinuxSmokeFixture.swift',import.meta.url),'utf8');
+ const elf=Uint8Array.from(Buffer.from(swift.match(/Data\(base64Encoded:\s*"([A-Za-z0-9+/=]+)"/)[1],'base64'));
+ const k=new Kernel({vfs:{stat:()=>({mode:0o100755}),readFile:()=>elf},memPolicy:[['.*',512]]},{});
+ const parent=new Mm(512,1),memory=parent.mem;parent.u8[0]=73;
+ const process={mm:parent};let staged,stagedMemory;
+ k.loadInto=mm=>{staged=mm;stagedMemory=mm.mem;throw new KError(r.abi.E.NOEXEC);};
+ assert.throws(()=>k.loadImage(process,'/fixture/image',[],[]),e=>e.code===r.abi.E.NOEXEC);
+ assert.equal(staged.mem,null);assert.equal(process.mm,parent);assert.equal(parent.mem,memory);assert.equal(parent.u8[0],73);
+ r.setRemaining(0);r.setClock(1500);
+ assert.equal(new Mm(512,256).mem,stagedMemory);
+});
+test('growth refusal preserves mappings and identifies each failing process before range-search retries',()=>{
+ const r=runtime(),{Kernel,Process,Mm,KError}=r.kernel,logs=[];
+ const k=new Kernel({vfs:{},log:line=>logs.push(line)},{});
+ const threads=[100,101].map(pid=>{
+  const p=new Process(k,pid,1);p.mm=new Mm(32,1);p.image={};p.space=pid-99;p.exe='/fixture/program';
+  p.mm.u8[0]=73;k.procs.set(pid,p);return {tid:pid,proc:p};
+ });
+ r.setGrowthLimit(1);
+ for(const thread of threads)for(let attempt=0;attempt<20;attempt++)
+  assert.throws(()=>r.sys[r.abi.SYS.mmap].call(k,thread,BigInt((4+attempt)*65536),65536n,3n,0x32n,-1n,0n),
+   error=>error instanceof KError&&error.code===r.abi.E.NOMEM);
+ const events=logs.filter(line=>line.startsWith('[memory-allocation] ')).map(line=>JSON.parse(line.slice(20))).filter(e=>e.event==='failed');
+ assert.equal(events.length,2);
+ assert.deepEqual(events.map(event=>event.pid),[100,101]);
+ for(const event of events){assert.equal(event.operation,'mmap');assert.equal(event.requestedAddress,4*65536);
+  assert.equal(event.requestedLength,65536);assert.equal(event.protection,3);assert.equal(event.flags,0x32);
+  assert.equal(event.executable,'/fixture/program');assert.equal(event.live.length,2);}
+ for(const thread of threads){assert.equal(thread.proc.mm.vmas.length,0);assert.equal(thread.proc.mm.u8[0],73);}
+});
+test('a staged-image capacity hint selects a fitting ready reservation without eager growth',()=>{
+ const r=runtime(),pool=new r.kernel.MemoryPool(),events=[];pool.diagnostic=e=>events.push(e);
+ const small=pool.take(32,2),large=pool.take(32,24);
+ pool.give(small.mem,[[0,1]],32);pool.give(large.mem,[[8,9]],32);
+ r.setClock(1500);r.setRemaining(0);r.setGrowthLimit(2);
+ const selected=pool.take(32,1,{purpose:'exec',reuseEnd:20*65536});
+ assert.equal(selected.mem,large.mem);assert.equal(selected.dirty[0][0],8);
+ assert.equal(pool.free[0].mem,small.mem);assert.equal(r.stats().waits,0);
+ assert.equal(events.at(-1).source,'pool');assert.equal(events.at(-1).selectionEnd,20*65536);
+ const empty=new r.kernel.MemoryPool();r.setRemaining(1);
+ const fresh=empty.take(32,1,{reuseEnd:20*65536});
+ assert.equal(fresh.mem.buffer.byteLength,65536);assert.equal(r.stats().descriptors.at(-1).maximum,32);
+});
+test('a fitting retired reservation completes quarantine before a smaller ready one can be selected',()=>{
+ const r=runtime(),pool=new r.kernel.MemoryPool();
+ const small=pool.take(32,2),large=pool.take(32,24);
+ new Uint8Array(large.mem.buffer)[8]=91;
+ pool.give(small.mem,[],32);r.setClock(1500);pool.give(large.mem,[[8,9]],32);
+ r.setRemaining(0);r.setGrowthLimit(2);
+ const selected=pool.take(32,1,{reuseEnd:20*65536});
+ assert.equal(selected.mem,large.mem);assert.equal(r.stats().clock,3000);assert.equal(r.stats().waits,1);
+ assert.equal(new Uint8Array(selected.mem.buffer)[8],91,'Selection must not clear a quarantined buffer.');
+ assert.equal(pool.free[0].mem,small.mem);
+});
+test('capacity preference cannot extend the existing total wait or select an incompatible reservation',()=>{
+ const r=runtime(),pool=new r.kernel.MemoryPool(),{KError}=r.kernel;
+ const wrong=pool.take(64,24);pool.give(wrong.mem,[],64);
+ const pending=pool.take(32,24);pool.give(pending.mem,[],32);pool.free[0].readyAt=9000;
+ r.setRemaining(0);
+ assert.throws(()=>pool.take(32,1,{reuseEnd:20*65536}),e=>e instanceof KError&&e.code===r.abi.E.NOMEM);
+ assert.equal(r.stats().clock,1500);assert.equal(pool.free[0].mem,pending.mem);
+ assert.notEqual(pool.free[0].mem,wrong.mem);
+});
+test('adapted loader exec uses its known high-address hint before publication and retains isolation',()=>{
+ for(const optedIn of [false,true]) {
+  const r=runtime(),{Kernel,Mm}=r.kernel;
+  const swift=fs.readFileSync(new URL('../../Examples/FEXHost/LinuxSmokeFixture.swift',import.meta.url),'utf8');
+  const elf=Uint8Array.from(Buffer.from(swift.match(/Data\(base64Encoded:\s*"([A-Za-z0-9+/=]+)"/)[1],'base64'));
+  const k=new Kernel({vfs:{stat:()=>({mode:0o100755}),readFile:()=>elf},memPolicy:[['.*',512]]},{});
+  const active=new Mm(512,256),small=new Mm(512,384),large=new Mm(512,512);
+  const activeMemory=active.mem,smallMemory=small.mem,largeMemory=large.mem;
+  active.u8[8]=41;large.u8[8]=91;large.markDirty(8,9);small.retire();large.retire();
+  r.setClock(1500);r.setRemaining(0);r.setGrowthLimit(384);
+  k.loadInto=(mm)=>({mm});
+  const process={pid:100,mm:active};
+  const image=k.loadImage(process,'/opt/wine-flat/bin/wine',[],optedIn?['BETTERJIT_WINE_SPAWN=1']:[]);
+  assert.equal(image.mm.mem,optedIn?largeMemory:smallMemory);
+  assert.equal(process.mm.mem,activeMemory);assert.equal(active.u8[8],41);
+  if(optedIn){image.mm.ensure(511*65536);image.mm.zero(0,65536);assert.equal(image.mm.u8[8],0);}
+ }
+});
+test('late growth failure never replaces a memory already bound to a running address space',()=>{
+ const r=runtime(),{Mm,KError}=r.kernel,active=new Mm(32,1),spare=new Mm(32,24);
+ const memory=active.mem;active.u8[8]=41;spare.retire();r.setClock(1500);r.setGrowthLimit(1);
+ assert.throws(()=>active.ensure(20*65536),e=>e instanceof KError&&e.code===r.abi.E.NOMEM);
+ assert.equal(active.mem,memory);assert.equal(active.u8[8],41);
+});
+test('late failure preserves its selection snapshot after the success event budget is exhausted',()=>{
+ const r=runtime(),{Kernel,Mm,KError}=r.kernel,logs=[];
+ new Kernel({vfs:{},log:line=>logs.push(line)},{});r.setRemaining(40);
+ for(let i=0;i<16;i++)new Mm(32,1);
+ const small=new Mm(32,1),large=new Mm(32,24);small.retire();large.retire();r.setClock(1500);
+ const active=new Mm(32,1,{purpose:'exec',pid:900,reuseEnd:20*65536});
+ const before=JSON.stringify(active.allocationContext.selection);
+ new Mm(32,1); // Consume the remaining spare; the selection snapshot must not change.
+ r.setGrowthLimit(24);
+ assert.throws(()=>active.ensure(25*65536),e=>e instanceof KError&&e.code===r.abi.E.NOMEM);
+ const events=logs.map(line=>JSON.parse(line.slice(20)));
+ assert.equal(events.filter(e=>e.event==='memory-selected').length,16);
+ const failed=events.find(e=>e.event==='failed');assert.equal(failed.pid,900);
+ assert.equal(JSON.stringify(failed.selection),before);assert.equal(failed.selection.source,'pool');
+ assert.equal(failed.selection.selectedBytes,24*65536);assert.equal(failed.selection.selectionEnd,20*65536);
+ assert.deepEqual(failed.selection.remainingPool,[{maximumPages:32,currentBytes:65536,ready:true}]);
 });

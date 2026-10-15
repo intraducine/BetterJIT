@@ -94,6 +94,70 @@ or Files providers that cannot preserve Unix symlinks and executable modes.
 
 ## Boundaries
 
+`LinuxRuntimeConfiguration.standardIO` defaults to `.terminal`. Use `.captured`
+for headless output: stdin reaches EOF and terminal ioctls return ENOTTY.
+These streams report FIFO file type instead
+of a terminal character device. The adapted command and nested Win64 tests use
+this mode so Wine handles them as redirected streams. The nested fixture checks
+the Win32 output handle type and absence of console mode before its spawn tests.
+This does not change Wine bootstrap services or guest memory limits.
+
+`LinuxRuntimeResult.stdout` and `.stderr` contain separate UTF-8 text streams.
+Decoding continues across guest writes, with no inserted newlines; malformed or
+incomplete UTF-8 becomes U+FFFD. This is text capture, not a lossless binary API.
+Use guest files and the filesystem interface for binary output. `.log` and
+`onLog` contain runtime diagnostics only; `onOutput` identifies each guest stream.
+Consumers must check success markers in `.stdout`, not a merged diagnostic log.
+The shared retention limit remains 4 MiB of UTF-8 across all three strings;
+`outputTruncated` reports omitted text. Ordered transport batches deliver retained
+text before the explicit exit event. Guest text that resembles a log or exit
+marker is never interpreted as process completion. Failed output delivery cannot
+produce a successful completion; the session remains subject to its deadline.
+
+Fork constructs a small child memory, grows it to cover inherited mappings, and
+copies their tracked dirty bytes without sharing private data or changing the
+configured maximum. It does not construct the parent's entire grown buffer up
+front or copy an unmapped tail. This is an allocation strategy, not a RAM grant.
+`[memory-allocation]` records failures at construction, pooled-memory growth, or
+mapping growth, with requested/current pages, inherited mappings, pool state and
+the current kernel's live memories. Mapping failures identify the requesting
+process, address space, executable and mmap parameters. Sampling retains the
+first failure for each process/operation within the sixteen-event limit, so
+repeated allocation probes do not hide later processes. Reports preserve first
+and last sampled failures; neither is automatically the workload's root cause.
+Tracked dirty bytes and Wasm linear sizes
+are not OS resident memory or an iOS/WebContent memory-limit measurement.
+The pool retains compatible reservations within its original six-entry budget,
+so simultaneous fork/exec demand can reuse more than one buffer if construction
+is refused before collection progresses. It releases incompatible maximum-size
+classes when allocating another class. A ready buffer already large enough is
+preferred over growing a smaller one. Every buffer keeps its own 1.5-second
+quarantine; discarded buffers are never cleared or reused while a terminating
+worker may still own them. `pool-pruned` events describe released references,
+not immediate engine collection or OS RSS reduction. A construction failure can
+also be recovered by quarantined-memory reuse in a passed phase.
+
+The opted-in adapted Wine loader provides a reuse hint for its known fixed
+shared-user-data address before exec publishes the image. Pool selection uses
+that address as well as the small initial allocation. A fitting retired buffer
+can complete its quarantine within the existing total 1.5-second wait budget
+before an undersized ready buffer is selected. With no fitting spare, construction
+still starts small; the hint does not force growth, change maxima, or bypass
+guest mappings. Active memories are never swapped on a late growth failure.
+Bounded `memory-selected` events identify constructor versus pool selection,
+selected capacity, the selection target and time spent waiting. Later growth
+failures also include that memory's selection snapshot and the remaining pool
+at selection time, even after success-event sampling has reached its limit.
+The snapshot contains sizes and readiness only, retaining no memory buffers.
+
+The page explicitly owns every guest worker. Termination clears callback captures,
+removes ownership and rejects delayed translation replies for that worker. Slot
+release callbacks retain only the small kernel control buffer and slot number,
+not the full guest spawn message. Session exit and page navigation stop worker,
+statistics, log and deadline activity. This bounds ownership; it does not promise
+that WebKit will immediately reclaim every reservation or accept the next fork.
+
+
 The guest address space is WebAssembly memory32 and therefore remains below
 4 GiB per process. That is an address-space limit, not a RAM entitlement.
 WebKit/OS memory pressure still applies. The software-paging experiments remain
@@ -112,3 +176,14 @@ and not on the synchronous syscall critical path.
 The channel backing file is accepted only when it is a regular single-link file
 of the exact expected size, is opened with `O_NOFOLLOW`, and begins with the
 session magic supplied by the WebKit worker. Native mappings are non-executable.
+
+The separately adapted Wine input can opt into `BETTERJIT_WINE_SPAWN=1`. This
+uses parent-prepared argv/environment and POSIX spawn actions for stdio, cwd,
+session, SIGPIPE and server-socket inheritance, removing an intermediate
+double-fork address-space copy. It does not replace generic fork with vfork.
+Spawned Unix children are owned and reaped by a detached native thread; a
+reaping setup failure terminates and waits for the child instead of abandoning
+it. Stock Wine retains its existing launch path. The candidate records this
+policy and runs a real spawn contract before Wine in the same device phase.
+Actual Windows output and exit 0 remain required. Native contract, guest contract,
+Wine host execution and phone execution are separate evidence levels.

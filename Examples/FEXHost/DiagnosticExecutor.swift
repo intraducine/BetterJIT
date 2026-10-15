@@ -3,6 +3,7 @@ import Foundation
 import BetterJIT
 import BetterJITWebKit
 import BetterJITFEX
+import BetterJITFEXAdapter
 
 private actor DiagnosticEchoService {
     private(set) var calls = 0

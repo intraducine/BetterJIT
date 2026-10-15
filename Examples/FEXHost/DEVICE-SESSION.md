@@ -5,9 +5,15 @@ The GitHub artifact contains an **unsigned** device-arm64 IPA; it requires signi
 before iOS will install it. No signing credentials are collected by this workflow.
 
 1. Launch from the Home Screen. Keep the app in the foreground.
-2. Tap **Run All**. Expand a phase to see its live guest log and individual checks.
+2. Open the **Run All** tab and tap **Run All**. Expand a phase to see its live guest log and individual checks.
 3. When finished, tap **Share session report** once. That JSON includes every
    phase, guest log, nested case, sample, capability and exact source identity.
+
+The **Use backend** tab calculates a selected document’s SHA-256 through either
+CryptoKit or the packaged BetterJIT FEX process backend. BetterJIT runs the actual
+x86 Linux BusyBox command and checks its output against CryptoKit. The default
+document is bundled; selected files stay on the device and are limited to 32 MiB.
+Run All includes this consumer operation and its translation evidence too.
 
 The bundled Linux programs need no download or external root. The first must print
 `BetterJIT Linux OK` and exit 0. The larger static ELF reads exact file bytes,
@@ -51,9 +57,12 @@ maximum. This candidate uses separate guest process memories, as stock Wine
 expects; the other phases retain the existing shared address-space mode.
 Null FS selector writes clear the base
 through real `ARCH_SET_FS(0)` calls while preserving registers and flags;
-non-null selectors trap and remain unsupported. A checked guest FS-reset workload
-runs before the actual `cmd /c ver` attempt in the same phase. The candidate
-launches the signed root's `/usr/lib/wine/x86_64-windows/cmd.exe` explicitly.
+non-null selectors trap and remain unsupported. The command and a nested Win64
+CreateProcess workload each start directly in a fresh runtime, before the separate
+FS-reset and POSIX-spawn contract phases. No shell or prerequisite workload shares
+the command's kernel memory pool. CreateProcess checks parent/child/grandchild
+arguments, environment, cwd, inherited output and exit codes; every milestone,
+exit 0 and live translation are required. The candidate launches the signed root's `/usr/lib/wine/x86_64-windows/cmd.exe` explicitly.
 A successfully mapped image below its preferred Win64 base keeps Wine's existing
 PE relocation validation instead of being discarded for `start.exe` merely
 because it returned the informational `STATUS_IMAGE_NOT_AT_BASE` status.
@@ -61,9 +70,26 @@ Mapped builtin image metadata also uses the actual mapped base plus the entry RV
 as Wine already does for non-builtin mappings; preferred high addresses are not
 aliased or truncated into the guest window.
 Windows version output, exit 0 and observed native translation are still required.
-ANSI cursor/color control sequences are removed only for version matching;
-the exported log keeps the original terminal bytes. The flat Wine guest has a
+ANSI cursor/color sequences are decoded only for milestone/version matching.
+The report and expanded phase show separate UTF-8 `stdout` and `stderr`; `log`
+contains runtime diagnostics. Writes do not introduce newlines. Malformed or
+incomplete UTF-8 is replaced with U+FFFD, so these fields are not binary archives.
+The session retains at most 4 MiB of combined UTF-8 text and reports truncation;
+the exported report retains at most 128 Ki Swift Characters per field. When a
+field is shortened, up to 8 Ki characters of context around its first recorded
+error are preserved separately and the remaining budget holds its tail.
+`outputRetention` records per-field truncation, original character/UTF-8 byte
+counts, retained tail counts and whether the tail starts mid-line. Context is a
+bounded sample, not a root-cause classification. `runtimeOutputTruncated` records
+the runtime limit; report-level `outputTruncated` is true if either limit omitted
+text. Absence of an error in a shortened tail does not establish its absence
+from the original stream.
+The flat Wine guest has a
 180-second deadline and a 200-second phase deadline to include startup/cleanup.
+Each runtime closes its owned workers, translation cache, timers and display
+callbacks before reporting completion. Dropping references does not prove engine
+collection or OS memory reclamation; a new session is not a separate OS process.
+Allocation failure remains a failed attempt with the existing memory maxima.
 This is an adapted Wine input, not support for arbitrary 64-bit guest address spaces, Win32,
 WoW64 or DXMT. Source, patch, hashes and preparation logs are retained separately.
 The build also attempts `cmd /c ver` with signed stock Wine 10.7 in a disposable
@@ -131,6 +157,7 @@ From a Mac checkout of this branch:
 
 ```sh
 bash Backends/FEX/build-ios.sh # only if the local native package is absent
+python3 scripts/package-fex-adapter.py # around the existing native package
 python3 Examples/FEXHost/prepare.py
 open Examples/FEXHost/BetterJITFEXHost.xcodeproj
 ```
@@ -181,3 +208,12 @@ For local Linux x86 frontend diagnostics, `BETTERJIT_HOST_DEBUG_X86=1 bash
 Backends/FEX/build-host.sh` uses the pinned frontend's x86 debug configuration.
 It translates actual guest instructions to Wasm; it does not execute FEX's native
 JIT or establish arm64/device behavior. The ordinary Apple build remains separate.
+
+The flat candidate now attempts an opt-in POSIX process-launch adaptation that
+prepares argv/environment and fd/cwd/session/signal actions in the parent. A
+spawned child uses libc's spawn implementation, with exact-child reaping owned
+by the candidate. Generic Linux fork and stock Wine are unchanged. The phase
+checks a bundled spawn contract before the real Wine command; both contract
+and Windows output/exit requirements remain mandatory. This avoids an extra
+intermediate fork copy but does not promise memory-budget reclamation or phone
+Wine compatibility.

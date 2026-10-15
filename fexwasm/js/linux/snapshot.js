@@ -157,7 +157,7 @@ Kernel.prototype.snapshot = function () {
     else if (f instanceof EpollFile) {
       fileRecs[id] = r;
       Object.assign(r, { type: 'epoll', watch: [...f.watch].map(([fd, w]) => [fd, fileId(w.file), big2s(w.events), big2s(w.data)]) });
-    } else if (f.kind === 'console') Object.assign(r, { type: 'console', fd: f.fd });
+    } else if (f.kind === 'console') Object.assign(r, { type: 'console', fd: f.fd, terminal: f.terminal });
     else throw new Error('snapshot: a file of kind ' + f.kind);
     fileRecs[id] = r;
     return id;
@@ -255,7 +255,7 @@ Kernel.restore = function (host, cfg, snap) {
       case 'host': f = new HostFile(k.vfs, r.fd, r.path, r.flags, r.isDir); if (r.memfd !== undefined) f.memfd = r.memfd; break;
       case 'buffer': f = new BufferFile(snap.blob(r.bytes), r.mode); break;
       case 'dev': f = new DevFile(r.name); break;
-      case 'console': f = new K.ConsoleFile(r.fd); break;
+      case 'console': f = new K.ConsoleFile(r.fd, r.terminal !== false); break;
       case 'pipe': {
         const p = pipes[r.pipe], rd = p.readers, wr = p.writers;
         f = new PipeEnd(p, r.isWrite);

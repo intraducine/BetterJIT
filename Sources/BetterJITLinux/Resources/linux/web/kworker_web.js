@@ -181,6 +181,7 @@ onmessage = async (e) => {
     traceMaps: d.traceMaps,
     win64: d.win64,
     peek: d.peek, // (addr:len,... to dump when a process dies)
+    standardIO: d.standardIO,
     sharedSpace: d.sharedSpace !== false, // every process in one memory
     memLog: d.memLog || 0,
     display: d.display ? (msg, transfer) => post({ op: 'display', msg }, transfer) : null,

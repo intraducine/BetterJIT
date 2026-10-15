@@ -345,7 +345,7 @@ class Mm {
     }
     d.splice(i, j - i, [s, e]);
     this.dirtyBytes += (e - s) - removed;
-    // 64 KB chunks ever written (a wasm memory can't give pages back: these stay resident)
+    // 64 KB chunks ever written; tracking writes does not measure OS residency.
     const t = this.mem.touched || (this.mem.touched = { map: new Uint8Array(65536), n: 0 });
     for (let c = start >>> 16, ce = (end - 1) >>> 16; c <= ce; c++) if (!t.map[c]) { t.map[c] = 1; t.n++; }
     if (this.dirtyBytes > this.peakDirty) this.peakDirty = this.dirtyBytes;
@@ -478,10 +478,11 @@ class DevFile extends File {
 
 // The host console.
 class ConsoleFile extends File {
-  constructor(fd) { super('console'); this.fd = fd; this.flags = fd === 0 ? 0 : O.WRONLY; }
+  constructor(fd, terminal=true) { super('console'); this.fd = fd; this.terminal=terminal; this.flags = fd === 0 ? 0 : O.WRONLY; }
   read() { return 0; }
   write(k, t, buf) { k.host.write(this.fd, buf.slice()); return buf.length; }
   ioctl(k, t, req, arg) {
+    if (!this.terminal) fail(E.NOTTY);
     if (req === 0x5413) { // TIOCGWINSZ
       const dv = t.proc.mm.dv;
       dv.setUint16(arg, 50, true); dv.setUint16(arg + 2, 160, true); dv.setUint32(arg + 4, 0, true);
@@ -493,7 +494,7 @@ class ConsoleFile extends File {
     }
     fail(E.NOTTY);
   }
-  stat() { return { mode: S_IF.CHR | 0o620, ino: this.ino, rdev: 0x8800 }; }
+  stat() { return { mode: this.terminal ? S_IF.CHR | 0o620 : S_IF.FIFO | 0o600, ino: this.ino, rdev: this.terminal ? 0x8800 : 0 }; }
 }
 
 class Pipe {
@@ -1433,7 +1434,7 @@ class Kernel {
     const p = new Process(this, this.nextPid++, 1);
     this.procs.set(p.pid, p);
     this.initProc = p;
-    const con = [new ConsoleFile(0), new ConsoleFile(1), new ConsoleFile(2)];
+    const con = [0,1,2].map(fd=>new ConsoleFile(fd,this.host.standardIO !== 'captured'));
     for (let i = 0; i < 3; i++) p.fds.set(i, { file: con[i].ref(), cloexec: false });
     p.cwd = this.host.cwd || '/';
     const img = this.loadImage(p, path, argv, envp);
@@ -1490,6 +1491,9 @@ class Kernel {
       return this.loadInto(mm, owner, space, path, bytes, elf, argv, envp);
     } catch (e) {
       mm.removeOwner(owner); // (a shared memory keeps everyone else's mappings)
+      // A failed staged image has no worker or process owner. Return its
+      // separate memory to the existing bounded pool instead of orphaning it.
+      if (!this.host.sharedSpace) mm.retire();
       throw e;
     }
   }

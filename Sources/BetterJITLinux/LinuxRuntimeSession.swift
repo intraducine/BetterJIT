@@ -13,6 +13,8 @@ import WebKit
     /// Counts successful native-channel replies; attachment alone is not usage.
     public var nativeChannelStatistics: [String:Int] { server?.channelStatistics() ?? [:] }
     public var onLog: (@MainActor (String)->Void)?
+    /// UTF-8 text fragments; write boundaries are not line boundaries.
+    public var onOutput: (@MainActor (LinuxOutputStream,String)->Void)?
     public var onWindow: (@MainActor ([String:String])->Void)?
     public var onScreenshot: (@MainActor (String,Data)->Void)?
 
@@ -27,6 +29,8 @@ import WebKit
     private var port: UInt16?
     private var startedAt: UInt64=0
     private var logText=""
+    private var stdoutText="",stderrText="",retainedOutputBytes=0
+    private var outputTruncated=false
     private var timeoutTask: Task<Void,Never>?
 
     public init(backend: LinuxTranslationBackend,
@@ -67,8 +71,7 @@ import WebKit
         do {
             let assets=try Self.assets()
             let server=LinuxLoopbackServer(token:token,assets:assets,backend:backend,fileSystem:fileSystem,
-                onLog:{ [weak self] text in Task { @MainActor in self?.receiveLog(text) } },
-                onExit:{ _ in }, // receiveLog handles the exit marker in the same actor turn as its stdout.
+                onEvents:{ [weak self] events in await self?.receiveEvents(events) },
                 onWindow:{ [weak self] event in Task { @MainActor in self?.onWindow?(event) } },
                 onShot:{ [weak self] name,data in Task { @MainActor in self?.onScreenshot?(name,data) } },
                 gpuHandler:gpuHandler)
@@ -103,28 +106,45 @@ import WebKit
     public func close() {
         guard state != .closed else { return }
         state = .closed; timeoutTask?.cancel(); timeoutTask=nil
+        // Consumers commonly capture the mounted session in these callbacks.
+        // Terminal cleanup must release those captures before the next guest.
+        onLog=nil; onOutput=nil; onWindow=nil; onScreenshot=nil
         navigation?.resume(throwing:LinuxRuntimeError.closed); navigation=nil
         exitWaiter?.resume(throwing:LinuxRuntimeError.closed); exitWaiter=nil
         server?.stop(); server=nil; backend.close()
+        webView.evaluateJavaScript("globalThis.betterjitClose?.()",completionHandler:nil)
         webView.stopLoading(); webView.navigationDelegate=nil
         webView.loadHTMLString("<!doctype html><title>Closed</title>",baseURL:nil)
     }
 
-    private func receiveLog(_ text:String) {
-        if logText.utf8.count < 4*1024*1024 {
-            let remaining=4*1024*1024-logText.utf8.count
-            logText += String(text.prefix(remaining))
-        }
-        onLog?(text)
-        for line in text.split(separator:"\n") where line.hasPrefix("[page] exit ") {
-            if let code=Int(line.dropFirst(12).split(separator:" ").first ?? "") { receiveExit(code) }
+    func receiveEvents(_ events:[LinuxRuntimeEvent]) {
+        for event in events {
+            guard state != .closed, result == nil, failure == nil else { return }
+            switch event.kind {
+            case .exit: if let code=event.code { receiveExit(code) }
+            case .truncated: outputTruncated=true
+            case .log, .stdout, .stderr:
+                guard let text=event.text, !outputTruncated else { continue }
+                let remaining=4*1024*1024-retainedOutputBytes
+                var bytes=Data(text.utf8.prefix(remaining))
+                // Keep a valid scalar prefix, never exceed the byte budget with U+FFFD.
+                while String(data:bytes,encoding:.utf8) == nil { bytes.removeLast() }
+                let accepted=String(decoding:bytes,as:UTF8.self)
+                retainedOutputBytes+=bytes.count
+                if bytes.count<text.utf8.count { outputTruncated=true }
+                guard !accepted.isEmpty else { continue }
+                if event.kind == .log { logText+=accepted;onLog?(accepted) }
+                else if event.kind == .stdout { stdoutText+=accepted;onOutput?(.stdout,accepted) }
+                else { stderrText+=accepted;onOutput?(.stderr,accepted) }
+            }
         }
     }
     private func receiveExit(_ code:Int) {
         guard result == nil, failure == nil, state != .closed else { return }
         timeoutTask?.cancel(); timeoutTask=nil
         let ms=Double(DispatchTime.now().uptimeNanoseconds-startedAt)/1_000_000
-        let value=LinuxRuntimeResult(exitCode:code,milliseconds:ms,log:logText)
+        let value=LinuxRuntimeResult(exitCode:code,milliseconds:ms,log:logText,
+                                    stdout:stdoutText,stderr:stderrText,outputTruncated:outputTruncated)
         result=value; state = .exited
         navigation?.resume(); navigation=nil
         exitWaiter?.resume(returning:value); exitWaiter=nil
@@ -158,7 +178,7 @@ import WebKit
         decisionHandler(ok ? .allow : .cancel)
     }
 
-    private func launchURL(port:UInt16) throws -> URL {
+    func launchURL(port:UInt16) throws -> URL {
         var c=URLComponents()
         c.scheme="http"; c.host="127.0.0.1"; c.port=Int(port); c.path="/linux/web/linux.html"
         let argv=try JSONSerialization.data(withJSONObject:configuration.arguments)
@@ -174,6 +194,7 @@ import WebKit
             URLQueryItem(name:"timeout",value:String(Int(configuration.timeoutSeconds))),
             URLQueryItem(name:"chan",value:configuration.useNativeChannels ? "1":"0"),
             URLQueryItem(name:"shared",value:configuration.sharedAddressSpace ? "1":"0"),
+            URLQueryItem(name:"stdio",value:configuration.standardIO.rawValue),
             URLQueryItem(name:"regions",value:configuration.regions ? "1":"0"),
             URLQueryItem(name:"trace",value:configuration.trace ? "1":"0"),
             URLQueryItem(name:"traceCode",value:configuration.traceCode ? "1":"0"),
@@ -185,6 +206,9 @@ import WebKit
         q.append(URLQueryItem(name:"display",value:configuration.display ?? "0"))
         if configuration.screenOnly { q.append(URLQueryItem(name:"ui",value:"screen")) }
         c.queryItems=q
+        // URLSearchParams uses form decoding: a literal '+' becomes a space.
+        // Foundation permits '+' in query items, so escape it after encoding.
+        c.percentEncodedQuery=c.percentEncodedQuery?.replacingOccurrences(of:"+",with:"%2B")
         guard let url=c.url else { throw LinuxRuntimeError.invalidConfiguration("Could not build Linux launch URL.") }
         return url
     }
@@ -196,7 +220,7 @@ import WebKit
             "linux/web/linux.html","linux/web/linux_main.js","linux/web/kworker_web.js",
             "linux/web/thread_web.js","linux/web/chan_web.js","linux/web/chan_file.js",
             "linux/web/sampler.js","linux/web/probe_worker.js","linux/web/linux-kernel.js",
-            "linux/web/file_transport.js"
+            "linux/web/file_transport.js","linux/web/owned_workers.js"
         ]
         var out:[String:(Data,String)]=[:]
         for path in paths {

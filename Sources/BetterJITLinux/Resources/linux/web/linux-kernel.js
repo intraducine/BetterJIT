@@ -226,52 +226,117 @@ class WaitQueue {
 
 // ---------------------------------------------------------------------------
 // Address space: a shared WebAssembly.Memory and its mappings.
-// Memories for address spaces. The engine budgets address space over all
-// of them by their maximum size (Safari on the Mac: 15 of 4 GB, 23 of 2 GB,
-// 39 of 1 GB), and frees one only when it collects it; so a process gets the
-// size it needs, and memories are reused: a dead image's memory goes back to
-// the pool (with its record of what may be nonzero, zeroed as it is mapped
-// again) once its workers are gone.
+// Memories for address spaces. Constructors and growth can be refused while
+// other memories remain live; these events do not establish an engine/OS quota.
+// Retired memories can be reused after quarantine, carrying the record of bytes
+// that may be nonzero so new mappings clear them. Dropping a reference does not
+// establish immediate engine collection or release of physical memory.
 // The owner of mappings every process of a shared memory has (KUSER_SHARED_DATA).
 const GLOBAL = { global: true };
 const KUSER = 0x7ffe_0000;
 
 class MemoryPool {
   constructor() { this.free = []; }
-  take(maxPages, initialPages) {
+  emit(event) {
+    try { this.diagnostic?.({...event, pool:this.free.map(e => ({maximumPages:e.maxPages,
+      currentBytes:e.mem.buffer.byteLength, ready:e.readyAt<=performance.now()}))}); } catch {}
+  }
+  take(maxPages, initialPages, context={}) {
+    const started=performance.now();
+    // A staged image can know that it will need a high guest address later.
+    // Prefer a fitting retired reservation before binding any worker to it.
+    // Do not force an eager grow or change the immutable maximum.
+    if(context.reuseEnd) {
+      const fitting=e=>e.maxPages===maxPages&&e.mem.buffer.byteLength>=context.reuseEnd;
+      if(!this.free.some(e=>fitting(e)&&e.readyAt<=performance.now())) {
+        const pending=this.free.filter(e=>fitting(e)&&e.readyAt>performance.now())
+          .sort((a,b)=>a.readyAt-b.readyAt)[0];
+        if(pending)this.waitUntil(pending.readyAt,started+1500);
+      }
+    }
+    context={...context,poolWaitMilliseconds:performance.now()-started};
     // An engine can exhaust its reservation budget while a reusable memory
     // is still quarantined. Keep the existing 1.5 s safety delay and limits;
     // after allocation failure, wait only for an already retired candidate.
-    try { return this.takeReady(maxPages, initialPages); }
+    try { return this.takeReady(maxPages, initialPages, context); }
     catch (error) {
       if (!(error instanceof RangeError)) throw error;
       const pending = this.free.filter(e => e.maxPages === maxPages && e.readyAt > performance.now())
         .sort((a,b) => a.readyAt-b.readyAt)[0];
       if (pending) {
-        const until = Math.min(pending.readyAt, performance.now() + 1500);
-        const word = new Int32Array(new SharedArrayBuffer(4));
-        while (performance.now() < until) Atomics.wait(word, 0, 0, until-performance.now());
-        try { return this.takeReady(maxPages, initialPages); }
+        this.waitUntil(pending.readyAt,started+1500);
+        context.poolWaitMilliseconds=performance.now()-started;
+        try { return this.takeReady(maxPages, initialPages, context); }
         catch (retry) { if (!(retry instanceof RangeError)) throw retry; }
       }
       fail(E.NOMEM);
     }
   }
-  takeReady(maxPages, initialPages) {
+  waitUntil(readyAt,deadline) {
+    const until=Math.min(readyAt,deadline);
+    const word=new Int32Array(new SharedArrayBuffer(4));
+    while(performance.now()<until)Atomics.wait(word,0,0,until-performance.now());
+  }
+  takeReady(maxPages, initialPages, context={}) {
+    // Maximum sizes are immutable. Memories from another image-size class
+    // cannot satisfy this allocation; retaining them only keeps reservations
+    // and old backing buffers alive. Dropping our reference never reuses or
+    // clears a buffer a terminating worker may still own.
+    const discarded=this.free.filter(e=>e.maxPages!==maxPages).map(e=>({
+      maximumPages:e.maxPages,currentBytes:e.mem.buffer.byteLength}));
+    if (discarded.length) {
+      this.free=this.free.filter(e=>e.maxPages===maxPages);
+      this.emit({event:'pool-pruned',stage:'retention',reason:'incompatible immutable maximum',
+        requestedMaximumPages:maxPages,discarded,...context});
+    }
     const now = performance.now();
-    const i = this.free.findIndex((e) => e.maxPages === maxPages && e.readyAt <= now);
+    const needed=Math.max(initialPages*WASM_PAGE,context.inheritedEnd||0,context.reuseEnd||0);
+    let i=-1;
+    for(let n=0;n<this.free.length;n++) {
+      const e=this.free[n];if(e.maxPages!==maxPages||e.readyAt>now)continue;
+      if(i<0){i=n;continue;}
+      const size=e.mem.buffer.byteLength,chosen=this.free[i].mem.buffer.byteLength;
+      if((size>=needed&&chosen<needed)||(size>=needed&&chosen>=needed&&size<chosen)||
+         (size<needed&&chosen<needed&&size>chosen))i=n;
+    }
     if (i >= 0) {
       const e = this.free.splice(i, 1)[0];
       const have = e.mem.buffer.byteLength / WASM_PAGE;
       if (have < initialPages) {
         try { e.mem.grow(initialPages - have); }
-        catch (error) { this.free.push(e); throw error; }
+        catch (error) {
+          this.free.push(e);
+          this.emit({event:'failed',stage:'reuse-grow',maximumPages:maxPages,initialPages,
+            currentBytes:e.mem.buffer.byteLength,errorName:error.name,errorMessage:String(error.message).slice(0,256),...context});
+          throw error;
+        }
       }
-      return e;
+      return this.recordSelection(e,context,{source:'pool',maximumPages:maxPages,
+        initialPages,selectedBytes:e.mem.buffer.byteLength,selectionEnd:needed});
     }
-    return { mem: new WebAssembly.Memory({ initial: initialPages, maximum: maxPages, shared: true }), dirty: [], maxPages };
+    try {
+      const mem=new WebAssembly.Memory({ initial: initialPages, maximum: maxPages, shared: true });
+      return this.recordSelection({mem,dirty:[],maxPages},context,{source:'constructor',maximumPages:maxPages,
+        initialPages,selectedBytes:mem.buffer.byteLength,selectionEnd:needed});
+    } catch (error) {
+      this.emit({event:'failed',stage:'construct',maximumPages:maxPages,initialPages,
+        errorName:error.name,errorMessage:String(error.message).slice(0,256),...context});
+      throw error;
+    }
+  }
+  recordSelection(entry,context,details) {
+    // Keep only plain metadata, never extra references to pooled buffers.
+    // A later failure must retain its selection even if success sampling ended.
+    const selection={...details,poolWaitMilliseconds:context.poolWaitMilliseconds||0,
+      remainingPool:this.free.map(e=>({maximumPages:e.maxPages,currentBytes:e.mem.buffer.byteLength,
+        ready:e.readyAt<=performance.now()}))};
+    this.emit({event:'memory-selected',stage:'selection',...details,...context});
+    return {...entry,selection};
   }
   give(mem, dirty, maxPages) {
+    // Keep compatible reservations for simultaneous fork/exec demand. A
+    // discarded reservation may remain charged until engine collection; one
+    // spare cannot serve both children of a pipe when construction is refused.
     this.free.push({ mem, dirty, maxPages, readyAt: performance.now() + 1500 });
     if (this.free.length > 6) this.free.shift(); // (the oldest is left to the collector)
   }
@@ -279,11 +344,12 @@ class MemoryPool {
 const memoryPool = new MemoryPool();
 
 class Mm {
-  constructor(maxPages, initialPages) {
+  constructor(maxPages, initialPages, allocationContext={}) {
     this.maxPages = maxPages;
     // guest addresses: below the memory's maximum (and 4 GB)
     this.limit = Math.min(ADDR_LIMIT, maxPages * WASM_PAGE - WASM_PAGE);
-    const e = memoryPool.take(maxPages, initialPages || 16);
+    const e = memoryPool.take(maxPages, initialPages || 16, allocationContext);
+    this.allocationContext={...allocationContext,selection:e.selection};
     this.mem = e.mem;
     // sorted, non-overlapping {start, end, prot, flags, name, file?, owner}.
     // owner: the process image that mapped it; several processes can share
@@ -313,12 +379,16 @@ class Mm {
   }
   get u8() { return new Uint8Array(this.mem.buffer); }
   get dv() { return new DataView(this.mem.buffer); }
-  ensure(end) {
+  ensure(end, operationContext={}) {
     const have = this.mem.buffer.byteLength;
     if (end <= have) return;
     const pages = Math.ceil((end - have) / WASM_PAGE);
     try { this.mem.grow(pages); }
-    catch (error) { if (error instanceof RangeError) fail(E.NOMEM); throw error; }
+    catch (error) {
+      memoryPool.emit({event:'failed',stage:'grow',maximumPages:this.maxPages,currentBytes:have,
+        requestedEnd:end,additionalPages:pages,errorName:error.name,errorMessage:String(error.message).slice(0,256),...this.allocationContext,...operationContext});
+      if (error instanceof RangeError) fail(E.NOMEM); throw error;
+    }
     this.peakSize = this.mem.buffer.byteLength;
   }
   find(a) {
@@ -473,15 +543,24 @@ class Mm {
     }
     d.splice(i, j - i, [s, e]);
     this.dirtyBytes += (e - s) - removed;
-    // 64 KB chunks ever written (a wasm memory can't give pages back: these stay resident)
+    // 64 KB chunks ever written; tracking writes does not measure OS residency.
     const t = this.mem.touched || (this.mem.touched = { map: new Uint8Array(65536), n: 0 });
     for (let c = start >>> 16, ce = (end - 1) >>> 16; c <= ce; c++) if (!t.map[c]) { t.map[c] = 1; t.n++; }
     if (this.dirtyBytes > this.peakDirty) this.peakDirty = this.dirtyBytes;
   }
   // A copy for fork: the same mappings and the bytes of every mapping that may be nonzero.
-  clone(owner, newOwner) {
-    const m = new Mm(this.maxPages, Math.ceil(this.mem.buffer.byteLength / WASM_PAGE));
+  clone(owner, newOwner, context={}) {
     const mine = this.vmas.filter((v) => v.owner === owner || v.owner === GLOBAL);
+    const inheritedEnd=mine.reduce((end,v)=>Math.max(end,v.end),0);
+    const allocationContext={purpose:'fork',parentBytes:this.mem.buffer.byteLength,
+      inheritedMappedBytes:mine.reduce((sum,v)=>sum+v.end-v.start,0),inheritedEnd,
+      parentTrackedDirtyBytes:this.dirtyBytes,...context};
+    // Do not eagerly construct the child's entire grown parent buffer. Grow
+    // for inherited mappings, then copy their dirty bytes. Unmapped tail bytes
+    // are not a fork mapping. Guest maxima and mapping/ownership stay unchanged.
+    const m = new Mm(this.maxPages, Math.min(16,this.mem.buffer.byteLength/WASM_PAGE),allocationContext);
+    try {
+    m.ensure(inheritedEnd);
     m.vmas = mine.map((v) => Object.assign({}, v, { owner: v.owner === GLOBAL ? GLOBAL : newOwner }));
     // (a reused memory: what the parent has mapped but never wrote must read as zero)
     for (const v of mine) m.zero(v.start, v.end);
@@ -492,7 +571,10 @@ class Mm {
         if (lo < hi) { dst.set(src.subarray(lo, hi), lo); m.markDirty(lo, hi); }
       }
     }
+    memoryPool.emit({event:'fork-prepared',stage:'copy',maximumPages:m.maxPages,
+      childBytes:m.mem.buffer.byteLength,copiedTrackedBytes:m.dirtyBytes,...allocationContext});
     return m;
+    } catch (error) { m.retire(); throw error; }
   }
   // Nothing uses this address space any more: its memory goes back to the pool.
   retire() {
@@ -606,10 +688,11 @@ class DevFile extends File {
 
 // The host console.
 class ConsoleFile extends File {
-  constructor(fd) { super('console'); this.fd = fd; this.flags = fd === 0 ? 0 : O.WRONLY; }
+  constructor(fd, terminal=true) { super('console'); this.fd = fd; this.terminal=terminal; this.flags = fd === 0 ? 0 : O.WRONLY; }
   read() { return 0; }
   write(k, t, buf) { k.host.write(this.fd, buf.slice()); return buf.length; }
   ioctl(k, t, req, arg) {
+    if (!this.terminal) fail(E.NOTTY);
     if (req === 0x5413) { // TIOCGWINSZ
       const dv = t.proc.mm.dv;
       dv.setUint16(arg, 50, true); dv.setUint16(arg + 2, 160, true); dv.setUint32(arg + 4, 0, true);
@@ -621,7 +704,7 @@ class ConsoleFile extends File {
     }
     fail(E.NOTTY);
   }
-  stat() { return { mode: S_IF.CHR | 0o620, ino: this.ino, rdev: 0x8800 }; }
+  stat() { return { mode: this.terminal ? S_IF.CHR | 0o620 : S_IF.FIFO | 0o600, ino: this.ino, rdev: this.terminal ? 0x8800 : 0 }; }
 }
 
 class Pipe {
@@ -943,6 +1026,27 @@ class Kernel {
     this.initProc = null;
     this.spaceUsers = new Map();
     this.sharedFiles = new Map();
+    let allocationSuccesses=0,allocationFailures=0,allocationRetentions=0;
+    const failedOperations=new Set();
+    memoryPool.diagnostic=event=>{
+      if(event.event==='failed'){
+        // Preserve the first failure for each process/operation. One allocator's
+        // range-search retries must not consume the entire diagnostic budget.
+        const key=[event.stage,event.pid,event.space,event.operation,event.purpose,event.parentPid,event.maximumPages].join('/');
+        if(failedOperations.has(key)||allocationFailures>=16)return;
+        failedOperations.add(key);allocationFailures++;
+      }
+      else if(event.event==='pool-pruned'){if(allocationRetentions++>=16)return;}
+      else if(allocationSuccesses++>=16)return;
+      const memories=new Set();
+      const live=[];
+      for(const p of this.procs.values())if(p.mm?.mem&&!memories.has(p.mm.mem)){
+        memories.add(p.mm.mem);live.push({pid:p.pid,space:p.space,maximumPages:p.mm.maxPages,
+          currentBytes:p.mm.mem.buffer.byteLength,trackedDirtyBytes:p.mm.dirtyBytes,users:p.mm.users});
+      }
+      this.log('[memory-allocation] '+JSON.stringify({...event,live,
+        scope:'current kernel worker only; linear sizes/dirty tracking are not OS resident memory'}));
+    };
     // Input for the guest's display driver (syscalls.js, fexwasm display):
     // the host writes {type, x, y, flags, data} events (i32) into a ring
     // (i32 0: written, 1: read, then INPUT_RING entries) and rings the
@@ -1561,7 +1665,7 @@ class Kernel {
     const p = new Process(this, this.nextPid++, 1);
     this.procs.set(p.pid, p);
     this.initProc = p;
-    const con = [new ConsoleFile(0), new ConsoleFile(1), new ConsoleFile(2)];
+    const con = [0,1,2].map(fd=>new ConsoleFile(fd,this.host.standardIO !== 'captured'));
     for (let i = 0; i < 3; i++) p.fds.set(i, { file: con[i].ref(), cloexec: false });
     p.cwd = this.host.cwd || '/';
     const img = this.loadImage(p, path, argv, envp);
@@ -1593,8 +1697,8 @@ class Kernel {
     const elf = ELF.parse(bytes);
     if (!elf) fail(E.NOEXEC);
     // Shared address space (host.sharedSpace): every image goes into one
-    // memory (the engine allows only a few large ones: iOS WebContent 3 of
-    // 4 GB, 4 of 2 GB), owned by a token of its own.
+    // memory (engines can limit concurrent large reservations), owned by a
+    // token of its own. A device's limit is not inferred from physical RAM.
     const owner = { image: path };
     let mm, space;
     if (this.host.sharedSpace) {
@@ -1611,13 +1715,22 @@ class Kernel {
       mm = this.sharedMm;
       space = mm.space;
     } else {
-      mm = new Mm(this.memPagesFor(path, elf), 256);
+      const maximumPages=this.memPagesFor(path,elf);
+      // Only the opted-in adapted Wine loader: its fixed shared-user-data
+      // mapping is known before exec. This is a reuse preference, not a new
+      // mapping, larger maximum, or replacement of an active worker's memory.
+      const reuseEnd=envp.includes('BETTERJIT_WINE_SPAWN=1')&&/\/wine(64)?$/.test(path)
+        ? Math.min(KUSER+2*PAGE,maximumPages*WASM_PAGE-WASM_PAGE) : 0;
+      mm = new Mm(maximumPages, 256, {purpose:'exec',pid:proc.pid,space:this.nextSpace,executable:path,reuseEnd});
       space = this.nextSpace++;
     }
     try {
       return this.loadInto(mm, owner, space, path, bytes, elf, argv, envp);
     } catch (e) {
       mm.removeOwner(owner); // (a shared memory keeps everyone else's mappings)
+      // A failed staged image has no worker or process owner. Return its
+      // separate memory to the existing bounded pool instead of orphaning it.
+      if (!this.host.sharedSpace) mm.retire();
       throw e;
     }
   }
@@ -2657,7 +2770,8 @@ def('mmap', function (t, a0, a1, a2, a3, a4, a5) {
     if (a < 0) fail(E.NOMEM);
   }
   const old = execRanges(mm, a, a + len, owner);
-  mm.ensure(a + len);
+  mm.ensure(a + len, {operation:'mmap',pid:proc.pid,tid:t.tid,space:proc.space,executable:proc.exe,
+    requestedAddress:a,requestedLength:len,protection:prot,flags});
   mm.cut(a, a + len, owner);
   for (const [s, e] of old) k_uncode(this, proc, s, e);
   mm.zero(a, a + len);
@@ -3292,7 +3406,7 @@ function doClone(k, t, flags, newsp, ptid, ctid, tls) {
     // a copy of our mappings (only ours, in a shared address space) in a memory of its own
     child.image = { image: proc.exe, forkOf: proc.pid };
     child.ownsImage = true;
-    child.mm = proc.mm.clone(proc.image, child.image);
+    child.mm = proc.mm.clone(proc.image, child.image,{parentPid:proc.pid,parentSpace:proc.space});
     child.mm.users = 1;
     // only the calling thread lives on in the child
     for (const v of child.mm.vmas.filter((v) => v.kernel && v.start !== t.tb)) child.mm.cut(v.start, v.end);
@@ -3379,7 +3493,10 @@ function doExec(k, t, path, argv, envp) {
   if (proc.vforkParent) { k.makeRunnable(proc.vforkParent); proc.vforkParent = null; }
   // (the new image first: in a shared memory, the old one's going must not free the memory)
   const old = { mm: proc.mm, image: proc.image, ownsImage: proc.ownsImage, space: proc.space };
-  k.installImage(proc, img, t.tid);
+  const next = k.installImage(proc, img, t.tid);
+  // exec replaces the image and caught dispositions, not the calling thread's
+  // blocked signal set (including POSIX_SPAWN_SETSIGMASK selected by libc).
+  next.sigmask = t.sigmask;
   k.releaseImage(old);
   return EXIT_THREAD;
 }
@@ -4424,7 +4541,7 @@ Kernel.prototype.snapshot = function () {
     else if (f instanceof EpollFile) {
       fileRecs[id] = r;
       Object.assign(r, { type: 'epoll', watch: [...f.watch].map(([fd, w]) => [fd, fileId(w.file), big2s(w.events), big2s(w.data)]) });
-    } else if (f.kind === 'console') Object.assign(r, { type: 'console', fd: f.fd });
+    } else if (f.kind === 'console') Object.assign(r, { type: 'console', fd: f.fd, terminal: f.terminal });
     else throw new Error('snapshot: a file of kind ' + f.kind);
     fileRecs[id] = r;
     return id;
@@ -4522,7 +4639,7 @@ Kernel.restore = function (host, cfg, snap) {
       case 'host': f = new HostFile(k.vfs, r.fd, r.path, r.flags, r.isDir); if (r.memfd !== undefined) f.memfd = r.memfd; break;
       case 'buffer': f = new BufferFile(snap.blob(r.bytes), r.mode); break;
       case 'dev': f = new DevFile(r.name); break;
-      case 'console': f = new K.ConsoleFile(r.fd); break;
+      case 'console': f = new K.ConsoleFile(r.fd, r.terminal !== false); break;
       case 'pipe': {
         const p = pipes[r.pipe], rd = p.readers, wr = p.writers;
         f = new PipeEnd(p, r.isWrite);

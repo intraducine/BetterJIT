@@ -6,10 +6,23 @@ import BetterJITWebKit
 import BetterJITLinux
 
 @main struct FEXHostApp: App {
-    var body: some Scene { WindowGroup { DeviceSessionView() } }
+    var body: some Scene { WindowGroup { BackendWorkbenchView() } }
+}
+@MainActor private struct BackendWorkbenchView:View {
+    @StateObject private var session=DeviceSessionModel()
+    @StateObject private var consumer=FileDigestConsumerModel()
+    var body:some View {
+        TabView {
+            FileDigestConsumerView(model:consumer,otherOperationRunning:session.running || session.importing)
+                .tabItem {Label("Use backend",systemImage:"doc.text")}
+            DeviceSessionView(model:session,otherOperationRunning:consumer.running)
+                .tabItem {Label("Run All",systemImage:"checklist")}
+        }
+    }
 }
 @MainActor private struct DeviceSessionView: View {
-    @StateObject private var model=DeviceSessionModel()
+    @ObservedObject var model:DeviceSessionModel
+    var otherOperationRunning:Bool
     @Environment(\.scenePhase) private var scenePhase
     @State private var standalone=false
     @State private var offline=false
@@ -24,11 +37,11 @@ import BetterJITLinux
                         .font(.subheadline).foregroundStyle(.secondary)
                     HStack {
                         Button("Run All") { run(resume:false) }
-                            .buttonStyle(.borderedProminent).disabled(model.running || model.importing)
+                            .buttonStyle(.borderedProminent).disabled(model.running || model.importing || otherOperationRunning)
                         if model.running {
                             Button("Stop") { model.stop() }.buttonStyle(.bordered)
                         } else if model.report?.canResume == true {
-                            Button("Resume unfinished") { run(resume:true) }.buttonStyle(.bordered).disabled(model.importing)
+                            Button("Resume unfinished") { run(resume:true) }.buttonStyle(.bordered).disabled(model.importing || otherOperationRunning)
                         }
                     }
                     if model.report?.canResume == true && !model.running {
@@ -55,14 +68,14 @@ import BetterJITLinux
                     if let error=model.storageError { Text(error).foregroundStyle(.red).font(.footnote).textSelection(.enabled) }
                     if let url=model.reportURL {
                         ShareLink("Share session report",item:url).buttonStyle(.borderedProminent)
-                            .disabled(model.running || model.importing)
+                            .disabled(model.running || model.importing || otherOperationRunning)
                     }
                     DisclosureGroup("Wine root and session options") {
                         VStack(alignment:.leading,spacing:12) {
                             Text(model.wineAvailable ? "Wine root found" : "Wine root missing: Wine will be UNSUPPORTED")
                                 .font(.subheadline.bold())
                             Button("Choose staged Wine root folder") { chooseRoot=true }
-                                .disabled(model.running || model.importing)
+                                .disabled(model.running || model.importing || otherOperationRunning)
                             if model.importing { Button("Cancel import") { model.cancelImport() } }
                             Text("Select linuxroot with opt/wine/bin/wine, .symlinks.json and .modes.json, or copy it to this app’s Documents/linuxroot in Files/Finder. No rebuild is needed. Use your redistributable Wine build and dependencies.")
                                 .font(.caption).foregroundStyle(.secondary)
@@ -122,7 +135,34 @@ private struct PhaseRow: View {
                         if let reason=check.details["reason"] { Text(reason).foregroundStyle(.secondary) }
                     }
                 }
+                if let stdout=phase.stdout, !stdout.isEmpty {
+                    Text("Standard output").font(.caption.bold())
+                    Text(stdout.suffix(16000)).font(.caption.monospaced()).textSelection(.enabled)
+                }
+                if let stderr=phase.stderr, !stderr.isEmpty {
+                    Text("Standard error").font(.caption.bold())
+                    Text(stderr.suffix(16000)).font(.caption.monospaced()).textSelection(.enabled)
+                }
+                if phase.outputTruncated == true {
+                    Text("Output is incomplete; capture or report retention reached its limit.").font(.caption).foregroundStyle(.secondary)
+                }
+                if phase.runtimeOutputTruncated == true {
+                    Text("Runtime capture reached its shared 4 MiB limit.").font(.caption).foregroundStyle(.secondary)
+                }
+                ForEach(["stdout","stderr","log"],id:\.self) { stream in
+                    if let retention=phase.outputRetention?[stream],retention.truncated {
+                        Text("\(stream): report tail omits \(retention.droppedPrefixCharacters) leading characters (\(retention.originalUTF8Bytes) original UTF-8 bytes).")
+                            .font(.caption).foregroundStyle(.secondary)
+                        if let context=retention.firstErrorContext {
+                            DisclosureGroup("First recorded error context: \(stream)") {
+                                Text(context).font(.caption.monospaced()).textSelection(.enabled)
+                                if retention.errorContextClipped { Text("Error context was also clipped.").font(.caption) }
+                            }
+                        }
+                    }
+                }
                 if !phase.log.isEmpty {
+                    Text("Log").font(.caption.bold())
                     Text(phase.log.suffix(16000)).font(.caption.monospaced()).textSelection(.enabled)
                 }
                 if let ms=phase.milliseconds { Text(String(format:"Phase %.1f s",ms/1000)).font(.caption.monospacedDigit()) }

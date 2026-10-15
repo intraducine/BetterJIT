@@ -1,7 +1,7 @@
 // The page side of the guest kernel: fetches the translator's configuration
 // and the file index, starts the kernel worker, and a Web Worker for each
-// guest thread it asks for. Everything it prints also goes to /log (the
-// Mac harness, tools/webserve.js, keeps it).
+// guest thread it asks for. Ordered /events batches keep guest text streams,
+// diagnostics and process completion separate.
 //   linux.html?argv=["/opt/wine/bin/wine","cmd"]&env={"K":"V"}&timeout=60  (or argv=/opt/wine/bin/wine|cmd)
 (function () {
   'use strict';
@@ -9,17 +9,64 @@
   const out = document.getElementById('out');
   const q = new URLSearchParams(location.search);
   const origin = location.origin;
-  let pending = [];
-  function log(s) {
-    out.textContent += s + (s.endsWith('\n') ? '' : '\n');
-    pending.push(s.endsWith('\n') ? s : s + '\n');
+  const streamViews = {stdout:document.getElementById('stdout'),stderr:document.getElementById('stderr')};
+  const decoders = {1:new TextDecoder('utf-8',{ignoreBOM:true}),2:new TextDecoder('utf-8',{ignoreBOM:true})};
+  const encoder = new TextEncoder(), outputRequests = new AbortController();
+  const outputLimit = 4*1024*1024;
+  let pending=[],pendingBytes=0,retainedBytes=0,truncated=false,sequence=0;
+  let delivery=Promise.resolve(),transportFailed=false;
+  function emitText(kind,text) {
+    if (!text || truncated) return;
+    const bytes=encoder.encode(text);
+    let count=Math.min(bytes.length,outputLimit-retainedBytes);
+    if(count<bytes.length)while(count>0&&(bytes[count]&0xc0)===0x80)count--;
+    text=new TextDecoder('utf-8',{ignoreBOM:true}).decode(bytes.subarray(0,count));
+    retainedBytes+=count;pendingBytes+=count;
+    if(text) {
+      const view=kind==='log'?out:streamViews[kind];
+      if(view)view.textContent+=text;
+      const last=pending[pending.length-1];
+      if(last?.kind===kind)last.text+=text;else pending.push({kind,text});
+    }
+    if(count<bytes.length){truncated=true;pending.push({kind:'truncated'});}
+    if(pendingBytes>=65536||pending.length>=128)flushLog();
   }
-  setInterval(flushLog, 250);
+  function log(s) { emitText('log',s.endsWith('\n')?s:s+'\n'); }
+  function write(fd,bytes) {
+    if(!decoders[fd])return;
+    // Decode each descriptor independently, including code points split across writes.
+    for(let offset=0;offset<bytes.length&&!truncated;offset+=32768)
+      emitText(fd===1?'stdout':'stderr',decoders[fd].decode(bytes.subarray(offset,offset+32768),{stream:true}));
+  }
+  function endStreams() {
+    for(const fd of [1,2])emitText(fd===1?'stdout':'stderr',decoders[fd].decode());
+  }
+  const resources=new FexPageResources();
+  const startupRequests=new AbortController();
+  resources.defer(()=>startupRequests.abort());
+  const logTimer=resources.interval(flushLog, 250);
+  let stopGuest=null;
+  const closePage=()=>{if(stopGuest)stopGuest();else resources.close();outputRequests.abort();pending=[];};
+  resources.on(window,'pagehide',closePage,{once:true});
+  globalThis.betterjitClose=closePage;
+  resources.defer(()=>{delete globalThis.betterjitClose;});
   function flushLog() {
-    if (!pending.length) return;
-    const body = pending.join('');
-    pending = [];
-    fetch(origin + '/log', { method: 'POST', body }).catch(() => {});
+    if (!pending.length) return delivery;
+    const body=JSON.stringify({sequence:sequence++,events:pending});
+    pending=[];pendingBytes=0;
+    // One in-flight request: exit cannot overtake output from an earlier flush.
+    delivery=delivery.then(async()=>{
+      if(transportFailed||outputRequests.signal.aborted)return;
+      try {
+        const response=await fetch(origin+'/events',{method:'POST',body,signal:outputRequests.signal});
+        if(!response.ok)throw new Error('output HTTP '+response.status);
+      } catch(error) {
+        transportFailed=true;
+        // Never deliver a successful exit after losing an output batch.
+        if(!outputRequests.signal.aborted)out.textContent+='[page] output delivery failed: '+error+'\n';
+      }
+    });
+    return delivery;
   }
 
   // Memory probe (probeWorkers=N): N workers like guest threads', 8 more
@@ -132,12 +179,17 @@
       LD_LIBRARY_PATH: '/opt/wine/lib/wine/x86_64-unix' }, JSON.parse(q.get('env') || '{}'));
     const timeout = Number(q.get('timeout') || 0);
     const t0 = performance.now();
-    const get = async (p) => { const r = await fetch(origin + p); if (!r.ok) throw new Error(p + ' ' + r.status); return r; };
+    const get = async (p) => {
+      if(resources.closed)throw new Error('Page closed during startup');
+      const r = await fetch(origin + p,{signal:startupRequests.signal});
+      if (!r.ok) throw new Error(p + ' ' + r.status); return r;
+    };
     const cfg = await (await get('/xlat/config?space=0')).json();
     const dispatcher = new Uint8Array(await (await get('/xlat/dispatcher?space=0')).arrayBuffer());
     const state = new Uint8Array(await (await get('/xlat/state?space=0')).arrayBuffer());
     await get('/xlat/drop?space=0');
     const index = await (await get('/fs/index')).json();
+    if(resources.closed)return;
     log(`[page] engine ready: ${index.entries.length} files in the index, ${((performance.now() - t0)).toFixed(0)} ms`);
 
     // The guest's screen (display=WxH, 0: none): windows from Wine's display
@@ -165,7 +217,7 @@
       placed.set(m.hwnd, { m, at });
       fetch(`${origin}/win?${at}`).catch(() => {});
     };
-    addEventListener('resize', () => { for (const { m } of [...placed.values()]) { placed.delete(m.hwnd); place(m); } });
+    resources.on(window,'resize', () => { for (const { m } of [...placed.values()]) { placed.delete(m.hwnd); place(m); } });
     if (screen) {
       canvas.width = DW;
       canvas.height = DH;
@@ -177,9 +229,9 @@
           ctx.putImageData(img, 0, 0);
           canvas.classList.add('on');
         }
-        requestAnimationFrame(draw);
+        resources.frame(draw);
       };
-      requestAnimationFrame(draw);
+      resources.frame(draw);
       // input: {type 0 mouse (x, y, MOUSEEVENTF_ flags, wheel data) | 1 key (VK, KEYEVENTF_ flags)}
       const send = (type, x, y, flags, data) => {
         if (!input32 || !ksab) return;
@@ -197,11 +249,11 @@
         return [Math.max(0, Math.min(DW - 1, Math.round((e.clientX - x0) / k))), Math.max(0, Math.min(DH - 1, Math.round((e.clientY - y0) / k)))];
       };
       const MOVE = 0x1, LDOWN = 0x2, LUP = 0x4, RDOWN = 0x8, RUP = 0x10, WHEEL = 0x800, KEYUP = 0x2;
-      canvas.addEventListener('pointermove', (e) => send(0, ...at(e), MOVE, 0));
-      canvas.addEventListener('pointerdown', (e) => { canvas.focus(); canvas.setPointerCapture(e.pointerId); send(0, ...at(e), MOVE | (e.button === 2 ? RDOWN : LDOWN), 0); e.preventDefault(); });
-      canvas.addEventListener('pointerup', (e) => send(0, ...at(e), MOVE | (e.button === 2 ? RUP : LUP), 0));
-      canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-      canvas.addEventListener('wheel', (e) => { send(0, ...at(e), WHEEL, e.deltaY > 0 ? -120 : 120); e.preventDefault(); }, { passive: false });
+      resources.on(canvas,'pointermove', (e) => send(0, ...at(e), MOVE, 0));
+      resources.on(canvas,'pointerdown', (e) => { canvas.focus(); canvas.setPointerCapture(e.pointerId); send(0, ...at(e), MOVE | (e.button === 2 ? RDOWN : LDOWN), 0); e.preventDefault(); });
+      resources.on(canvas,'pointerup', (e) => send(0, ...at(e), MOVE | (e.button === 2 ? RUP : LUP), 0));
+      resources.on(canvas,'contextmenu', (e) => e.preventDefault());
+      resources.on(canvas,'wheel', (e) => { send(0, ...at(e), WHEEL, e.deltaY > 0 ? -120 : 120); e.preventDefault(); }, { passive: false });
       const vk = (e) => {
         const c = e.code;
         if (/^Key[A-Z]$/.test(c)) return c.charCodeAt(3);
@@ -212,16 +264,16 @@
           Delete: 0x2e, Home: 0x24, End: 0x23, PageUp: 0x21, PageDown: 0x22, Insert: 0x2d, Minus: 0xbd, Equal: 0xbb, Comma: 0xbc,
           Period: 0xbe, Slash: 0xbf, Semicolon: 0xba, Quote: 0xde, BracketLeft: 0xdb, BracketRight: 0xdd, Backslash: 0xdc, Backquote: 0xc0 }[c] || 0;
       };
-      canvas.addEventListener('keydown', (e) => { const v = vk(e); if (v) { send(1, v, 0, 0, 0); e.preventDefault(); } });
-      canvas.addEventListener('keyup', (e) => { const v = vk(e); if (v) { send(1, v, 0, KEYUP, 0); e.preventDefault(); } });
+      resources.on(canvas,'keydown', (e) => { const v = vk(e); if (v) { send(1, v, 0, 0, 0); e.preventDefault(); } });
+      resources.on(canvas,'keyup', (e) => { const v = vk(e); if (v) { send(1, v, 0, KEYUP, 0); e.preventDefault(); } });
       // clicks=x.y.ms|...: taps at screen points, that many ms after the start (testing input)
       for (const c of (q.get('clicks') || '').split('|').filter(Boolean)) {
         const [x, y, ms] = c.split('.').map(Number);
-        setTimeout(() => { send(0, x, y, MOVE, 0); send(0, x, y, MOVE | LDOWN, 0); setTimeout(() => send(0, x, y, MOVE | LUP, 0), 80); log(`[page] tap ${x},${y}`); }, ms);
+        resources.timeout(() => { send(0, x, y, MOVE, 0); send(0, x, y, MOVE | LDOWN, 0); resources.timeout(() => send(0, x, y, MOVE | LUP, 0), 80); log(`[page] tap ${x},${y}`); }, ms);
       }
       // shot=S: a PNG of the screen after S seconds, to the host's /shot (the app keeps it in Documents)
       if (q.get('shot')) {
-        setTimeout(() => canvas.toBlob((b) => fetch(`${origin}/shot?name=${encodeURIComponent(q.get('shotName') || 'shot')}`, { method: 'POST', body: b })
+        resources.timeout(() => canvas.toBlob((b) => !resources.closed && fetch(`${origin}/shot?name=${encodeURIComponent(q.get('shotName') || 'shot')}`, { method: 'POST', body: b })
           .then(() => log('[page] screen saved')), 'image/png'), Number(q.get('shot')) * 1000);
       }
     }
@@ -230,7 +282,7 @@
     // channels: thread_web.js; gpuKind=echo: the app's echo, for timing.)
     const chan = (kind, extra, dataSize = 8 << 20) => {
       const mailbox = new SharedArrayBuffer(64), data = new SharedArrayBuffer(dataSize);
-      const w = new Worker('chan_web.js');
+      const w = resources.worker(new Worker('chan_web.js'));
       w.onmessage = (e) => { if (e.data.op === 'log') log(e.data.m); };
       w.postMessage(Object.assign({ mailbox, data, origin, name: `${kind}-ring`, kind }, extra));
       return { mailbox, data };
@@ -241,23 +293,35 @@
     const bridge = new SharedArrayBuffer(16);
     const b32 = new Int32Array(bridge);
     const bootEpoch = performance.timeOrigin + performance.now() - 1e6;
-    const threads = new Map();
+    const threads = new FexGuestWorkers();
     let frames = 0;
     const slowWait = Number(q.get('slowWait') || 0);
     const units = FexLinuxThread.UnitCache(origin, undefined, Number(q.get('codeEpochMB') ?? 0) << 20); // (0: no epochs; they raised the peak: threads re-request their code faster than JSC frees the old)
+    resources.defer(()=>units.close());
     let ksab = null;
+    resources.defer(()=>{ksab=null;input32=null;placed.clear();if(screen){screen.windows.clear();screen.z=[];}canvas.width=0;canvas.height=0;});
     // (sample=1, with the translator's profrip=1: web/sampler.js)
-    const sampler = q.get('sample') === '1' && cfg.profAddr ? new Worker('sampler.js') : null;
+    const sampler = q.get('sample') === '1' && cfg.profAddr ? resources.worker(new Worker('sampler.js')) : null;
     if (sampler) sampler.onmessage = (x) => { if (x.data.op === 'log') log(x.data.m); };
     // (every 10 s: how much code the page has compiled: most of WebContent's memory after the guest's)
-    setInterval(() => log(`[page] units: ${units.stats.requests} requests, ${units.stats.compiled} modules compiled (${(units.stats.compiledBytes / 1e6).toFixed(1)} MB); page ${document.visibilityState}${document.hasFocus() ? ', focused' : ''}`), 10000);
-    const kernel = new Worker('kworker_web.js');
+    const statisticsTimer=resources.interval(() => log(`[page] units: ${units.stats.requests} requests, ${units.stats.compiled} modules compiled (${(units.stats.compiledBytes / 1e6).toFixed(1)} MB); page ${document.visibilityState}${document.hasFocus() ? ', focused' : ''}`), 10000);
+    const kernel = resources.worker(new Worker('kworker_web.js'));
+    let finished=false,guestTimer=null,stopTimer=null;
+    const cleanup = () => {
+      if(finished)return false;finished=true;
+      stopGuest=null;
+      clearInterval(logTimer);clearInterval(statisticsTimer);
+      clearTimeout(guestTimer);clearTimeout(stopTimer);
+      threads.close();resources.close();
+      return true;
+    };
+    stopGuest=cleanup;
     const finish = (code) => {
+      if(!cleanup())return;
+      endStreams();
       log(`[page] exit ${code} after ${(performance.now() - t0).toFixed(0)} ms`);
-      for (const w of threads.values()) w.terminate();
-      kernel.terminate();
-      flushLog();
-      document.title = 'done ' + code;
+      pending.push({kind:'exit',code});
+      flushLog();document.title = 'done ' + code;
     };
     kernel.onmessage = (e) => {
       const m = e.data;
@@ -271,43 +335,44 @@
           break;
         case 'spawn': {
           const w = new Worker('thread_web.js');
-          threads.set(m.tid, w);
+          const tid=m.tid,slot=m.slot,slotBuffer=m.ksab;
           if (sampler) {
             if (!sampler.started) { sampler.started = true; sampler.postMessage({ op: 'init', mem: m.mem, ksab: m.ksab, profAddr: cfg.profAddr }); }
             sampler.postMessage({ op: 'add', tid: m.tid, tb: m.tb, slot: m.slot });
           }
-          const free = () => setTimeout(() => Atomics.store(new Int32Array(m.ksab), ((256 + m.slot * 128) >> 2) + 26, 0), 200);
+          const free = () => resources.timeout(() => Atomics.store(new Int32Array(slotBuffer), ((256 + slot * 128) >> 2) + 26, 0), 200);
+          if(!threads.add(tid,w,free))break;
           w.onmessage = (x) => {
+            if(!threads.has(w))return;
             const d = x.data;
             if (d.op === 'module') {
               // (slowWait: when a module is slow, whether it waited to get here or to compile)
               const got = performance.timeOrigin + performance.now(), bytes = d.code.length;
               units.module(d.key, d.code).then((module) => {
+                if(!threads.has(w))return;
                 const done = performance.timeOrigin + performance.now();
-                if (slowWait && done - d.sent > slowWait) log(`[page] module for tid ${m.tid}: ${(got - d.sent).toFixed(0)} ms to arrive, ${(done - got).toFixed(0)} ms to compile (${bytes} bytes)`);
-                w.postMessage({ op: 'unit', id: d.id, module, replied: performance.timeOrigin + performance.now() });
+                if (slowWait && done - d.sent > slowWait) log(`[page] module for tid ${tid}: ${(got - d.sent).toFixed(0)} ms to arrive, ${(done - got).toFixed(0)} ms to compile (${bytes} bytes)`);
+                threads.reply(w,{ op: 'unit', id: d.id, module, replied: performance.timeOrigin + performance.now() });
               },
-                (err) => { log(`[page] module: ${err}`); w.postMessage({ op: 'unit', id: d.id }); });
+                (err) => { if(!threads.has(w))return; log(`[page] module: ${err}`); threads.reply(w,{ op: 'unit', id: d.id }); });
             } else if (d.op === 'unit') {
-              units.get(d.space, d.rip).then((r) => w.postMessage(Object.assign({ op: 'unit', id: d.id }, r)),
-                (err) => { log(`[page] unit 0x${d.rip.toString(16)}: ${err}`); w.postMessage({ op: 'unit', id: d.id }); });
+              units.get(d.space, d.rip).then((r) => threads.reply(w,Object.assign({ op: 'unit', id: d.id }, r)),
+                (err) => { if(!threads.has(w))return; log(`[page] unit 0x${d.rip.toString(16)}: ${err}`); threads.reply(w,{ op: 'unit', id: d.id }); });
             } else if (d.op === 'log') log(d.m);
-            else if (d.op === 'done') { w.terminate(); if (threads.get(m.tid) === w) threads.delete(m.tid); free(); if (sampler) sampler.postMessage({ op: 'remove', tid: m.tid }); }
+            else if (d.op === 'done') { threads.dispose(w); if (sampler) sampler.postMessage({ op: 'remove', tid }); }
           };
-          w.onerror = (err) => log(`[tid ${m.tid}] worker error: ${err.message}`);
+          w.onerror = (err) => log(`[tid ${tid}] worker error: ${err.message}`);
           w.postMessage({ pid: m.pid, tid: m.tid, tb: m.tb, mem: m.mem, wx: m.wx, space: m.space, slot: m.slot, ksab: m.ksab, cfg, dispatcher, xlat: origin, gpuKind: q.get('gpuKind'), gpuStats: q.get('gpuStats') === '1', slowWait: Number(q.get('slowWait') || 0), threadStats: q.get('threadStats') === '1',
             xlatMailbox: xlatChan && xlatChan.mailbox, xlatData: xlatChan && xlatChan.data,
             bootEpoch: m.bootEpoch ?? bootEpoch,
             codeEpoch: units.epoch.buffer, kspinMs: Number(q.get('tspin') ?? 0.02), traceCode: q.get('traceCode') === '1', noRegions: q.get('regions') === '0', regionAfterMs: 1000 * Number(q.get('regionAfter') ?? 30) });
-          w.freeSlot = free;
           break;
         }
         case 'kill': {
-          const w = threads.get(m.tid);
-          if (w) { threads.delete(m.tid); w.terminate(); w.freeSlot(); }
+          threads.kill(m.tid);
           break;
         }
-        case 'write': log(new TextDecoder().decode(m.bytes)); break;
+        case 'write': write(m.fd,m.bytes); break;
         case 'log': log(m.m); break;
         case 'exit':
           log(`[page] units: ${units.stats.requests} requests, ${units.stats.compiled} modules compiled (${(units.stats.compiledBytes / 1e6).toFixed(1)} MB, ${units.stats.epochs} code epochs); translator ${Math.round(units.stats.fetchMs)} ms, compile waits ${Math.round(units.stats.compileMs)} ms`);
@@ -318,18 +383,24 @@
     };
     kernel.onerror = (err) => { log('kernel worker error: ' + err.message); finish(126); };
     kernel.postMessage({ cfg, state, index: index.entries, fsBase: origin, xlat: origin, kernChan, uid: index.uid, gid: index.gid, argv, cwd: q.get('cwd') || '/',
+      standardIO:q.get('stdio') === 'captured' ? 'captured' : 'terminal',
       env: Object.entries(envObj).map(([k, v]) => `${k}=${v}`), bridge, bootEpoch, traceExec: q.get('traceExec') === '1', trace: q.get('trace') === '1', traceShm: q.get('traceShm') === '1',
       peek: q.get('peek'), win64: q.get('win64') ?? 'thumper_win10.exe,ucrtbase.dll,d3d11.dll,dxgi.dll', traceMaps: q.get('traceMaps') === '1', spinMs: Number(q.get('kspin') ?? 0.05), traceCode: q.get('traceCode') === '1', sharedSpace: q.get('shared') !== '0', memLog: Number(q.get('memLog') || 0), display: screen ? displaySize : null,
       // a saved system (in OPFS): snapshot=name&snapshotAt=S[&snapshotExit=1] saves one; restore=name[&run=a|b|c] starts from it
       snapshot: q.get('snapshot'), snapshotAt: Number(q.get('snapshotAt') || 30), snapshotExit: q.get('snapshotExit') === '1',
       restore: q.get('restore'), run: q.get('run') ? q.get('run').split('|').map((a) => decodeURIComponent(a)) : null, auto: q.get('auto') });
-    if (timeout) setTimeout(() => {
+    if (timeout) guestTimer=resources.timeout(() => {
       log(`[page] timeout after ${timeout} s; units: ${units.stats.requests} requests, ${units.stats.compiled} modules compiled; ` +
         `translator ${Math.round(units.stats.fetchMs)} ms, compile waits ${Math.round(units.stats.compileMs)} ms; threads:`);
       Atomics.store(b32, 2, 1);
-      setTimeout(() => finish(124), 1500);
+      stopTimer=resources.timeout(() => finish(124), 1500);
     }, timeout * 1000);
   }
   // (the app waits for "[page] exit")
-  main().catch((e) => { log('[page] ' + (e.stack || e)); log('[page] exit 127'); flushLog(); document.title = 'failed'; });
+  main().catch((e) => {
+    if(resources.closed)return;
+    if(stopGuest)stopGuest();else resources.close();
+    endStreams();log('[page] '+(e.stack||e));log('[page] exit 127');
+    pending.push({kind:'exit',code:127});flushLog();document.title='failed';
+  });
 })();

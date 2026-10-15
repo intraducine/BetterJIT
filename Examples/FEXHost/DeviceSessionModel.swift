@@ -6,6 +6,7 @@ import Darwin
 import BetterJIT
 import BetterJITWebKit
 import BetterJITLinux
+import BetterJITFEXAdapter
 
 @MainActor final class DeviceSessionModel: ObservableObject {
     @Published var report: DeviceSessionReport?
@@ -23,6 +24,7 @@ import BetterJITLinux
     private var stopped: ReportState?
     private var expired=false
     private var activeIndex: Int?
+    private var consumerBackend:FEXDocumentDigestBackend?
     private var lastLogCheckpoint: UInt64=0
     private var linuxEngineCapabilities: RuntimeCapabilities?
     private lazy var linux = LinuxHarness { [weak self] session,status,log in
@@ -75,7 +77,7 @@ import BetterJITLinux
     private func abort(interrupted:Bool = false) {
         suiteRunner?.stop(interrupted:interrupted)
         diagnosticRunner?.stop(interrupted:interrupted)
-        linux.stop(); transport?.close()
+        consumerBackend?.close(); linux.stop(); transport?.close()
     }
     private func checkStop() throws {
         if expired { throw SuiteFailure("Phase exceeded its host deadline; its executor was closed.") }
@@ -119,11 +121,56 @@ import BetterJITLinux
         liveStatus=report?.overall ?? "Finished"; save()
         running=false; task=nil
     }
+    private func linuxSupported(phase:Int) async throws -> Bool {
+        if linuxEngineCapabilities == nil {
+            let probe=WebDiagnosticExecutor(mode:.copied,mount:{ [weak self] in self?.transport=$0 })
+            defer { probe.close() }
+            linuxEngineCapabilities=try await probe.start()
+            try checkStop()
+        }
+        if let caps=linuxEngineCapabilities {
+            report?.phases[phase].details["engineJSPI"]=String(caps.jspi)
+            report?.phases[phase].details["engineSharedMemory"]=String(caps.sharedMemory)
+            guard caps.jspi && caps.sharedMemory else {
+                report?.phases[phase].status = .unsupported
+                report?.phases[phase].details["reason"]="This WebKit engine lacks JSPI or shared Wasm memory required by the Linux/Wine runtime."
+                return false
+            }
+        }
+        return true
+    }
     private func execute(_ i:Int, stress:Bool) async throws {
         guard let id=report?.phases[i].id else { throw SuiteFailure("Missing phase.") }
-        let wine = id == "wine" || id == "wine-direct" || id == "wine-flat"
+        if id == "consumer-digest" {
+            guard try await linuxSupported(phase:i) else { return }
+            guard FileManager.default.fileExists(atPath:LinuxHarness.rootURL.appendingPathComponent("bin/busybox").path) else {
+                report?.phases[i].status = .unsupported
+                report?.phases[i].details["reason"]="BusyBox is missing from the selected Linux root."
+                return
+            }
+            let consumer=FEXDocumentDigestBackend();consumerBackend=consumer
+            consumer.mount={ [weak self] in self?.linuxSession=$0?.session }
+            consumer.onLog={ [weak self] text in
+                guard let self, self.activeIndex == i else { return }
+                self.report?.phases[i].log=String(((self.report?.phases[i].log ?? "")+text).suffix(128*1024))
+                self.liveStatus="Consumer: guest sha256sum running"
+                self.save()
+            }
+            defer {consumer.close();consumerBackend=nil;linuxSession=nil}
+            let result=try await consumer.digest(LinuxUserspaceWorkload.payload)
+            try checkStop()
+            guard result.sha256==LinuxUserspaceWorkload.expectedSHA256 else {throw SuiteFailure("Consumer backend returned a different document digest.")}
+            report?.phases[i].counters=result.counters
+            report?.phases[i].details["sha256"]=result.sha256
+            report?.phases[i].details["execution"]="Public packaged FEXProcess adapter → real x86 Linux sha256sum"
+            report?.phases[i].details["inputBytes"]=String(LinuxUserspaceWorkload.payloadBytes)
+            report?.phases[i].status = .passed
+            return
+        }
+        let adapted=AdaptedWinePhase(rawValue:id)
+        let wine = id == "wine" || id == "wine-direct" || adapted != nil
         if id.hasPrefix("linux-") || wine {
-            if id == "wine-flat" && !LinuxHarness.flatWinePresent {
+            if adapted != nil && !LinuxHarness.flatWinePresent {
                 report?.phases[i].status = .unsupported
                 report?.phases[i].details["reason"]="The separate source-built Wine flat-window input is absent. Stock Wine attempts remain available."
                 return
@@ -133,10 +180,15 @@ import BetterJITLinux
                 report?.phases[i].details["reason"]="Wine root is absent. Choose a staged linuxroot folder or copy it into Documents/linuxroot, then Run All again."
                 return
             }
+            if let adapted {
+                report?.phases[i].details["workload"]=adapted.arguments.joined(separator:" ")
+                report?.phases[i].details["standardIO"]="Separate UTF-8 stdout/stderr; EOF stdin; no terminal ioctls"
+                report?.phases[i].details["isolation"]="Fresh FEXProcess and kernel worker for this workload; no prerequisite contract in the same guest. Cleanup is not proof of engine collection or a separate OS process."
+            }
             if wine {
                 report?.phases[i].details["memoryFaultTrace"]="Guest instruction and scalar/bulk operands requested; unit translation only. Diagnostic overhead is included in phase time."
                 report?.phases[i].details["loaderMode"]=id == "wine" ? "stock Wine preloader" : "WINELOADERNOEXEC=1; WINEARCH=win64"
-                report?.phases[i].details["addressSpaces"]=id == "wine-flat" ? "Separate guest process memories; existing Wine 2 GiB maximum" : "Existing shared guest address space"
+                report?.phases[i].details["addressSpaces"]=adapted != nil ? "Separate guest process memories; existing per-executable maxima" : "Existing shared guest address space"
                 let root=LinuxHarness.rootURL
                 report?.phases[i].details["rootOrigin"]=root == LinuxHarness.documentsRootURL ? "imported Documents root" : "bundled input candidate"
                 if let handle=try? FileHandle(forReadingFrom:root.appendingPathComponent(".betterjit-linux-root.json")) {
@@ -148,12 +200,12 @@ import BetterJITLinux
                         }
                     }
                 }
-                if id == "wine-flat",
+                if adapted != nil,
                    let handle=try? FileHandle(forReadingFrom:root.appendingPathComponent("opt/wine-flat/.betterjit-wine-flat.json")) {
                     defer { try? handle.close() }
                     if let data=try? handle.read(upToCount:1024*1024),
                        let object=try? JSONSerialization.jsonObject(with:data) as? [String:Any] {
-                        for key in ["candidate","wineSourceCommit","patchSHA256","guestAddressLimitExclusive","nonNullFSSelectors","nativePrefix","nativePrefixArchiveSHA256","nativePrefixUpdates"] {
+                        for key in ["candidate","wineSourceCommit","patchSHA256","guestAddressLimitExclusive","nonNullFSSelectors","nativePrefix","nativePrefixArchiveSHA256","nativePrefixUpdates","processSpawnPolicy"] {
                             if let value=object[key] as? String { report?.phases[i].details[key]=String(value.prefix(512)) }
                         }
                     }
@@ -164,28 +216,25 @@ import BetterJITLinux
                 report?.phases[i].details["reason"]="BusyBox is missing from the selected Linux root. The bundled root includes it."
                 return
             }
-            if linuxEngineCapabilities == nil {
-                let probe=WebDiagnosticExecutor(mode:.copied,mount:{ [weak self] in self?.transport=$0 })
-                defer { probe.close() }
-                linuxEngineCapabilities=try await probe.start()
-                try checkStop()
-            }
-            if let caps=linuxEngineCapabilities {
-                report?.phases[i].details["engineJSPI"]=String(caps.jspi)
-                report?.phases[i].details["engineSharedMemory"]=String(caps.sharedMemory)
-                guard caps.jspi && caps.sharedMemory else {
-                    report?.phases[i].status = .unsupported
-                    report?.phases[i].details["reason"]="This WebKit engine lacks JSPI or shared Wasm memory required by the Linux/Wine runtime."
-                    return
-                }
-            }
+            guard try await linuxSupported(phase:i) else { return }
             let channels=id == "linux-channels"
-            let mode:LinuxHarness.Mode=id == "wine-flat" ? .wineFlat : (id == "wine-direct" ? .wineDirect : (id == "wine" ? .wineCommand : (id == "linux-smoke" ? .smoke : (id == "linux-userspace" ? .userspace : .services))))
+            let mode:LinuxHarness.Mode=adapted.map{.adaptedWine($0)} ?? (id == "wine-direct" ? .wineDirect : (id == "wine" ? .wineCommand : (id == "linux-smoke" ? .smoke : (id == "linux-userspace" ? .userspace : .services))))
             let value=try await linux.run(mode,nativeChannels:channels)
             try checkStop()
-            report?.phases[i].log=String(value.log.suffix(128*1024))
+            report?.phases[i].captureOutput(log:value.log,stdout:value.stdout,stderr:value.stderr,
+                                            runtimeTruncated:value.outputTruncated)
             report?.phases[i].counters=linux.counters
             report?.phases[i].details["exitCode"]=String(value.exitCode)
+            let allocations=value.log.split(separator:"\n").filter { $0.hasPrefix("[memory-allocation] ") }
+            report?.phases[i].details["allocationEventCount"]=String(allocations.count)
+            let allocationFailures=allocations.filter{$0.contains("\"event\":\"failed\"")}
+            report?.phases[i].details["allocationFailureSampleCount"]=String(allocationFailures.count)
+            if let first=allocationFailures.first {
+                report?.phases[i].details["firstAllocationFailure"]=String(first.dropFirst(20).prefix(8192))
+            }
+            if let failed=allocationFailures.last {
+                report?.phases[i].details["lastAllocationFailure"]=String(failed.dropFirst(20).prefix(8192))
+            }
             let faults=value.log.split(separator:"\n").filter { $0.hasPrefix("[memory-fault] ") }
             if let first=faults.first {
                 report?.phases[i].details["firstMemoryFaultTrace"]=String(first.dropFirst(15).prefix(2048))
@@ -201,26 +250,29 @@ import BetterJITLinux
                 throw SuiteFailure("Guest did not exit 0 with live FEX translation and code mapping evidence.")
             }
             if wine {
-                if id == "wine-flat", !value.log.contains("BetterJIT Wine FS reset OK") {
-                    throw SuiteFailure("The source-built Wine FS-reset contract did not complete before startup.")
+                if let adapted {
+                    let missing=adapted.missingMarkers(in:value.stdout)
+                    guard missing.isEmpty else { throw SuiteFailure("Missing guest milestones: "+missing.joined(separator:"; ")) }
                 }
-                guard let version=DeviceSessionGuestOutput.windowsVersion(in:value.log) else {
-                    throw SuiteFailure("Wine exited 0 but cmd /c ver did not print a Windows version.")
+                if adapted == nil || adapted == .command {
+                    guard let version=DeviceSessionGuestOutput.windowsVersion(in:value.stdout) else {
+                        throw SuiteFailure("Wine exited 0 but cmd /c ver did not print a Windows version.")
+                    }
+                    report?.phases[i].details["windowsVersion"]=version
                 }
-                report?.phases[i].details["windowsVersion"]=version
             } else {
                 let marker=id == "linux-smoke" ? "BetterJIT Linux OK" : (id == "linux-userspace" ? LinuxUserspaceWorkload.marker : LinuxSessionFixture.marker)
                 if id == "linux-userspace" {
-                    guard LinuxUserspaceWorkload.requiredMarkers.allSatisfy({ value.log.contains($0) }) else {
+                    guard LinuxUserspaceWorkload.requiredMarkers.allSatisfy({ value.stdout.contains($0) }) else {
                         throw SuiteFailure("Linux userspace did not complete every file, signal and process-status milestone.")
                     }
                     report?.phases[i].details["expectedSHA256"]=LinuxUserspaceWorkload.expectedSHA256
                     report?.phases[i].details["inputBytes"]=String(LinuxUserspaceWorkload.payloadBytes)
-                    guard value.log.contains(LinuxUserspaceWorkload.expectedSHA256+"  -") else {
+                    guard value.stdout.contains(LinuxUserspaceWorkload.expectedSHA256+"  -") else {
                         throw SuiteFailure("Guest shell/pipeline SHA-256 did not match the bundled input.")
                     }
                 }
-                guard value.log.split(separator:"\n").contains(where:{$0.trimmingCharacters(in:.whitespacesAndNewlines) == marker}) else {
+                guard value.stdout.split(separator:"\n").contains(where:{$0.trimmingCharacters(in:.whitespacesAndNewlines) == marker}) else {
                     throw SuiteFailure("Guest success marker was not observed on stdout.")
                 }
             }

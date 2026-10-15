@@ -13,6 +13,8 @@ IMAGE = 'alpine:3.22.2@sha256:4b7ce07002c69e8f3d704a9c5d6fd3053be500b7f1c69fc0d8
 CONTAINER = r'''
 set -eu
 apk add --no-cache build-base bison flex-dev perl mingw-w64-gcc python3 freetype-dev linux-headers
+cp /lib/apk/db/installed /output/build-dependencies.txt
+{ cc --version; x86_64-w64-mingw32-gcc --version; make --version; } > /output/build-toolchain.txt
 ulimit -c 0
 mkdir /source /build
 trap 'if test -f /build/config.log; then cp /build/config.log /output/config.log; fi' EXIT
@@ -20,6 +22,8 @@ tar -xf /input/wine-source.tar -C /source
 cd /source
 patch -p1 < /input/wine-flat-guest.patch
 python3 /input/wine-flat-native.py --source /source --output /output/fs-reset.elf
+python3 /input/wine-spawn-native.py --source /source --guest-output /output/spawn-contract.elf
+x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror -municode /input/wine-createprocess.c -o /output/createprocess.exe
 cd /build
 CFLAGS='-O2 -fno-omit-frame-pointer' /source/configure --enable-win64 --enable-archs=x86_64 \
   --prefix=/opt/wine-flat --libdir=/opt/wine-flat/lib --disable-tests --without-x --without-wayland
@@ -123,7 +127,12 @@ def install(root, output, source_archive, patch):
         shutil.copyfile(patch, notes / 'wine-flat-guest.patch')
         shutil.copyfile(output / 'COPYING.LIB', notes / 'COPYING.LIB')
         shutil.copyfile(output / 'fs-reset.elf', notes / 'fs-reset.elf')
+        shutil.copyfile(output / 'spawn-contract.elf', notes / 'spawn-contract.elf')
+        shutil.copyfile(output / 'createprocess.exe', notes / 'createprocess.exe')
+        shutil.copyfile(REPO / 'tests/fexhost/wine-createprocess.c', notes / 'wine-createprocess.c')
         modes['/opt/wine-flat/share/betterjit-provenance/fs-reset.elf'] = 0o755
+        modes['/opt/wine-flat/share/betterjit-provenance/spawn-contract.elf'] = 0o755
+        modes['/opt/wine-flat/share/betterjit-provenance/createprocess.exe'] = 0o755
         source = 'https://github.com/wine-mirror/wine/tree/' + WINE_COMMIT
         prefix = output / 'native-prefix.tar.gz'
         def successful_prefix():
@@ -145,8 +154,12 @@ def install(root, output, source_archive, patch):
             'nonNullFSSelectors': 'unsupported; SIGILL, never a selector NOP',
             'filesSHA256': {name: sha(unix / name) for name in ('ntdll.so', 'wine')},
             'fsResetFixtureSHA256': sha(notes / 'fs-reset.elf'),
+            'spawnContractFixtureSHA256': sha(notes / 'spawn-contract.elf'),
+            'createProcessFixtureSHA256': sha(notes / 'createprocess.exe'),
+            'createProcessSourceSHA256': sha(notes / 'wine-createprocess.c'),
             'stockWineFilesChanged': False, 'wineExecutedDuringPreparation': (output / 'native-prefix-exit.txt').exists(),
             'guestExecutedThroughFEXDuringPreparation': False, 'nativeFSContractChecked': True,
+            'processSpawnPolicy': 'Opt-in BETTERJIT_WINE_SPAWN=1: parent-prepared POSIX spawn with stdio/cwd/session/socket/signal actions and a signal-blocked exact-PID reaper reserved before launch',
             'nativePrefix': 'Prepared with signed stock Wine 10.7 cmd /c ver; not FEX/adapted-binary/device evidence' if prefix_installed else 'Unavailable; the guest performs fresh first-run setup',
             'nativePrefixArchiveSHA256': sha(prefix) if prefix_installed else None,
             'nativePrefixUpdates': 'Wine-supported disable marker for this immutable pinned prefix' if prefix_installed else 'Fresh prefix setup',
@@ -188,6 +201,8 @@ def main():
         subprocess.run(['git', '-C', str(source), 'archive', '--format=tar', '--output=' + str(archive), 'HEAD'], check=True)
         shutil.copyfile(patch, inputs / patch.name)
         shutil.copyfile(REPO / 'tests/fexhost/wine-flat-native.py', inputs / 'wine-flat-native.py')
+        shutil.copyfile(REPO / 'tests/fexhost/wine-spawn-native.py', inputs / 'wine-spawn-native.py')
+        shutil.copyfile(REPO / 'tests/fexhost/wine-createprocess.c', inputs / 'wine-createprocess.c')
         shutil.copyfile(source / 'COPYING.LIB', output / 'COPYING.LIB')
         evidence = REPO / '.build/wine-flat-build'
         evidence.mkdir(parents=True, exist_ok=True)
@@ -201,8 +216,10 @@ def main():
             shutil.copyfile(archive, evidence / archive.name)
             shutil.copyfile(patch, evidence / patch.name)
             shutil.copyfile(inputs / 'wine-flat-native.py', evidence / 'wine-flat-native.py')
+            shutil.copyfile(inputs / 'wine-spawn-native.py', evidence / 'wine-spawn-native.py')
+            shutil.copyfile(inputs / 'wine-createprocess.c', evidence / 'wine-createprocess.c')
             shutil.copyfile(output / 'build.log', evidence / 'build.log')
-            for name in ('config.log', 'fs-reset.elf', 'native-prefix.log', 'native-prefix-exit.txt',
+            for name in ('config.log', 'build-dependencies.txt', 'build-toolchain.txt', 'fs-reset.elf', 'spawn-contract.elf', 'createprocess.exe', 'native-prefix.log', 'native-prefix-exit.txt',
                          'native-prefix-preparation.log', 'native-prefix-preparation-exit.txt'):
                 if (output / name).exists(): shutil.copyfile(output / name, evidence / name)
             print((output / 'build.log').read_text()[-12000:])

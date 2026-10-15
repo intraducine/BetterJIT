@@ -112,3 +112,6 @@ integration tests use the actual host, while Linux explicitly skips them. The
 separate Swift stdio adapter proves browser-to-Swift service semantics, not the
 WKWebView bridge. The FEX sample requests fresh native translations; recorded
 replay tests and C-shim ownership tests are not substitutes for running it.
+
+Use the [packaged FEX backend](packaged-fex.md) for the device translator and
+Linux process facade, with a real interchangeable document-digest consumer.

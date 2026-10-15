@@ -88,8 +88,10 @@ struct DiagnosticReport: Codable {
     var overall: String {
         guard state == .completed else { return state.rawValue.uppercased() }
         if records.contains(where: { $0.status == .failed }) { return "FAIL" }
+        if !records.isEmpty && records.allSatisfy({ $0.status == .passed }) { return "PASS" }
+        if !records.isEmpty && records.allSatisfy({ $0.status == .unsupported }) { return "UNSUPPORTED" }
         if records.contains(where: { $0.status == .passed }) &&
-            records.allSatisfy({ [.passed,.unsupported,.skipped].contains($0.status) }) { return "PASS" }
+            records.allSatisfy({ [.passed,.unsupported,.skipped].contains($0.status) }) { return "PARTIAL" }
         return "INCOMPLETE"
     }
     init(preset: DiagnosticPreset, includeStress: Bool, environment: [String:String],

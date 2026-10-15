@@ -187,7 +187,8 @@ def('mmap', function (t, a0, a1, a2, a3, a4, a5) {
     if (a < 0) fail(E.NOMEM);
   }
   const old = execRanges(mm, a, a + len, owner);
-  mm.ensure(a + len);
+  mm.ensure(a + len, {operation:'mmap',pid:proc.pid,tid:t.tid,space:proc.space,executable:proc.exe,
+    requestedAddress:a,requestedLength:len,protection:prot,flags});
   mm.cut(a, a + len, owner);
   for (const [s, e] of old) k_uncode(this, proc, s, e);
   mm.zero(a, a + len);
@@ -909,7 +910,10 @@ function doExec(k, t, path, argv, envp) {
   if (proc.vforkParent) { k.makeRunnable(proc.vforkParent); proc.vforkParent = null; }
   // (the new image first: in a shared memory, the old one's going must not free the memory)
   const old = { mm: proc.mm, image: proc.image, ownsImage: proc.ownsImage, space: proc.space };
-  k.installImage(proc, img, t.tid);
+  const next = k.installImage(proc, img, t.tid);
+  // exec replaces the image and caught dispositions, not the calling thread's
+  // blocked signal set (including POSIX_SPAWN_SETSIGMASK selected by libc).
+  next.sigmask = t.sigmask;
   k.releaseImage(old);
   return EXIT_THREAD;
 }

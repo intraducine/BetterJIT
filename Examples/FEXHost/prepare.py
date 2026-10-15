@@ -4,10 +4,14 @@
 Re-select the existing signing team/identifier in Xcode after generation. This
 script does not discover, store, sign with or publish signing credentials.
 """
-import json, pathlib, re, subprocess, tempfile
+import argparse, json, os, pathlib, re, subprocess, tempfile
 HERE=pathlib.Path(__file__).resolve().parent
 ROOT=HERE.parents[1]
 def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--native-package',type=pathlib.Path)
+    parser.add_argument('--adapter-package',type=pathlib.Path)
+    args=parser.parse_args()
     if (ROOT/'.git').exists():
         revision=subprocess.check_output(['git','-C',str(ROOT),'rev-parse','HEAD'],text=True).strip()
         tracked=subprocess.check_output(['git','-C',str(ROOT),'status','--porcelain','--untracked-files=no'],text=True).strip()
@@ -25,6 +29,12 @@ def main():
     spec={'include':['project.yml'],'targets':{'BetterJITFEXHost':{'settings':{'base':{
         'BETTERJIT_SOURCE_COMMIT':revision,'BETTERJIT_SOURCE_STATE':state
     }}}}}
+    if (ROOT/'.build/device-linuxroot').is_dir():
+        spec['targets']['BetterJITFEXHost']['sources']=[{
+            'path':'../../.build/device-linuxroot','type':'folder','buildPhase':'resources'}]
+    spec['packages']={name:{'path':os.path.relpath(path.resolve(),HERE)}
+                      for name,path in [('BetterJITFEXNative',args.native_package),
+                                        ('BetterJITFEXAdapter',args.adapter_package)] if path is not None}
     with tempfile.NamedTemporaryFile(mode='w',prefix='.fexhost-',suffix='.json',dir=HERE) as file:
         json.dump(spec,file);file.flush()
         subprocess.run(['xcodegen','generate','--spec',file.name],cwd=HERE,check=True)

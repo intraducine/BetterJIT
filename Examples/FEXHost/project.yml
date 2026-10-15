@@ -7,16 +7,15 @@ packages:
     path: ../..
   BetterJITFEXNative:
     path: ../../.build/FEXNativePackage
+  BetterJITFEXAdapter:
+    path: ../../.build/FEXAdapterPackage
 targets:
   BetterJITFEXHost:
     type: application
     platform: iOS
     sources:
-      - path: ../../.build/device-linuxroot
-        type: folder
-        buildPhase: resources
-        optional: true
       - path: App.swift
+      - path: FileDigestConsumer.swift
       - path: DeviceSessionModel.swift
       - path: DeviceSessionReport.swift
       - path: LinuxSessionFixture.swift
@@ -36,10 +35,8 @@ targets:
       - path: DiagnosticExecutor.swift
       - path: DiagnosticRunner.swift
       - path: SyscallGuest.swift
-      - path: LinkedLinuxFEXBackend.swift
       - path: LinuxSmokeFixture.swift
       - path: LinuxHarness.swift
-      - path: ../../Backends/FEX/Swift/LinkedFEXTranslator.swift
     dependencies:
       - package: BetterJIT
         product: BetterJIT
@@ -51,6 +48,8 @@ targets:
         product: BetterJITLinux
       - package: BetterJITFEXNative
         product: CFEXWasm
+      - package: BetterJITFEXAdapter
+        product: BetterJITFEXAdapter
       - sdk: libc++.tbd
       - sdk: Metal.framework
     settings:

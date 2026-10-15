@@ -1,6 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 const {workerData:d,parentPort}=require('worker_threads');
 const fs=require('fs'),path=require('path'),vm=require('vm');
+// Fault injection for the real guest regression, not a device quota model.
+// Returned memories are real Wasm memories; only later constructor calls fail.
+if(d.memoryConstructionLimit!==undefined) {
+  if(!Number.isInteger(d.memoryConstructionLimit)||d.memoryConstructionLimit<1)throw Error('Invalid injected construction limit');
+  const NativeMemory=WebAssembly.Memory;let constructed=0;
+  WebAssembly.Memory=class {
+    constructor(descriptor) {
+      if(constructed>=d.memoryConstructionLimit)throw new RangeError('Injected constructor exhaustion; collection has not released a reservation');
+      const memory=new NativeMemory(descriptor);constructed++;return memory;
+    }
+  };
+}
 globalThis.self=globalThis;
 vm.runInThisContext(fs.readFileSync(path.join(d.resources,'linux/web/linux-kernel.js'),'utf8'));
 const {Kernel}=LinuxBundle.require('./kernel.js');
@@ -39,7 +51,7 @@ if(d.tracePaths) {
   }
 }
 const host={vfs,state:new Uint8Array(d.state),uid:d.uid,gid:d.gid,
-  cpus:4,cwd:d.cwd,trace:d.trace,traceExec:d.tracePaths,sharedSpace:d.sharedAddressSpace!==false,spinMs:0,win64:'',
+  cpus:4,cwd:d.cwd,trace:d.trace,traceExec:d.tracePaths,sharedSpace:d.sharedAddressSpace!==false,standardIO:d.standardIO,spinMs:0,win64:'',
   spawnThread:info=>parentPort.postMessage({op:'spawn',...info}),
   killThread:tid=>parentPort.postMessage({op:'kill',tid}),
   code:(space,address,bytes,abi=0)=>call({op:'code',space,address,bytes,abi}),
