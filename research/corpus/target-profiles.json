@@ -1,0 +1,100 @@
+{
+  "schema": 1,
+  "classification": "source-defined presets; installed device-effective profile unknown",
+  "pins": {
+    "Madeira": "279fd0f83170425db002fe25d6bd62f6355f497d",
+    "FEX": "f59cab95659e8add0c88f0c76ec1cf483c536dbf"
+  },
+  "defaults": {
+    "MAXINST": 5000,
+    "MULTIBLOCK": true
+  },
+  "sourceEvidence": [
+    {
+      "repository": "Madeira",
+      "path": "build/fex-ios/build.sh",
+      "sha256": "77459a9082e05016b93658ba3df7b5fa296457224a05fca8c2d4c72176c5e6e2"
+    },
+    {
+      "repository": "Madeira",
+      "path": "build/fex-wow64/build.sh",
+      "sha256": "e24c64e7c94f01d2c79c296d38679c57e42614d0ca1b045d0df4cfbf40937ebf"
+    },
+    {
+      "repository": "Madeira",
+      "path": "build/fex-arm64ec/build.sh",
+      "sha256": "3192a5f294627c3944182864e9b9bf5dfdcb96192f366c04285a13eecfd14da0"
+    },
+    {
+      "repository": "FEX",
+      "path": "CMakeLists.txt",
+      "sha256": "01085c3b791d0247f2f963ec7a7ac2656f33f648fe1e0e36f43b1ad22256ed6c"
+    },
+    {
+      "repository": "FEX",
+      "path": "FEXCore/Source/Interface/Config/Config.json.in",
+      "sha256": "961f8e7019e13d6876eaa8f3bd780ae1a1041dddf6d0abd3c3d98f37298e002a"
+    },
+    {
+      "repository": "FEX",
+      "path": "Source/Windows/Common/CPUFeatures.cpp",
+      "sha256": "4ca8b0918da45043a422e9188a7f2b68a6a10492e362f6538bc858fe8d6079b7"
+    },
+    {
+      "repository": "FEX",
+      "path": "FEXCore/Source/Interface/Core/CPUID.cpp",
+      "sha256": "36f69165ef36020d809e678212952dac484b35357a82a779213d754c58b60999"
+    },
+    {
+      "repository": "FEX",
+      "path": "unittests/ASM/CMakeLists.txt",
+      "sha256": "afcef8771b27c8d167de9b98dc47cf4c7ea9f0e8f16b868cdb5a45935b1924c7"
+    },
+    {
+      "repository": "FEX",
+      "path": "Scripts/testharness_runner.py",
+      "sha256": "30d69d363bfbfe654965c942308391f19d25f3fcdf2167e4306c117c53c12221"
+    },
+    {
+      "repository": "FEX",
+      "path": "Scripts/ClassifyCPU.py",
+      "sha256": "6f2e0408e4e168a032c246798d6fda48d55c8bd4eb7bea317658301f8a0b4af7"
+    }
+  ],
+  "iOSStaticBuild": {
+    "platform": "iOS",
+    "architecture": "arm64",
+    "sdk": "iphoneos",
+    "minimumOS": "17.0",
+    "configuration": "Release",
+    "FEX_IOS_HOST": "not set by this script",
+    "GuestWindow": "off by default without FEX_IOS_HOST_BUILD",
+    "existingCMakeCacheRetained": true
+  },
+  "WOW64": {
+    "platform": "Windows aarch64 cross build",
+    "FEX_IOS_HOST_BUILD": true,
+    "FEX_IOS_HOST": true,
+    "GuestWindow": true,
+    "guestMode": 32,
+    "AVX": false
+  },
+  "ARM64EC": {
+    "platform": "Windows ARM64EC cross build",
+    "FEX_IOS_HOST_BUILD": true,
+    "FEX_IOS_HOST": true,
+    "GuestWindow": false,
+    "guestMode": 64,
+    "AVX": "default off; MADEIRA_FEX_AVX=1 opt-in",
+    "AFP": "default off",
+    "LRCPC2": "requires explicit positive probe"
+  },
+  "unknowns": [
+    "Installed binary and linked module hashes",
+    "Actual CMakeCache and compiler options",
+    "Device host feature probes and overrides",
+    "Runtime MAXINST/MULTIBLOCK/guest settings",
+    "Effective guest CPUID/XCR0"
+  ],
+  "measurement": "macOS core-only portable preset explicitly differs from all iOS/Windows module runtime profiles"
+}

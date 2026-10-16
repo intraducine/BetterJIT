@@ -1,0 +1,208 @@
+{
+  "schema": 1,
+  "selection": "reviewed-corpus-pilot-v1",
+  "source": {
+    "repository": "https://github.com/willfaust/FEX.git",
+    "commit": "f59cab95659e8add0c88f0c76ec1cf483c536dbf",
+    "madeiraCommit": "279fd0f83170425db002fe25d6bd62f6355f497d"
+  },
+  "profile": {
+    "name": "portable-macos-arm64-core-v1",
+    "guestMode": 64,
+    "guestWindow": false,
+    "iOSRuntime": false,
+    "windowsModule": false,
+    "guestAVX": false,
+    "x87ReducedPrecision": false,
+    "tso": false,
+    "nativeBlockReturnAdapter": true,
+    "nativeBlockProfiles": [
+      {
+        "name": "single",
+        "maxInstructions": 1,
+        "multiblock": false
+      },
+      {
+        "name": "block500",
+        "maxInstructions": 500,
+        "multiblock": false
+      },
+      {
+        "name": "multi500",
+        "maxInstructions": 500,
+        "multiblock": true
+      }
+    ],
+    "wasmProfile": "legacy dense file-window ABI, maxinst=1, abi=none, x87=80; prepared BetterJIT FEX pin stays unchanged",
+    "deviceEffectiveProfile": "unknown; host measurement does not depend on a device receipt"
+  },
+  "layout": {
+    "codeBase": "0x400400000",
+    "codeMapBytes": 65536,
+    "stackBase": "0x4006f0000",
+    "stackMapBytes": 65536,
+    "stackPointer": "0x4006ffff0",
+    "wasmMemoryPages": 4096,
+    "wasmMemoryMaximumPages": 4096,
+    "nativeJitArenaBytes": 67108864
+  },
+  "budgets": {
+    "fixtureSeconds": 5,
+    "maximumBlocks": 10000,
+    "maximumInputBytes": 65536,
+    "maximumCapturedOutputBytes": 524288,
+    "maximumResultArtifactBytes": 8388608,
+    "maximumPilotFixtures": 16
+  },
+  "fixtures": [
+    {
+      "path": "unittests/ASM/FEX_bugs/add_sub_carry.asm",
+      "family": "scalar-carry-and-widths",
+      "mode": 64,
+      "sourceSHA256": "6ffa07896982c0de459445a2f71548d538402a6a36dedf0f0d8780e1b9673991"
+    },
+    {
+      "path": "unittests/ASM/Primary/Primary_98.asm",
+      "family": "sign-extension",
+      "mode": 64,
+      "sourceSHA256": "1ac85947ae3546d77962ecf9bf3f2e4a2edc28b268bb650ce8607dff2b596f20"
+    },
+    {
+      "path": "unittests/ASM/Primary/SHL.asm",
+      "family": "small-shifts-and-partial-registers",
+      "mode": 64,
+      "sourceSHA256": "47b88729ec2a549a1cd06a6e0bb42e838c968b2e15eb04e54f60cc2fc5f1e190"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_C0_2.asm",
+      "family": "register-xadd-aliases",
+      "mode": 64,
+      "sourceSHA256": "9db440c987ccbed90f4ab7d1b3f584e14cbbf55bf436608117cb115de9edf654"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_84.asm",
+      "family": "conditional-branches",
+      "mode": 64,
+      "sourceSHA256": "d0b05e9816bae4af09d99c0d1c99c23c7f421503641dd5e6831b5bbd09f856dc"
+    },
+    {
+      "path": "unittests/ASM/Primary/Primary_EB.asm",
+      "family": "direct-branches",
+      "mode": 64,
+      "sourceSHA256": "cc811257a4d39187df82d85b7a62ba189c278d347a889050e4596e9fda06e91f"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_16.asm",
+      "family": "sse-lane-and-rip-memory",
+      "mode": 64,
+      "sourceSHA256": "ef2f17710cbc8b05c68e5e1d7576de0b740a1243886f3bb0112fbc0392455d59"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_17.asm",
+      "family": "sse-memory-store",
+      "mode": 64,
+      "codeDataWritableOffset": 4096,
+      "sourceSHA256": "d70cdc5f84c4aeccb54a356c7c0611405d00863011799508085728bb72c34456"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_10_2.asm",
+      "family": "unaligned-sse-loads",
+      "mode": 64,
+      "sourceSHA256": "48719f5ba297ef2a4c17689a10551c87719c48d0eec2b109d25a2eba4671ac8b"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_AD_3.asm",
+      "family": "double-shift",
+      "mode": 64,
+      "sourceSHA256": "985498a305fbee8de6d71c9b7e16c5fefb05e806b4a6176063ddd4ce7fb1e834"
+    },
+    {
+      "path": "unittests/ASM/fadd.asm",
+      "family": "x87-f80",
+      "mode": 64,
+      "sourceSHA256": "ae469ee8b805c8198e77b02fba29c06a21c8bfd288754e1d49dc4a7bb2008bff"
+    },
+    {
+      "path": "unittests/ASM/X87/valid_operation.asm",
+      "family": "x87-status",
+      "mode": 64,
+      "sourceSHA256": "355d83103b09e886986cd8e33db0407007c8876c8f1458e8e5085d4efa4be01d"
+    },
+    {
+      "path": "unittests/ASM/VEX/andn.asm",
+      "family": "feature-gated-bmi",
+      "mode": 64,
+      "sourceSHA256": "1b2955d86c1966984ab5a9ad5dac2dab44c837f457021cf73200b45758ede0fa"
+    },
+    {
+      "path": "unittests/32Bit_ASM/Primary/Primary_60.asm",
+      "family": "guest32-profile-gate",
+      "mode": 32,
+      "sourceSHA256": "c8485e8be4430584919569759c821073af423a7b69bd207dbb81a74dfb40b3c4"
+    }
+  ],
+  "policySources": [
+    {
+      "path": "unittests/ASM/Disabled_Tests",
+      "sha256": "4875f54857e33e75af11ce0fe545678d9965f9066b9b6d505532e503d896b065"
+    },
+    {
+      "path": "unittests/ASM/Disabled_Tests_ARMv8.0",
+      "sha256": "af22e59df4f8cab80977a4f5bdda94a2c13fbbf70bcb6e81da47b2c0de8f1a70"
+    },
+    {
+      "path": "unittests/ASM/Disabled_Tests_ARMv8.2",
+      "sha256": "af22e59df4f8cab80977a4f5bdda94a2c13fbbf70bcb6e81da47b2c0de8f1a70"
+    },
+    {
+      "path": "unittests/ASM/Disabled_Tests_ARMv8.4",
+      "sha256": "af22e59df4f8cab80977a4f5bdda94a2c13fbbf70bcb6e81da47b2c0de8f1a70"
+    },
+    {
+      "path": "unittests/ASM/Disabled_Tests_Simulator",
+      "sha256": "deff8f559beb30e2591e182e038f3277c2a3644917bf9b61115a684b4c1ba4ee"
+    },
+    {
+      "path": "unittests/ASM/Disabled_Tests_host",
+      "sha256": "2c415f733b43e554492d684fcd7680c85775f23974e8c2abf1cca7d07d79b35b"
+    },
+    {
+      "path": "unittests/ASM/Disabled_Tests_x64",
+      "sha256": "af22e59df4f8cab80977a4f5bdda94a2c13fbbf70bcb6e81da47b2c0de8f1a70"
+    },
+    {
+      "path": "unittests/ASM/Known_Failures",
+      "sha256": "fc42dfb3f25ea2bdbadfec1fb6abc197771b447f7e28bac8c833ed000310c320"
+    },
+    {
+      "path": "unittests/ASM/Known_Failures_host",
+      "sha256": "ca9f6328c2b5729f21dcd54e39fb24220f2574fe36b30d2680e133021f0c488c"
+    },
+    {
+      "path": "unittests/ASM/Known_Failures_jit",
+      "sha256": "007657b9777400cb8301fb0c201143de6c04cb58f462bbcd5263e4e1a080d956"
+    },
+    {
+      "path": "unittests/32Bit_ASM/Disabled_Tests",
+      "sha256": "5648224f3c963a3cde1d664790cad2e76e9863496608cef3cf1196eaac66ea2f"
+    },
+    {
+      "path": "unittests/32Bit_ASM/Disabled_Tests_Simulator",
+      "sha256": "ded02e64cfec79f2ac166880a2c231fe70a8ff267ef80ebef77688f6abb6663a"
+    },
+    {
+      "path": "unittests/32Bit_ASM/Disabled_Tests_host",
+      "sha256": "b6f6c006843a2d3aa0175974220c74b40d41373ba9b4e0cea8b8e95fdd5f30cc"
+    },
+    {
+      "path": "unittests/32Bit_ASM/Known_Failures",
+      "sha256": "5cda2f8d3d109642ec720b11194252b088a335d9992434e6096b593fb35cfa1d"
+    }
+  ],
+  "wasmTranslatorSource": {
+    "kind": "unchanged prepared BetterJIT production FEX/Wasm recipe",
+    "FEXPin": "0f8edf8f6383ae8085e0ffac511c789cdae97514",
+    "adapterPatchSHA256": "c961a6db1fcdf3fb237ced1fc717f5917fa47e1ca2695cda197e17ebe5fc25b3",
+    "binaryIdentity": "direct executable SHA256 in summary and buildID in observed runtime config; source association comes from local build receipt or CI verified asset/build recipe"
+  }
+}

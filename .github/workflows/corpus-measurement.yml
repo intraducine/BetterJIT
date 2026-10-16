@@ -1,0 +1,132 @@
+name: Pinned FEX corpus measurement
+on:
+  push:
+    branches: [experimental/sparse-guest-backing]
+    paths:
+      - 'research/corpus/**'
+      - '.github/workflows/corpus-measurement.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: corpus-measurement-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  oracle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install assembler
+        run: sudo apt-get update && sudo apt-get install -y nasm
+      - name: Verify measurement failure, gate, timeout and hash handling
+        run: python3 research/corpus/test-pilot.py
+      - name: Fetch immutable public fixture source
+        run: python3 research/corpus/source.py .build/corpus-source/fex
+      - name: Assemble the frozen pilot once
+        run: python3 research/corpus/pilot.py prepare --fex .build/corpus-source/fex --nasm nasm --output .build/corpus-pilot/inputs
+      - name: Build independent native x86 oracle
+        run: cc -O2 -mno-red-zone -Wall -Wextra -Werror research/corpus/native-x86.c research/corpus/native-x86.S -o .build/corpus-pilot/corpus-native-x86
+      - name: Execute oracle and preserve raw outcomes
+        id: oracle
+        run: python3 research/corpus/pilot.py run --inputs .build/corpus-pilot/inputs --layer oracle --executable .build/corpus-pilot/corpus-native-x86 --output .build/corpus-pilot/results/oracle.jsonl
+      - name: Transfer these exact bytes and oracle outcomes
+        if: always() && hashFiles('.build/corpus-pilot/inputs/manifest.json') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: corpus-oracle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .build/corpus-pilot/inputs/
+            .build/corpus-pilot/results/oracle*
+          if-no-files-found: error
+          retention-days: 7
+  arm64-and-wasm:
+    needs: oracle
+    if: always() && needs.oracle.result == 'success'
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Install build tools
+        run: brew install cmake ninja
+      - name: Download only this run's matched input
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: corpus-oracle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .build/corpus-pilot
+      - name: Fingerprint the existing production host translator recipe
+        id: host-key
+        run: python3 scripts/build-assets.py identity fex-host
+      - name: Restore a compatible production translator asset
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .build/host-fex
+          key: ${{ steps.host-key.outputs.key }}-corpus-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.host-key.outputs.key }}-
+      - name: Verify producer, tool identity and every output hash
+        id: host-asset
+        run: python3 scripts/build-assets.py check fex-host
+      - name: Build only the host translator if compatible production asset is absent
+        id: host-build
+        if: steps.host-asset.outputs.hit != 'true'
+        run: bash Backends/FEX/build-host.sh
+      # The existing sealer is intentionally scoped to the device-session producer.
+      # This workflow consumes verified assets but does not impersonate that producer.
+      - name: Fingerprint pinned native measurement adapter
+        id: native-key
+        if: always()
+        run: python3 research/corpus/assets.py identity
+      - name: Restore matching native measurement binary
+        if: always() && steps.native-key.outcome == 'success'
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .build/corpus-native-asset
+          key: ${{ steps.native-key.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.native-key.outputs.key }}-
+      - name: Verify native producer, pin, tools, recipe and output hashes
+        id: native-asset
+        if: always() && steps.native-key.outcome == 'success'
+        run: python3 research/corpus/assets.py check
+      - name: Build immutable pinned FEX and native adapter once on a cache miss
+        id: native-build
+        if: always() && steps.native-key.outcome == 'success' && steps.native-asset.outputs.hit != 'true'
+        run: bash research/corpus/build-native.sh
+      - name: Seal the successful native measurement binary
+        id: native-seal
+        if: always() && steps.native-build.outcome == 'success'
+        run: python3 research/corpus/assets.py seal
+      - name: Preserve only the matching native binary and build receipt
+        if: always() && steps.native-seal.outputs.sealed == 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .build/corpus-native-asset
+          key: ${{ steps.native-key.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Measure all native profiles without hiding failures
+        if: always() && (steps.native-asset.outputs.hit == 'true' || steps.native-build.outcome == 'success')
+        run: |
+          status=0
+          for profile in single block500 multi500; do
+            python3 research/corpus/pilot.py run --inputs .build/corpus-pilot/inputs --layer "$profile" --executable .build/corpus-native-asset/corpus-native-arm64 --oracle .build/corpus-pilot/results/oracle.jsonl --output ".build/corpus-pilot/results/$profile.jsonl" || status=1
+          done
+          exit "$status"
+      - name: Measure dense Wasm even if the independent native adapter failed
+        if: always() && (steps.host-asset.outputs.hit == 'true' || steps.host-build.outcome == 'success')
+        run: python3 research/corpus/pilot.py run --inputs .build/corpus-pilot/inputs --layer wasm --executable .build/host-fex/fexserve --oracle .build/corpus-pilot/results/oracle.jsonl --output .build/corpus-pilot/results/wasm.jsonl
+      - name: Bound evidence artifact bytes
+        if: always()
+        run: python3 research/corpus/verify-results.py .build/corpus-pilot .build/corpus-native-asset/manifest.json .build/corpus-native-asset/options.json .build/asset-usage/fex-host.json
+      - name: Preserve bounded observed states, projections, skips and raw failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: corpus-measurement-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .build/corpus-pilot/export/
+          if-no-files-found: error
+          retention-days: 7
