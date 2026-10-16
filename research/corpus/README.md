@@ -128,12 +128,22 @@ python3 research/corpus/pilot.py run --inputs .build/corpus-pilot/inputs --layer
 python3 research/corpus/verify-results.py .build/corpus-pilot
 ```
 
-A bounded future integrity task remains for arbitrary CLI oracle ledgers: validate
-oracle layer/method, unique fixture identities, state shape/digest, HLT and raw
-exit before accepting them as independent references. The current loader trusts
-supplied layer/status/digest fields and can accept a Wasm ledger as its own
-reference. Same-run workflow artifact naming protects the current controlled
-route; arbitrary CLI reference independence is not yet established.
+`oracle_ledger.py` validates a supplied reference before any guest execution.
+It requires the native x86 oracle layer/method, the complete unique fixture
+selection in order, matching source/binary/metadata/policy bindings, and valid
+architectural state widths and shape. It recomputes the state digest, checks
+the expected HLT and successful raw exit without interruption, and recomputes
+RegData/final-state comparisons rather than trusting supplied pass fields.
+Only source-gated skips may lack observations; an eligible fixture needs a
+successful native reference. Wasm self-reference, malformed/duplicate JSON,
+wrong methods, duplicate fixtures and inconsistent receipts fail before execution.
+Reference file reads are bounded by the existing artifact byte budget.
+
+These are consistency checks, not execution attestation: metadata can be forged
+outside the controlled workflow. Map hashes are format/binding checked; their
+raw contents are absent from normalized ledgers. The same-run artifact route
+continues to supply fresh native x86 observations. Oracle creation does not
+accept a reference ledger, and every comparison layer requires one.
 
 No overall coverage percentage is defined: the legal-form denominator, full
 2467-fixture corpus, native ARM64 results, dense semantic coverage and device

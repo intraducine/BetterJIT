@@ -17,6 +17,117 @@ sys.path.insert(0, str(Path(__file__).parent))
 import pilot
 import assets
 from state_contract import ASSERTIONS, compare as compare_state
+from oracle_ledger import OracleLedgerError, load_oracle, state_digest
+
+
+class OracleIntegrity(unittest.TestCase):
+    def fixture(self):
+        row = {'path': 'unittests/ASM/Primary/Primary_98.asm', 'family': 'sign-extension',
+               'mode': 64, 'sourceSHA256': 'a' * 64, 'binarySHA256': 'b' * 64,
+               'haltOffset': 7, 'metadata': {'RegData': {'RAX': '0xfffffffffffffff0'}},
+               'policy': {'oracle': []}}
+        skip = {'path': 'unittests/ASM/VEX/andn.asm', 'family': 'feature-gated-bmi', 'mode': 64,
+                'sourceSHA256': 'c' * 64, 'metadata': {'HostFeatures': ['BMI1']}, 'policy': {'oracle': []}}
+        state = Integrity.sample_state()['state']
+        state['RIP'] = '0x0000000400400007'; state['GPR'][0] = '0xfffffffffffffff0'
+        observed = {'schema': 1, 'method': 'linux-x86-64-hlt-oracle', 'termination': 'hlt', 'blocks': 0,
+                    'state': state, 'codeSHA256': 'd' * 64, 'stackSHA256': 'e' * 64,
+                    'architecturalStateSHA256': state_digest(state)}
+        records = []
+        for fixture in [row, skip]:
+            record = {'schema': 2, 'layer': 'oracle', 'comparisonContract': ASSERTIONS['contract'],
+                      'fixture': fixture['path'], 'family': fixture['family'],
+                      'sourceSHA256': fixture['sourceSHA256'], 'binarySHA256': fixture.get('binarySHA256'),
+                      'originalMetadata': fixture['metadata'], 'requiredHostFeatures': fixture['metadata'].get('HostFeatures', []),
+                      'policy': [], 'upstreamKnownFailure': False}
+            if fixture is row:
+                record.update(status='pass', semanticPass=True, rawExitCode=0, interrupted=None, observed=observed,
+                              comparison=dict(pilot.projection(row, observed), haltMatches=True,
+                                              meaningfulFinalState=compare_state(row, observed)))
+            else:
+                record.update(status='skip', semanticPass=None, rawExitCode=None, reason=pilot.gate(skip, 'oracle'))
+            records.append(record)
+        manifest = {'layout': {'codeBase': '0x400400000'}, 'fixtures': [row, skip]}
+        return manifest, records, {skip['path']: pilot.gate(skip, 'oracle')}
+
+    def validate(self, records, manifest=None, maximum_bytes=8388608, serialized=None):
+        frozen, _, skips = self.fixture()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'oracle.jsonl'
+            path.write_text(serialized if serialized is not None else ''.join(json.dumps(r) + '\n' for r in records))
+            return load_oracle(path, manifest or frozen, skips=skips, project=pilot.projection, maximum_bytes=maximum_bytes)
+
+    def test_complete_native_reference_and_gated_skip_are_accepted(self):
+        manifest, rows, _ = self.fixture()
+        self.assertEqual(list(self.validate(rows)), [f['path'] for f in manifest['fixtures']])
+
+    def test_wasm_self_reference_and_wrong_native_method_are_rejected(self):
+        _, rows, _ = self.fixture()
+        for field in ['layer', 'method', 'non-native-state']:
+            bad = copy.deepcopy(rows)
+            if field == 'layer': bad[0]['layer'] = 'wasm'
+            elif field == 'method': bad[0]['observed']['method'] = 'legacy-dense-file-window-maxinst1'
+            else: bad[0]['observed']['lazyFlags'] = {}
+            with self.assertRaises(OracleLedgerError): self.validate(bad)
+
+    def test_reference_status_raw_exit_and_interruption_are_validated(self):
+        _, rows, _ = self.fixture()
+        for field, value in [('status', 'failure'), ('status', 'xpass'), ('semanticPass', False),
+                             ('rawExitCode', 1), ('rawExitCode', -11), ('rawExitCode', 77),
+                             ('rawExitCode', True), ('interrupted', 'timeout')]:
+            bad = copy.deepcopy(rows); bad[0][field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(OracleLedgerError): self.validate(bad)
+        for field, value in [('termination', 'trap'), ('blocks', 1), ('blocks', False), ('schema', True)]:
+            bad = copy.deepcopy(rows); bad[0]['observed'][field] = value
+            with self.subTest(field=field), self.assertRaises(OracleLedgerError): self.validate(bad)
+
+    def test_fixture_uniqueness_order_and_source_bindings_are_validated(self):
+        _, rows, _ = self.fixture()
+        for bad in [[rows[0]], rows[::-1], [rows[0], rows[0]]]:
+            with self.assertRaises(OracleLedgerError): self.validate(bad)
+        for field, value in [('fixture', 'unlisted.asm'), ('sourceSHA256', 'f' * 64),
+                             ('binarySHA256', 'f' * 64), ('upstreamKnownFailure', True)]:
+            bad = copy.deepcopy(rows); bad[0][field] = value
+            with self.subTest(field=field), self.assertRaises(OracleLedgerError): self.validate(bad)
+
+    def test_architectural_shape_and_digest_are_recomputed(self):
+        _, rows, _ = self.fixture()
+        mutations = [('GPR', ['0x0'] * 15), ('XMM', [['0x0']] * 16), ('MM', [['0x0', '0x10000']] * 8),
+                     ('FTW', 256), ('FCW', False), ('RFLAGS', 'not-hex')]
+        for field, value in mutations:
+            bad = copy.deepcopy(rows); bad[0]['observed']['state'][field] = value
+            with self.subTest(field=field), self.assertRaises(OracleLedgerError): self.validate(bad)
+        bad = copy.deepcopy(rows); bad[0]['observed']['state']['GPR'][1] = '0x1'
+        with self.assertRaisesRegex(OracleLedgerError, 'state digest mismatch'): self.validate(bad)
+        for field in ['codeSHA256', 'stackSHA256', 'architecturalStateSHA256']:
+            bad = copy.deepcopy(rows); bad[0]['observed'][field] = 'unvalidated digest'
+            with self.subTest(field=field), self.assertRaises(OracleLedgerError): self.validate(bad)
+
+    def test_hlt_and_assertion_receipts_are_recomputed(self):
+        _, rows, _ = self.fixture()
+        bad = copy.deepcopy(rows); state = bad[0]['observed']['state']; state['RIP'] = '0x400400008'
+        bad[0]['observed']['architecturalStateSHA256'] = state_digest(state)
+        with self.assertRaisesRegex(OracleLedgerError, 'expected HLT'): self.validate(bad)
+        bad = copy.deepcopy(rows); state = bad[0]['observed']['state']; state['RFLAGS'] = '0x242'
+        bad[0]['observed']['architecturalStateSHA256'] = state_digest(state)
+        with self.assertRaisesRegex(OracleLedgerError, 'assertion contract'): self.validate(bad)
+        bad = copy.deepcopy(rows); bad[0]['comparison']['matches'] = False
+        with self.assertRaisesRegex(OracleLedgerError, 'recomputed state'): self.validate(bad)
+
+    def test_gated_skip_cannot_become_an_observation(self):
+        _, rows, _ = self.fixture()
+        for field, value in [('status', 'pass'), ('rawExitCode', 0), ('semanticPass', True),
+                             ('reason', 'another reason'), ('observed', {})]:
+            bad = copy.deepcopy(rows); bad[1][field] = value
+            with self.subTest(field=field), self.assertRaises(OracleLedgerError): self.validate(bad)
+
+    def test_duplicate_json_keys_and_oversized_missing_ledgers_fail(self):
+        _, rows, skips = self.fixture()
+        encoded = ''.join(json.dumps(r) + '\n' for r in rows)
+        bad = encoded.replace('"layer": "oracle"', '"layer": "oracle", "layer": "oracle"', 1)
+        with self.assertRaisesRegex(OracleLedgerError, 'duplicate oracle JSON key'): self.validate(rows, serialized=bad)
+        with self.assertRaisesRegex(OracleLedgerError, 'byte budget'): self.validate(rows, maximum_bytes=1)
+        with self.assertRaises(OracleLedgerError): load_oracle(None, {}, skips=skips, project=pilot.projection, maximum_bytes=1)
 
 
 class Integrity(unittest.TestCase):

@@ -14,6 +14,7 @@ import subprocess
 import time
 from pathlib import Path
 from state_contract import ASSERTIONS, compare as compare_state
+from oracle_ledger import OracleLedgerError, load_oracle
 
 HERE = Path(__file__).resolve().parent
 SPEC = json.loads((HERE / 'pilot.json').read_text())
@@ -224,10 +225,15 @@ def run(args):
             assert wrapped.startswith(prefix) and sha(wrapped[len(prefix):]) == frozen['sourceSHA256']
             metadata = json.loads(re.search(rb'%ifdef CONFIG\s*(.*?)\s*%endif', wrapped, re.S)[1])
             assert metadata == row['metadata'], 'source expectation changed'
-    oracle = {}
-    if args.oracle:
-        oracle = {r['fixture']: r for r in map(json.loads, args.oracle.read_text().splitlines())}
     layer = args.layer
+    if layer == 'oracle':
+        if args.oracle is not None:
+            raise OracleLedgerError('oracle creation does not accept a reference ledger')
+        oracle = {}
+    else:
+        skips = {row['path']: reason for row in manifest['fixtures'] if (reason := gate(row, 'oracle'))}
+        oracle = load_oracle(args.oracle, manifest, skips=skips, project=projection,
+                             maximum_bytes=SPEC['budgets']['maximumResultArtifactBytes'])
     if layer == 'wasm':
         root = HERE.parent.parent
         expected = SPEC['wasmTranslatorSource']
@@ -320,7 +326,7 @@ def run(args):
     summary = {'layer': layer, 'fixtureSource': SPEC['source'], 'translatorSource': translator, 'profile': SPEC['profile'],
                'comparisonContract': ASSERTIONS['contract'], 'comparisonQualification': ASSERTIONS['qualification'],
                'measurementRecipe': {p.name: sha(p.read_bytes()) for p in
-                                     [HERE / 'pilot.py', HERE / 'wasm.cjs', HERE / 'flags.cjs', HERE / 'assertions.json', HERE / 'state_contract.py', HERE / 'native-x86.c',
+                                     [HERE / 'pilot.py', HERE / 'oracle_ledger.py', HERE / 'wasm.cjs', HERE / 'flags.cjs', HERE / 'assertions.json', HERE / 'state_contract.py', HERE / 'native-x86.c',
                                       HERE / 'native-x86.S', HERE / 'native-arm64.cpp', HERE / 'state.h']},
                'executableSHA256': sha(args.executable.read_bytes()),
                'counts': dict(collections.Counter(r['status'] for r in results)),
@@ -346,7 +352,10 @@ def main():
     execute.add_argument('--node', default='node')
     execute.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
-    return prepare(args) if args.command == 'prepare' else run(args)
+    try:
+        return prepare(args) if args.command == 'prepare' else run(args)
+    except OracleLedgerError as error:
+        parser.error(str(error))
 
 
 if __name__ == '__main__':
