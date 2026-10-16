@@ -56,6 +56,15 @@ FEX-generated Wasm. It records the first unsupported instruction, actual execute
 step count and guest-access quiescence. A typed unsupported stop is the expected
 bootstrap boundary, with no guest exit code or successful Wine-command claim.
 Native requests must drain before catalog removal and guest storage release.
+The host explicitly enforces a 20,000-step execution budget and a 30-second
+deadline; the 64-entry diagnostic trace is a separate history cap. Completed
+unsupported probes must have a positive integer executed count within that
+budget. Step-limit exhaustion remains a failure with retained partial progress.
+Native `units` and `guestInsts` count successful single-instruction translations,
+not executions: cached units may run repeatedly. Both native counts must match,
+be positive and not exceed executed steps, with exactly one rejected terminal
+translation. A synthetic finite loop verifies 258 executions of four translated
+units; lowering its budget to 64 must fail without a completed result.
 The fixed internal worker memory and occupied slot remain retained until session
 teardown; this does not prove physical retirement or lower resident RAM.
 

@@ -62,6 +62,22 @@ async function main(){try{
  phase='postcondition-failed';subprocess=undefined;const bad=inputs('--synthetic-calls');bad.expectedSteps=7;const badOutput=path.join(directory,'postcondition.json');
  await assert.rejects(probe(()=>bad,badOutput),assert.AssertionError);const badReport=JSON.parse(fs.readFileSync(badOutput));
  assert.equal(badReport.status,'probe-failed');assert.equal(badReport.result.executedWasmSteps,6);assert.equal(badReport.nativeAvailable,true);records.push({mode:'postcondition-failed',report:badReport});
+ // A finite guest loop reuses four translations, exceeding the trace-history
+ // length without approaching the actual execution budget. This is not Wine.
+ phase='cached-loop';const loop=inputs('--synthetic');loop.minimumSteps=258;
+ loop.interpreter.set([0x48,0x89,0xe7,0xb8,0x80,0,0,0,0x48,0x83,0xe8,1,0x75,0xfa,0x0f,0x0b],0x1000);
+ loop.evidence='Synthetic finite 128-iteration register loop ending at UD2; not Wine.';
+ const loopReport=await probe(()=>loop,path.join(directory,'cached-loop.json'));
+ assert.equal(loopReport.result.executedWasmSteps,258);assert.equal(loopReport.native.units,4);assert.equal(loopReport.native.guestInsts,4);assert.equal(loopReport.native.failed,1);
+ assert.equal(loopReport.result.raxAfter,0n);assert.equal(loopReport.result.steps.length,64);assert.equal(loopReport.result.executionBudget.maximumSteps,20000);
+ records.push({mode:'cached-loop',steps:loopReport.result.executedWasmSteps,native:loopReport.native,executionBudget:loopReport.result.executionBudget});
+ // The same real worker must reject exhaustion, retaining partial progress
+ // rather than claiming that a still-running loop reached an unsupported stop.
+ phase='step-budget-exhausted';const limitedOutput=path.join(directory,'step-budget.json');
+ await assert.rejects(probe(()=>({...loop,maximumSteps:64}),limitedOutput),/Sparse instruction limit exceeded/);
+ const limited=JSON.parse(fs.readFileSync(limitedOutput));assert.equal(limited.status,'probe-failed');assert.equal(limited.result,null);
+ assert.equal(limited.progress.executedWasmSteps,64);assert.equal(limited.executionBudget.maximumSteps,64);assert.equal(limited.native.units,4);assert.equal(limited.native.failed,0);
+ records.push({mode:'step-budget-exhausted',report:limited});
  const result={evidence:'Actual FEX/Wasm probe-harness contracts, including deliberate initial-state corruption and native-child death. No Wine or physical-device evidence.',records};
  console.log(save(result));
  }finally{fs.rmSync(directory,{recursive:true,force:true});}}

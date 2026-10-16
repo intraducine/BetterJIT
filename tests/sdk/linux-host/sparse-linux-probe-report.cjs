@@ -1,6 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Probe-only contracts and bounded diagnostics; never dump guest memory/state.
 const assert=require('node:assert/strict'),crypto=require('crypto');
+function executionBudget(maximumSteps=20000) {
+  assert(Number.isSafeInteger(maximumSteps)&&maximumSteps>=1&&maximumSteps<=20000,'Probe step budget must be an integer in 1..20000');
+  return {maximumSteps,deadlineMs:30000};
+}
+function validateCompletion(result,minimumSteps,budget) {
+  assert.equal(result.status,'unsupported-instruction');assert.equal(result.guestExitCode,null);
+  assert(Number.isSafeInteger(result.executedWasmSteps)&&result.executedWasmSteps>=minimumSteps&&result.executedWasmSteps>0);
+  assert(result.executedWasmSteps<=budget.maximumSteps,'Probe completion exceeded its execution budget');
+}
+function validateNative(native,executedWasmSteps) {
+  // Successful single-instruction translations may execute repeatedly from the host cache.
+  assert(Number.isSafeInteger(native.units)&&native.units>=1&&native.units<=executedWasmSteps);
+  assert.equal(native.guestInsts,native.units);assert.equal(native.failed,1);
+}
 function codeBytes(codes,rip,maximum) {
   const code=codes.find(c=>rip>=c.address&&rip-c.address<BigInt(c.bytes.length));
   if(!code)return [];
@@ -81,6 +95,8 @@ function failureReport(context,error) {
   const report={schema:1,status:'probe-failed',evidence:'Bounded interpreter probe failure; no successful guest exit or Wine compatibility result.',
     stage:clean(context.stage,64),input:inputIdentity(context.input),error:errorInfo(error),nativeAvailable:!!native,
     progress:progressInfo(context.progress),result:progressInfo(context.result),configuration:{},native:{}};
+  if(context.executionBudget){report.executionBudget={};for(const key of ['maximumSteps','deadlineMs'])
+    if(Number.isSafeInteger(context.executionBudget[key])&&context.executionBudget[key]>0)report.executionBudget[key]=context.executionBudget[key];}
   const provenance=context.input?.provenance;
   if(provenance){report.provenance={};for(const [key,length]of [['wineSourceCommit',40],['patchSHA256',64]])
     if(typeof provenance[key]==='string'&&new RegExp('^[0-9a-f]{'+length+'}$').test(provenance[key]))report.provenance[key]=provenance[key];}
@@ -90,4 +106,4 @@ function failureReport(context,error) {
   return report;
 }
 const stringify=value=>JSON.stringify(value,(_key,v)=>typeof v==='bigint'?'0x'+v.toString(16):v,2)+'\n';
-module.exports={codeBytes,entryStackCheck,observeEntry,errorInfo,subprocessInfo,contractFailure,inputIdentity,progressInfo,failureReport,stringify};
+module.exports={executionBudget,validateCompletion,validateNative,codeBytes,entryStackCheck,observeEntry,errorInfo,subprocessInfo,contractFailure,inputIdentity,progressInfo,failureReport,stringify};

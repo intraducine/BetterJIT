@@ -30,11 +30,12 @@ function inputs(location) {
  return {path:'/opt/wine-flat/bin/wine',elf,interpreterPath,interpreter,evidence:'Exact prepared adapted Wine launcher and its staged musl interpreter, executed only to the first unsupported sparse instruction. Not a Wine command, nested CreateProcess, WebKit, phone, physical retirement or RAM result.',minimumSteps:2,provenance:{wineSourceCommit:provenance.wineSourceCommit,patchSHA256:provenance.patchSHA256}};
 }
 async function execute(get,cfg,state,input,context={}) {
+ const budget=context.executionBudget=P.executionBudget(input.maximumSteps);
  let kernel,host,timer;const workers=[],terminations=[];
  try {
   const result=await new Promise((resolve,reject)=>{
-   timer=setTimeout(()=>reject(Error('Sparse interpreter bootstrap exceeded30seconds')),30000);
-   host=new BetterJITSparseProcessHost({get,cfg,onFailure:reject,workerFactory:()=>{
+   timer=setTimeout(()=>reject(Error('Sparse interpreter bootstrap exceeded30seconds')),budget.deadlineMs);
+   host=new BetterJITSparseProcessHost({get,cfg,maximumSteps:budget.maximumSteps,onFailure:reject,workerFactory:()=>{
     const worker=new Worker(path.join(__dirname,'sparse-browser-thread.cjs'),{workerData:{resources}}),record={worker,exited:false},adapter={onmessage:null,onerror:null,postMessage:m=>worker.postMessage(m),terminate:()=>{terminations.push(worker.terminate());}};workers.push(record);
     worker.on('message',data=>adapter.onmessage?.({data}));worker.on('error',e=>adapter.onerror?.({message:String(e)}));worker.on('exit',()=>{record.exited=true;});return adapter;
    }});
@@ -47,10 +48,10 @@ async function execute(get,cfg,state,input,context={}) {
   });
   context.result={...result,stage:'terminal-result',rip:result.stoppedRip};
   await Promise.all(host.drops);assert(host.history.every(r=>r.acked&&!r.pending.size));assert(workers.every(w=>!w.exited));
-  assert.equal(result.status,'unsupported-instruction');assert.equal(result.guestExitCode,null);assert(result.executedWasmSteps>=input.minimumSteps);assert(result.executedWasmSteps<64);
+  P.validateCompletion(result,input.minimumSteps,budget);
   if(input.expectedSteps!==undefined){assert.equal(result.executedWasmSteps,input.expectedSteps);assert.equal(result.stackPointerAfter,result.stackPointer);assert.equal(result.broker.requests,4);assert.equal(result.broker.ok,4);}
   if(input.expectedRax!==undefined){assert.equal(result.raxAfter,BigInt(input.expectedRax));assert.equal(result.rdxAfter,BigInt(input.expectedRdx));}
-  return {...result,actualWorkersStillAlive:workers.length,nativeRequestsDrained:true};
+  return {...result,executionBudget:budget,actualWorkersStillAlive:workers.length,nativeRequestsDrained:true};
  }finally{clearTimeout(timer);host?.close();await Promise.allSettled(terminations);await kernel?.terminate();}
 }
 function writeReport(output,report) {
@@ -65,7 +66,7 @@ async function probe(selectInput,output,connect=serve) {
     context.stage='native-configuration';const cfg=context.cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());
     context.stage='execute';const result=await execute(get,cfg,state,input,context);
     context.stage='native-validation';const native=context.native=await(await get('/xlat/totals')).json();
-    assert.equal(native.units,result.executedWasmSteps);assert.equal(native.guestInsts,result.executedWasmSteps);assert.equal(native.failed,1);
+    P.validateNative(native,result.executedWasmSteps);
     const report={evidence:input.evidence,provenance:input.provenance,input:P.inputIdentity(input),cfg,native,result};writeReport(output,report);return report;
    } catch(error) {
     try{context.native=await(await get('/xlat/totals')).json();}catch(nativeError){context.nativeError=nativeError;}

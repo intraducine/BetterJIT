@@ -4,6 +4,19 @@ import P from './linux-host/sparse-linux-probe-report.cjs';
 import {spawnSync} from 'node:child_process';
 const entry=0x12340000n,stackPointer=0x7ffff000n;
 const image=bytes=>({entry,stackPointer,codes:[{address:entry,bytes:Uint8Array.from(bytes)}],space:{executableSnapshot(){throw Error('Must not read guest mapping');}}});
+test('probe completion uses the enforced execution budget independently of trace length',()=>{
+ const budget=P.executionBudget(),result={status:'unsupported-instruction',guestExitCode:null,executedWasmSteps:653};
+ assert.deepEqual(budget,{maximumSteps:20000,deadlineMs:30000});P.validateCompletion(result,2,budget);
+ P.validateCompletion({...result,executedWasmSteps:20000},2,budget);
+ for(const executedWasmSteps of [0,1,20001,1.5,NaN,Infinity])assert.throws(()=>P.validateCompletion({...result,executedWasmSteps},2,budget),assert.AssertionError);
+ for(const change of [{status:'step-limit'},{status:'completed'},{guestExitCode:0}])assert.throws(()=>P.validateCompletion({...result,...change},2,budget),assert.AssertionError);
+ for(const maximum of [0,-1,20001,1.5,NaN,Infinity])assert.throws(()=>P.executionBudget(maximum),assert.AssertionError);
+});
+test('native translation counts allow reuse while preserving single-instruction and rejection invariants',()=>{
+ const native={units:100,guestInsts:100,failed:1};P.validateNative(native,653);P.validateNative(native,100);
+ for(const change of [{units:0,guestInsts:0},{units:654,guestInsts:654},{units:1.5,guestInsts:1.5},{guestInsts:99},{failed:0},{failed:2}])
+  assert.throws(()=>P.validateNative({...native,...change},653),assert.AssertionError);
+});
 test('entry transfer is checked at first MOV, independently of later RDI',()=>{
  const check=P.entryStackCheck(image([0x48,0x89,0xe7]));P.observeEntry(check,{status:0,rip:entry+3n},stackPointer);
  assert.equal(check.verified,true);assert.equal(check.observedRDI,stackPointer);
