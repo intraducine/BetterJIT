@@ -584,7 +584,12 @@ fexwasm_bytes fexwasm_step(fexwasm_translator* T, uint64_t RIP) {
   Cfg.BrokerFlow = Plan.Flow;
   Cfg.BrokerNoEffects = Plan.NoEffects;
   Cfg.BrokerTargetRegister = Plan.Register;
-  if (Plan.Operation == 15 || Plan.Operation == 16) {
+  Cfg.BrokerTestWidth = Plan.TestWidth; Cfg.BrokerTestShift = Plan.TestShift; Cfg.BrokerTestMask = Plan.TestMask;
+  if (Plan.TestWidth) {
+    if (Length != Plan.Length || Plan.Register >= 16 || RIP + Length >= (1ull << 47)) {
+      T->Host->Release(); return Reject("immediate TEST instruction address/length");
+    }
+  } else if (Plan.Operation == 15 || Plan.Operation == 16) {
     if (Length != Plan.Length || Plan.Register >= 16 || RIP + Length >= (1ull << 47)) {
       T->Host->Release(); return Reject("memory arithmetic instruction address/length");
     }

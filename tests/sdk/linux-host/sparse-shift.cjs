@@ -14,7 +14,7 @@ function oracle(){
 function encoding(kind,width,form,count,dest){const rex=(width===8?0x48:0x40)|(dest>=8?1:0),opcode=form===0||form===3?0xd3:form===1?0xc1:0xd1;
  return [...(rex===0x40?[]:[rex]),opcode,0xc0|(groups[kind]<<3)|(dest&7),...(form===1?[count]:[])];}
 async function main(){const nativeOracle=oracle();await serve('guestmem=broker1',async(get,log)=>{
- const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.coverageVersion,16);
+ const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.coverageVersion,17);
  const units=new Map();async function request(code){await get('/xlat/code?addr='+CODE.toString(16),{method:'POST',body:Uint8Array.from(code)});return FexLinuxThread.parseBrokerStep(new Uint8Array(await(await get('/xlat/step?rip='+CODE)).arrayBuffer()));}
  async function compile(code,operation=6){const key=code.join(',');if(units.has(key))return units.get(key);const u=await request(code);assert.equal(u.status,0,key+': '+log());assert.equal(u.operation,operation);assert.equal(u.width,0);assert.deepEqual([...u.instruction],code);assert.equal(u.nextRip,CODE+BigInt(code.length));u.module=await WebAssembly.compile(u.code);assert(WebAssembly.Module.imports(u.module).every(i=>i.module==='e'&&['mem','tb'].includes(i.name)),'No guest memory or syscall import');units.set(key,u);return u;}
  const seeds=[await compile([0x45,1,0xc9]),await compile([0x49,0x83,0xe9,1]),await compile([0x45,1,0xc9])],syscall=await compile([15,5],5),branches=[];

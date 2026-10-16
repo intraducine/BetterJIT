@@ -321,6 +321,11 @@
     "tests/sdk/linux-host/sparse-memory-or-oracle.c": "tests/sdk/linux-host/sparse-memory-or-oracle.c",
     "tests/sdk/linux-host/sparse-memory-or-oracle.json": "tests/sdk/linux-host/sparse-memory-or-oracle.json",
     "tests/sdk/linux-host/sparse-memory-or.cjs": "tests/sdk/linux-host/sparse-memory-or.cjs",
-    "tests/sdk/linux-sparse-memory-or.test.mjs": "tests/sdk/linux-sparse-memory-or.test.mjs"
+    "tests/sdk/linux-sparse-memory-or.test.mjs": "tests/sdk/linux-sparse-memory-or.test.mjs",
+    "docs/sdk/sparse-test-immediate.md": "docs/sdk/sparse-test-immediate.md",
+    "fexwasm/src/testing/test-immediate-ir.cpp": "fexwasm/src/testing/test-immediate-ir.cpp",
+    "tests/sdk/linux-host/sparse-test-immediate-oracle.c": "tests/sdk/linux-host/sparse-test-immediate-oracle.c",
+    "tests/sdk/linux-host/sparse-test-immediate-oracle.json": "tests/sdk/linux-host/sparse-test-immediate-oracle.json",
+    "tests/sdk/linux-host/sparse-test-immediate.cjs": "tests/sdk/linux-host/sparse-test-immediate.cjs"
   }
 }

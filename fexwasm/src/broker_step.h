@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 16;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 17;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
@@ -13,8 +13,10 @@ struct Admission {
   uint32_t Operation = 0, Width = 0; // 0 register-only, 1 read, 2 write
   uint32_t Flow = 0; // 0 fallthrough, 1 jump, 2 conditional, 3 direct call, 4 checked return, 5 register jump
   bool NoEffects = false; // NOP: only instruction markers and constant fallthrough IR
-  uint32_t Length = 0; // independent NOP encoding length, checked against FEX
-  uint32_t Register = 16; // selected GPR for a bounded jump, stack operation or ADD destination
+  uint32_t Length = 0; // independently decoded bounded length, checked against FEX
+  uint32_t Register = 16; // selected GPR for a bounded jump, stack, ADD destination or TEST source
+  uint32_t TestWidth = 0, TestShift = 0; // internal immediate-TEST proof, no wire operation change
+  uint64_t TestMask = 0;
 };
 // Bounded architectural NOP encodings. Legacy prefixes may repeat, followed
 // by at most one REX. REP/LOCK and a REX before a legacy prefix are excluded.
@@ -90,11 +92,30 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
   if (I == 1 && ((Op >= 0x72 && Op <= 0x79) ||
       (Op == 0x0f && I < Size && (Bytes[I] >= 0x82 && Bytes[I] <= 0x89)))) return {true, 7, 0, 2};
   const uint32_t Width = Rex & 8 ? 8 : Word ? 2 : 4;
+  if (!Segment && !Lock && (Op == 0xa8 || Op == 0xa9 || Op == 0xf6 || Op == 0xf7)) {
+    // Immediate TEST never writes its register operand. F6/F7 admit /0 and
+    // register ModRM only; the vendor's /1 alias and all memory forms stay out.
+    const uint32_t TestWidth = Op == 0xa8 || Op == 0xf6 ? 1 : Width;
+    uint32_t Register = 0, Shift = 0;
+    if (Op == 0xf6 || Op == 0xf7) {
+      if (I >= Size || (Bytes[I] & 0xf8) != 0xc0) return {};
+      const uint32_t Low = Bytes[I++] & 7;
+      if (TestWidth == 1 && !Rex && Low >= 4) { Register = Low - 4; Shift = 8; }
+      else Register = Low + ((Rex & 1) ? 8 : 0);
+    }
+    const size_t ImmediateBytes = TestWidth == 8 ? 4 : TestWidth;
+    if (ImmediateBytes > Size - I) return {};
+    uint64_t Mask = 0;
+    for (size_t N = 0; N < ImmediateBytes; N++) Mask |= uint64_t(Bytes[I + N]) << (N * 8);
+    if (TestWidth == 8) Mask = uint64_t(int64_t(int32_t(Mask)));
+    Admission A {true, 6, 0, 0, false, uint32_t(I + ImmediateBytes), Register};
+    A.TestWidth = TestWidth; A.TestShift = Shift; A.TestMask = Mask; return A;
+  }
   if (!Word && !Segment && !Lock) {
     // Each admitted arithmetic family has an explicit register, read-only or
     // read/write effect contract; no guest operand uses a direct memory path.
     if ((Op == 0x8d) && I < Size && (Bytes[I] & 0xc0) != 0xc0) return {true, 0, 0};
-    if (Op == 0x3c || Op == 0x3d || Op == 0xa8 || Op == 0xa9) return {true, 6, 0};
+    if (Op == 0x3c || Op == 0x3d) return {true, 6, 0};
     if (I < Size) {
       const bool Register = (Bytes[I] & 0xc0) == 0xc0;
       // Register-only SHL, SHR and SAR, 32/64 bits, count 1/imm8/CL.

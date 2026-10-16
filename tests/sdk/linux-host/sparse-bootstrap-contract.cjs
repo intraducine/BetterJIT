@@ -172,6 +172,11 @@ async function main(){try{
   assert.equal(r.executedWasmSteps,input.minimumSteps);assert.equal(r.broker.requests,readOnly?1:3);assert.equal(r.broker.faults,readOnly?1:0);assert.equal(r.broker.ok,readOnly?0:3);assert.equal(r.steps.at(-1).status,readOnly?1:0);assert.equal(r.stoppedRip,F.BASE+(readOnly?0x1017n:0x1024n));if(!readOnly)assert.equal(r.rdxAfter,0x8000000000000087n);
   records.push({mode:phase,steps:r.executedWasmSteps,broker:r.broker,native:report.native,stoppedRip:r.stoppedRip,rdxAfter:r.rdxAfter});
  }
+ phase='immediate-TEST';const testInput=inputs('--synthetic');testInput.minimumSteps=10;
+ testInput.interpreter.set([0x48,0x89,0xe7,0x48,0xb8,0,0x80,0,0x80,0x44,0x33,0x22,0x11,0xf6,0xc4,0x80,0x74,2,0xa8,0x80,0x75,2,0x66,0xf7,0xc0,0xff,0xff,0xf7,0xc0,0xff,0xff,0xff,0xff,0x48,0xf7,0xc0,0,0,0,0x80,0x48,0x89,0xc2,0x0f,0x0b],0x1000);
+ testInput.evidence='Synthetic ELF immediate TEST AH/AL/AX/EAX/RAX, full operand preservation, sign-extended qword mask and live branches; not Wine.';
+ const testReport=await probe(()=>testInput,path.join(directory,'immediate-test.json')),tested=testReport.result;
+ assert.equal(tested.executedWasmSteps,10);assert.equal(tested.broker.requests,0);assert.equal(tested.raxAfter,0x1122334480008000n);assert.equal(tested.rdxAfter,tested.raxAfter);assert.equal(tested.stoppedRip,require('./sparse-linux-image-fixture.cjs').BASE+0x102bn);records.push({mode:phase,steps:tested.executedWasmSteps,broker:tested.broker,native:testReport.native,raxAfter:tested.raxAfter,rdxAfter:tested.rdxAfter});
  const result={evidence:'Actual FEX/Wasm probe-harness contracts, including deliberate initial-state corruption and native-child death. No Wine or physical-device evidence.',records};
  console.log(save(result));
  }finally{fs.rmSync(directory,{recursive:true,force:true});}}

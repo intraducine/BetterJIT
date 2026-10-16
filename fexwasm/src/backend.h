@@ -31,6 +31,8 @@ struct BackendConfig {
   bool BrokerNoEffects = false; // raw NOP admission requires marker/constant-exit IR only
   uint32_t BrokerOperation = 0, BrokerWidth = 0;
   uint32_t BrokerTargetRegister = 16;
+  uint32_t BrokerTestWidth = 0, BrokerTestShift = 0;
+  uint64_t BrokerTestMask = 0; // decoded immediate, sign-extended for qword TEST
   uint64_t BrokerNextRIP = 0;
   uint64_t BrokerTarget = 0;
   uint32_t BrokerFlow = 0; // fallthrough/jump/conditional/direct-call/checked-return/register-jump
