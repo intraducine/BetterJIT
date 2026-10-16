@@ -152,3 +152,59 @@ The original report, exit, counter and progress assertions remain required.
 The [coverage-11 non-LOCK ADD memory slice](sparse-memory-add.md) addresses the
 next instruction proven by green run 38871692398. Its host arithmetic and memory
 fixtures remain separate from the exact prepared Wine result.
+
+## Accumulator logical immediates
+
+Coverage 19 adds `24`/`25` AND, `0c`/`0d` OR and `34`/`35` XOR with an
+implicit AL/AX/EAX/RAX destination. These reuse coverage 7's existing operation
+6, width-zero register/flags contract and emitter. The complete existing IR
+effect gate remains unchanged: it excludes guest memory, atomics, syscalls and
+unknown effects in this profile. This increment adds bounded instruction
+admission and tests; it does not add a semantic prepass that rejects every
+possible altered ordinary GPR or immediate inside otherwise allowed IR.
+
+The prefix grammar admits an optional `66` followed by at most one REX.
+Byte opcodes always select AL; `66` selects AX for wide opcodes, and REX.W
+takes precedence and selects RAX. Otherwise the destination is EAX. REX.B/R/X
+are ignored for this implicit accumulator, so they never redirect to R8 or AH.
+AL/AX writes preserve the rest of RAX; EAX writes zero its upper half. RAX
+uses a sign-extended imm32, while the other widths use imm8/imm16/imm32.
+The native decoder independently bounds the immediate length; the translator
+checks the complete FEX length and low-canonical fallthrough. Other prefixes,
+truncations and additional group-1 or memory variants remain outside this slice.
+
+CF and OF clear, and PF/ZF/SF reflect the result at operand width. AF is
+undefined and excluded from native flag comparison; DF and unrelated CPU state
+are preserved. Zero and identity masks still update flags, and EAX upper-bit
+clearing applies even when its low 32 bits do not change. Pinned FEX lowering
+uses the existing AndWithFlags path at 32/64 bits; OR/XOR use logical result
+plus SubWithFlags against zero. Small operands use TestNZ at byte/word width
+and carry normalization, with upper-preserving masks for small AND. XOR with
+an all-ones immediate may become Not while retaining logical flag production.
+
+The existing `sparse-and.cjs` keeps its original group-1 AND matrix and extends
+it to all 34 bounded prefix combinations, all six accumulator opcodes and eight
+masks. Its native oracle retains the original 128 rows and adds 4,608 rows across
+all widths, three literal prefix forms, two flag/DF seeds and eight inputs.
+On Linux x86-64 the oracle is rebuilt and executed; other hosts explicitly use
+the retained native results for actual FEX/Wasm comparison. Every result checks
+the complete RAX value, other GPRs, DF, unrelated CPU bytes, rounding state,
+defined logical flags, finite branches and absence of guest RPCs. The existing
+immediate-TEST IR diagnostic also checks actual accumulator lowering and mutates
+copies to exercise forbidden memory/context/syscall/atomic effects, invalid
+register classes/ranges and fallthrough/profile failures.
+
+The preceding same-input adapted Wine/musl probe at `ed0776e`, successful run
+[38930589438](https://github.com/intraducine/BetterJIT/actions/runs/38930589438),
+advanced from 3,341 to 3,354 Wasm steps and from 399 to 412 compiled units. It
+stopped on `25ffffff7f` (`AND EAX,0x7fffffff`) at `0x7f0000036c60`, guest exit
+null. The host probe profile remained 512 units, 2 MiB serialized translations,
+20,000 steps and 30 seconds. The report recorded 413 cache entries and 241,408
+serialized translation bytes; cleanup returned the cache to zero and acknowledged
+worker and native child closure. No additional RSS or phone headroom value is
+inferred. That run's SETcc diagnostic checked 5,776 IR copies, 128 valid, with
+zero unexpected results; the historical local 5,520-copy receipt preceded the
+two additional store-register/class mutations and remains preserved. The original
+phone proof and dense-Wine memory limitation are unchanged. A later Wine boundary
+requires the same-input probe; scalar host fixtures do not establish full Wine,
+physical-device execution or replacement of the native guest JIT.

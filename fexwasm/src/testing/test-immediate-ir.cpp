@@ -5,6 +5,7 @@
 #include "fexhost.h"
 #include "Interface/IR/IR.h"
 #include "Interface/IR/IntrusiveIRList.h"
+#include "Interface/IR/RegisterAllocationData.h"
 #include <cstdio>
 #include <cstring>
 #include <functional>
@@ -12,7 +13,7 @@
 using namespace FEXCore::IR;
 struct Shape {
   const IRListView& IR;
-  Ref Source {}, Extract {}, And {}, Flags {}, Invalidate {}, PF {}, ReadNZCV {}, Carry {}, StoreNZCV {}, Marker {}, Exit {};
+  Ref Source {}, Extract {}, And {}, Flags {}, Invalidate {}, PF {}, ReadNZCV {}, Carry {}, StoreNZCV {}, Store {}, Marker {}, Exit {};
   explicit Shape(const IRListView& View) : IR(View) {
     for(auto [Block,Header]:IR.GetBlocks())for(auto [Node,H]:IR.GetCode(Block))switch(H->Op){
     case OP_LOADREGISTER: Source=Node;break;
@@ -25,6 +26,7 @@ struct Shape {
     case OP_LOADNZCV:ReadNZCV=Node;break;
     case OP_XOR:Carry=Node;break;
     case OP_STORENZCV:StoreNZCV=Node;break;
+    case OP_STOREREGISTER:Store=Node;break;
     case OP_GUESTOPCODE:Marker=Node;break;
     case OP_EXITFUNCTION:Exit=Node;break;
     default:break;
@@ -35,6 +37,53 @@ struct Shape {
   void After(Ref N,Ref Target){N->Unlink(IR.GetListData());Target->append(IR.GetListData(),N);}
 };
 struct Case{const char* Name;std::function<void(Shape&)> Mutate;std::function<bool(const Shape&)> Applicable{};};
+// Reuse this diagnostic's real-IR copy/mutation harness and the existing
+// generic register FLAGS gate. This is an effects regression matrix, not a new
+// production semantic proof rejecting every altered immediate or GPR dataflow.
+static int CheckAccumulatorLogical(fexwasm::FexHost& Host){
+ const Case Cases[]={
+  {"valid",[](Shape&){}},
+  {"memory-read",[](Shape& S){S.Op(S.Marker)->Op=OP_LOADMEM;}},
+  {"memory-write",[](Shape& S){S.Op(S.Marker)->Op=OP_STOREMEM;}},
+  {"context-write",[](Shape& S){S.Op(S.Marker)->Op=OP_STORECONTEXT;}},
+  {"syscall",[](Shape& S){S.Op(S.Marker)->Op=OP_SYSCALL;}},
+  {"atomic",[](Shape& S){S.Op(S.Marker)->Op=OP_ATOMICFETCHADD;}},
+  {"wrong-AF-invalidation",[](Shape& S){S.IR.GetOp<IROp_InvalidateFlags>(S.Invalidate)->Flags=1;}},
+  {"wrong-load-class",[](Shape& S){S.IR.GetOp<IROp_LoadRegister>(S.Source)->Class=RegClass::FPR;}},
+  {"out-of-range-load",[](Shape& S){S.IR.GetOp<IROp_LoadRegister>(S.Source)->Reg=18;}},
+  {"wrong-store-class",[](Shape& S){S.Store->Reg=PhysicalRegister(RegClass::FPRFixed,0).Raw;}},
+  {"out-of-range-store",[](Shape& S){S.Store->Reg=PhysicalRegister(RegClass::GPRFixed,18).Raw;}},
+  {"variable-exit",[](Shape& S){S.IR.GetOp<IROp_ExitFunction>(S.Exit)->NewRIP=S.IR.WrapNode(S.Source);}},
+  {"wrong-next",[](Shape&){}},
+  {"NOP-profile",[](Shape&){}},
+  {"unshared-profile",[](Shape&){}},
+ };
+ std::vector<std::vector<unsigned char>> Prefixes={{},{0x66}};for(unsigned R=0x40;R<=0x4f;R++)Prefixes.push_back({(unsigned char)R});for(unsigned R=0x40;R<=0x4f;R++)Prefixes.push_back({0x66,(unsigned char)R});
+ unsigned Checked=0,Valid=0,Unexpected=0,Truncated=0;
+ for(const auto& Prefix:Prefixes)for(unsigned Opcode:{0x24,0x25,0x0c,0x0d,0x34,0x35}){
+  bool Word=false,Wide=false;for(auto B:Prefix){Word|=B==0x66;Wide|=B>=0x48&&B<=0x4f;}
+  const unsigned Width=!(Opcode&1)?1:Wide?8:Word?2:4,N=Width==8?4:Width;
+  const uint32_t Limit=N==4?~0u:(1u<<(N*8))-1,Masks[]={0,1,(1u<<(N*8-1))-1,1u<<(N*8-1),Limit,0x55aa&Limit,0x80,0xff00&Limit};
+  for(auto Mask:Masks){auto Bytes=Prefix;Bytes.push_back(Opcode);for(unsigned I=0;I<N;I++)Bytes.push_back(Mask>>(I*8));const auto Plan=fexwasm::broker::Admit(Bytes.data(),Bytes.size());if(!Plan.Supported||Plan.Operation!=6||Plan.Width||Plan.Register||Plan.Length!=Bytes.size()||Plan.TestWidth||Plan.SetCondition!=16)return 20;
+   for(unsigned L=0;L<Bytes.size();L++){if(fexwasm::broker::Admit(Bytes.data(),L).Supported)return 21;Truncated++;}
+   constexpr uint64_t RIP=0x123400008000;if(!Host.MapGuest(RIP,Bytes.data(),Bytes.size()))return 22;uint64_t Insts=0;const auto* Original=Host.GenerateIR(RIP,&Insts);if(!Original||Insts!=1||Host.InstructionLength(RIP)!=Plan.Length)return 23;
+   for(const auto& C:Cases){
+    std::vector<unsigned char> Data(Original->GetDataSize()),List(Original->GetListSize());std::memcpy(Data.data(),reinterpret_cast<const void*>(Original->GetData()),Data.size());std::memcpy(List.data(),reinterpret_cast<const void*>(Original->GetListData()),List.size());IRListView IR(Data.data(),List.data(),Data.size(),List.size());Shape S(IR);
+    if(!S.Source||!S.Store||!S.PF||!S.Flags||!S.Invalidate||!S.Marker||!S.Exit)return 24;
+    const auto* Load=IR.GetOp<IROp_LoadRegister>(S.Source);const auto* Flags=S.Op(S.Flags);const auto Dest=PhysicalRegister(S.Store);
+    if(Load->Reg||Load->Class!=RegClass::GPR||uint32_t(Load->Header.Size)!=8||Dest.AsRegClass()!=RegClass::GPRFixed||Dest.Reg||uint32_t(S.Op(S.Store)->Size)!=8||
+       (Width<4?(Flags->Op!=OP_TESTNZ||uint32_t(Flags->Size)!=Width):(Flags->Op!=(Opcode==0x25?OP_ANDWITHFLAGS:OP_SUBWITHFLAGS)||uint32_t(Flags->Size)!=Width)))return 25;
+    C.Mutate(S);fexwasm::BackendConfig Cfg;Cfg.BrokerMemory=true;Cfg.BrokerOperation=6;Cfg.BrokerWidth=0;Cfg.BrokerNextRIP=RIP+Plan.Length;Cfg.SharedMemory=true;Cfg.ThreadBaseGlobal=true;Cfg.MemPages=Cfg.MemMaxPages=fexwasm::broker::Pages;Cfg.RegArgs=0;Cfg.CallsViaDispatcher=false;
+    if(!strcmp(C.Name,"wrong-next"))Cfg.BrokerNextRIP++;
+    if(!strcmp(C.Name,"NOP-profile"))Cfg.BrokerNoEffects=true;
+    if(!strcmp(C.Name,"unshared-profile"))Cfg.SharedMemory=false;
+    const auto R=fexwasm::Compile(IR,RIP,Cfg);const bool Expected=!strcmp(C.Name,"valid"),OK=Expected?(R.Error.empty()&&!R.Module.empty()):(!R.Error.empty()&&R.Module.empty());Checked++;Valid+=Expected;Unexpected+=!OK;
+    printf("accumulator opcode%02x width%u mask%08x %s: %s%s\n",Opcode,Width*8,Mask,C.Name,R.Error.empty()?"ACCEPTED":R.Error.c_str(),OK?"":" [UNEXPECTED]");
+   }Host.Release();
+  }
+ }
+ printf("checked %u actual accumulator-logical IR copies; valid %u; unexpected %u; raw truncations %u\n",Checked,Valid,Unexpected,Truncated);return Unexpected?1:0;
+}
 int main(){
  const Case Cases[]={
   {"valid",[](Shape&){}},
@@ -111,5 +160,5 @@ int main(){
    const auto R=fexwasm::Compile(IR,RIP,Cfg);const bool Expected=!std::strcmp(C.Name,"valid"),OK=Expected?(R.Error.empty()&&!R.Module.empty()):(!R.Error.empty()&&R.Module.empty());Checked++;Valid+=Expected;Unexpected+=!OK;printf("%s width%u mask%u: %s%s\n",C.Name,Width*8,MaskIndex,R.Error.empty()?"ACCEPTED":R.Error.c_str(),OK?"":" [UNEXPECTED]");
   }Host.Release();
  }
- printf("checked %u actual immediate-TEST IR copies; valid %u; unexpected %u\n",Checked,Valid,Unexpected);return Unexpected?1:0;
+ printf("checked %u actual immediate-TEST IR copies; valid %u; unexpected %u\n",Checked,Valid,Unexpected);const int Logical=CheckAccumulatorLogical(Host);return Unexpected?1:Logical;
 }
