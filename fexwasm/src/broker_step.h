@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 14;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 15;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
@@ -14,7 +14,7 @@ struct Admission {
   uint32_t Flow = 0; // 0 fallthrough, 1 jump, 2 conditional, 3 direct call, 4 checked return, 5 register jump
   bool NoEffects = false; // NOP: only instruction markers and constant fallthrough IR
   uint32_t Length = 0; // independent NOP encoding length, checked against FEX
-  uint32_t Register = 16; // selected GPR for a bounded register jump or stack operation
+  uint32_t Register = 16; // selected GPR for a bounded jump, stack operation or ADD destination
 };
 // Bounded architectural NOP encodings. Legacy prefixes may repeat, followed
 // by at most one REX. REP/LOCK and a REX before a legacy prefix are excluded.
@@ -91,8 +91,8 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
       (Op == 0x0f && I < Size && (Bytes[I] >= 0x82 && Bytes[I] <= 0x89)))) return {true, 7, 0, 2};
   const uint32_t Width = Rex & 8 ? 8 : Word ? 2 : 4;
   if (!Word && !Segment && !Lock) {
-    // Flag-producing arithmetic stays register-only. CMP/TEST may perform one
-    // read; that distinct effect family can never reach a direct memory path.
+    // Each admitted arithmetic family has an explicit register, read-only or
+    // read/write effect contract; no guest operand uses a direct memory path.
     if ((Op == 0x8d) && I < Size && (Bytes[I] & 0xc0) != 0xc0) return {true, 0, 0};
     if (Op == 0x3c || Op == 0x3d || Op == 0xa8 || Op == 0xa9) return {true, 6, 0};
     if (I < Size) {
@@ -108,6 +108,23 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
       // Non-LOCK ADD r/m32,r32 and r/m64,r64 only. A dedicated broker
       // transaction links the complete FEX load/add/store and preserves flags.
       if (!Register && Op == 0x01) return {true, 11, Width};
+      // ADD r32,r/m32 and r64,r/m64: one checked read, register result and
+      // arithmetic flags. Decode the complete memory encoding independently.
+      if (!Register && Op == 0x03) {
+        const uint8_t M = Bytes[I], Mod = M >> 6, RM = M & 7;
+        size_t End = I + 1, Displacement = Mod == 1 ? 1 : Mod == 2 ? 4 : 0;
+        if (RM == 4) {
+          if (End >= Size) return {};
+          if ((Bytes[End++] & 7) == 5 && Mod == 0) {
+            // Pinned FEX incorrectly retains R13 for this no-base SIB when
+            // REX.B is set. Refuse that encoding before lowering.
+            if (Rex & 1) return {};
+            Displacement = 4;
+          }
+        } else if (Mod == 0 && RM == 5) Displacement = 4;
+        if (Displacement > Size - End) return {};
+        return {true, 15, Width, 0, false, uint32_t(End + Displacement), uint32_t((M >> 3 & 7) + ((Rex & 4) ? 8 : 0))};
+      }
       if (Op == 0x84 || Op == 0x85 || Op == 0x38 || Op == 0x39 || Op == 0x3a || Op == 0x3b)
         return {true, Register ? 6u : 8u, Register ? 0u : ((Op & 1) ? Width : 1u)};
       if ((Op == 0x80 || Op == 0x81 || Op == 0x83) && (Bytes[I] & 0x38) == 0x38)

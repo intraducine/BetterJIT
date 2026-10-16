@@ -33,6 +33,7 @@ class AssetTests(unittest.TestCase):
         self.shift_ir_binary = self.asset/'sparse-scalar-shift-ir'; self.shift_ir_binary.write_bytes(self.binary.read_bytes()); self.shift_ir_binary.chmod(0o755)
         self.jump_ir_binary = self.asset/'sparse-register-jump-ir'; self.jump_ir_binary.write_bytes(self.binary.read_bytes()); self.jump_ir_binary.chmod(0o755)
         self.stack_ir_binary = self.asset/'sparse-register-stack-ir'; self.stack_ir_binary.write_bytes(self.binary.read_bytes()); self.stack_ir_binary.chmod(0o755)
+        self.read_add_ir_binary = self.asset/'sparse-register-memory-add-ir'; self.read_add_ir_binary.write_bytes(self.binary.read_bytes()); self.read_add_ir_binary.chmod(0o755)
         self.producer = {'repository':assets.REPOSITORY, 'workflow':assets.WORKFLOW,
                          'run':'123', 'attempt':'1', 'commit':'a'*40, 'step':'build-host', 'outcome':'success'}
     def seal(self): return assets.seal(self.asset, 'fex-host', self.expected, self.producer, NOW)
@@ -54,7 +55,7 @@ class AssetTests(unittest.TestCase):
         (self.root/'COPYING').write_text('changed notice')
         self.assertNotEqual(assets.identity(self.root, 'fex-ios', self.tools), before)
     def test_ir_diagnostic_is_hashed_and_its_source_invalidates_host_reuse(self):
-        for binary, source in ((self.ir_binary, 'memory-add-ir.cpp'), (self.shift_ir_binary, 'scalar-shift-ir.cpp'), (self.jump_ir_binary, 'register-jump-ir.cpp'), (self.stack_ir_binary, 'register-stack-ir.cpp')):
+        for binary, source in ((self.ir_binary, 'memory-add-ir.cpp'), (self.shift_ir_binary, 'scalar-shift-ir.cpp'), (self.jump_ir_binary, 'register-jump-ir.cpp'), (self.stack_ir_binary, 'register-stack-ir.cpp'), (self.read_add_ir_binary, 'register-memory-add-ir.cpp')):
             with self.subTest(diagnostic=binary.name):
                 sealed = self.seal()
                 self.assertIn(binary.name, sealed['files'])

@@ -27,7 +27,7 @@ function forms(width){const rex=width===8?[0x48]:[],disp=pack(DATA-(CODE+BigInt(
  ];
 }
 async function main(){const nativeOracle=oracle();await serve('guestmem=broker1',async(get,log)=>{
- const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.coverageVersion,14);
+ const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.coverageVersion,15);
  async function compile(code,rip=CODE){await get('/xlat/code?addr='+rip.toString(16),{method:'POST',body:Uint8Array.from(code)});const u=FexLinuxThread.parseBrokerStep(new Uint8Array(await(await get('/xlat/step?rip='+rip)).arrayBuffer()));assert.equal(u.status,0,Buffer.from(code).toString('hex')+': '+log());u.module=await WebAssembly.compile(u.code);assert(WebAssembly.Module.imports(u.module).every(i=>i.module==='e'&&['mem','tb','memory'].includes(i.name)));return u;}
  const syscall=await compile([15,5],SC),seeds=[await compile([0x45,1,0xc9],SC+0x100n),await compile([0x49,0x83,0xe9,1],SC+0x120n)],units={};let executedWasmSteps=0,checkedADDs=0;
  function fixture({budget=new M.BackingBudget(),space=new M.GuestAddressSpace(budget,{virtualLimit:1n<<47n}),broker=new B.GuestMemoryBroker()}={}){
@@ -79,7 +79,7 @@ async function main(){const nativeOracle=oracle();await serve('guestmem=broker1'
    callbackCases.push({kind,noADDCommit:true,fullCheckpointPreserved:true,stagedPagesReleased:true,freshOwnerUnaffected:!!fresh});
   }finally{armed=false;fresh?.close();f.close();alias.close();object.close();assert.equal(budget.stats().ownedPayloadBytes,0);}
  }
- const refused=[];for(const code of [[0xf0,0x48,1,0x10],[0x66,1,0x10],[0x66,0x48,1,0x10],[0x67,0x48,1,0x10],[0x64,0x48,1,0x10],[0x65,0x48,1,0x10],[0xf3,0x48,1,0x10],[0,0x10],[0x48,3,0x10],[0x48,0x11,0x10],[0x48,0x29,0x10],[0x48,0x83,0,1],[0x48,0x81,0,1,0,0,0],[0x48,1],[0x48,1,0x54],[0x48,1,0x54,0x8c]]){
+ const refused=[];for(const code of [[0xf0,0x48,1,0x10],[0x66,1,0x10],[0x66,0x48,1,0x10],[0x67,0x48,1,0x10],[0x64,0x48,1,0x10],[0x65,0x48,1,0x10],[0xf3,0x48,1,0x10],[0,0x10],[0x48,0x2b,0x10],[0x48,0x11,0x10],[0x48,0x29,0x10],[0x48,0x83,0,1],[0x48,0x81,0,1,0,0,0],[0x48,1],[0x48,1,0x54],[0x48,1,0x54,0x8c]]){
   await get('/xlat/code?addr='+CODE.toString(16),{method:'POST',body:Uint8Array.from(code)});const bytes=new Uint8Array(await(await get('/xlat/step?rip='+CODE)).arrayBuffer()),u=FexLinuxThread.parseBrokerStep(bytes);assert.equal(u.status,2,Buffer.from(code).toString('hex'));assert.equal(u.code.length,0);refused.push(Buffer.from(code).toString('hex'));
  }
  const result={evidence:'Actual FEX/Wasm non-LOCK ADD r/m32,r32 and r/m64,r64 against independently executed native x86 result/CF/PF/AF/ZF/SF/OF rows. Synthetic memory, not Wine, device or guest LOCK atomicity evidence.',cfg,nativeOracle,oracleRows:golden.length,checkedADDs,executedWasmSteps,records,edges,callbackCases,refused,native:await(await get('/xlat/totals')).json()};

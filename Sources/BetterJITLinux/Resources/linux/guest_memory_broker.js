@@ -4,7 +4,7 @@
   'use strict';
   const storage=root.BetterJITGuestMemory;
   if(!storage||storage.STORAGE_VERSION!==1)throw new Error('Guest storage contract 1 required');
-  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:3,coverageVersion:14,stepHeaderBytes:96,
+  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:3,coverageVersion:15,stepHeaderBytes:96,
     magic:0x314d4a42,internalPages:33,threadBase:0x10000,threadBytes:0x200000,
     scratchOffset:0x1f0000,scratchBytes:128,memoryRequest:0x10003,instructionBoundary:0x10004,maximumThreads:8,parkedState:4,
     userCopyBytes:65536});
@@ -12,7 +12,7 @@
     address:32,rip:40,checkpoint:48,operand0:56,operand1:64,result0:72,result1:80,faultAddress:88,
     checkpointRip:96,nextRip:104,completedSequence:112,boundaryControl:116,lease:120});
   const STATUS=Object.freeze({OK:0,FAULT:1,UNSUPPORTED:2});
-  const OP=Object.freeze({READ:1,WRITE:2,CAS:3,FETCH_ADD:4,SYSCALL:5,FLAGS:6,BRANCH:7,READ_FLAGS:8,CALL:9,RETURN:10,ADD_MEMORY:11,JUMP_REGISTER:12,PUSH_REGISTER:13,POP_REGISTER:14});
+  const OP=Object.freeze({READ:1,WRITE:2,CAS:3,FETCH_ADD:4,SYSCALL:5,FLAGS:6,BRANCH:7,READ_FLAGS:8,CALL:9,RETURN:10,ADD_MEMORY:11,JUMP_REGISTER:12,PUSH_REGISTER:13,POP_REGISTER:14,ADD_REGISTER_MEMORY:15});
   const STEP=Object.freeze({OK:0,FAULT:1,UNSUPPORTED:2,SYSCALL:3});
   // Host startup gate / spilled syscall completion, separate from native step exits.
   const LIFECYCLE=Object.freeze({version:1,PENDING:0,READY:1,RUN:2,CANCEL:3,FAILED:4,syscallExit:4});
@@ -35,6 +35,7 @@
     const kind=p.continuationKind??0,target=p.branchTarget??0n;
     if(p.operation===OP.JUMP_REGISTER){jumpSourceRegister(p);return Object.freeze([]);}
     if(p.operation===OP.PUSH_REGISTER||p.operation===OP.POP_REGISTER){stackRegister(p);return Object.freeze([p.nextRip]);}
+    if(p.operation===OP.ADD_REGISTER_MEMORY){addMemoryOperand(p);return Object.freeze([p.nextRip]);}
     if(p.operation===OP.CALL) {
       const b=p.instruction;
       if(b.length!==5||b[0]!==0xe8||kind!==3||p.width!==8)throw new TypeError('Invalid direct call metadata');
@@ -59,6 +60,25 @@
     if(kind!==flow||typeof target!=='bigint'||target!==BigInt.asUintN(64,p.nextRip+offset))throw new TypeError('Invalid branch continuation');
     return Object.freeze(kind===1?[target]:[p.nextRip,target]);
   }
+  function addMemoryOperand(p) {
+    const b=p.instruction;let i=0,rex=0;
+    const fail=()=>{throw new TypeError('Invalid register memory ADD metadata');};
+    if(!(b instanceof Uint8Array)||b.length<2)fail();
+    if(b[i]>=0x40&&b[i]<=0x4f)rex=b[i++];
+    if(b[i++]!==0x03||i>=b.length)fail();
+    const m=b[i++],mod=m>>6,rm=m&7;let base=-1,index=-1,scale=1,displacement=0n,ripRelative=false,bytes=mod===1?1:mod===2?4:0;
+    if(mod===3)fail();
+    if(rm===4){if(i>=b.length)fail();const sib=b[i++],lowBase=sib&7,lowIndex=sib>>3&7;scale=1<<(sib>>6);
+      if(lowIndex!==4||(rex&2))index=lowIndex+((rex&2)?8:0);
+      if(mod===0&&lowBase===5){if(rex&1)fail();bytes=4;}else base=lowBase+((rex&1)?8:0);
+    }else if(mod===0&&rm===5){ripRelative=true;bytes=4;}else base=rm+((rex&1)?8:0);
+    if(i+bytes!==b.length)fail();
+    if(bytes===1)displacement=BigInt((b[i]<<24)>>24);
+    if(bytes===4)displacement=BigInt(new DataView(b.buffer,b.byteOffset+i,4).getInt32(0,true));
+    if(p.operation!==OP.ADD_REGISTER_MEMORY||p.width!==((rex&8)?8:4)||p.continuationKind!==0||p.branchTarget!==0n||
+       !canonical(p.rip)||p.nextRip!==p.rip+BigInt(b.length)||!canonical(p.nextRip))fail();
+    return Object.freeze({register:(m>>3&7)+((rex&4)?8:0),base,index,scale,displacement,ripRelative,length:b.length});
+  }
   function stackRegister(p) {
     const b=p.instruction,i=b?.length===2&&b[0]>=0x40&&b[0]<=0x4f?1:0;
     if(!(b instanceof Uint8Array)||b.length!==i+1||
@@ -78,13 +98,13 @@
     if(![0,2].includes(status)||
        (status===2&&(size||length))||(status===0&&(!size||length<1||length>15||nextRip!==rip+BigInt(length)||
          !(([0,5,6,7,12].includes(operation)&&width===0)||([1,2,8].includes(operation)&&[1,2,4,8].includes(width))||
-           ([3,4,11].includes(operation)&&[4,8].includes(width))||([9,10,13,14].includes(operation)&&width===8)))))
+           ([3,4,11,15].includes(operation)&&[4,8].includes(width))||([9,10,13,14].includes(operation)&&width===8)))))
       throw new Error('Invalid broker step metadata');
     if(v.getUint32(92,true)!==0)throw new Error('Invalid broker step reserved field');
     const result={status,operation,width,rip,nextRip,length,hash:v.getBigUint64(48,true),
       continuationKind:v.getUint32(88,true),branchTarget:v.getBigUint64(80,true),
       instruction:bytes.slice(64,64+length),codeBytes:size};
-    if(status===0)try{result.continuations=instructionContinuations(result);if(operation===OP.JUMP_REGISTER)result.sourceRegister=jumpSourceRegister(result);if([OP.PUSH_REGISTER,OP.POP_REGISTER].includes(operation))result.stackRegister=stackRegister(result);}catch(error){throw new Error('Invalid broker continuation metadata: '+error.message);}
+    if(status===0)try{result.continuations=instructionContinuations(result);if(operation===OP.JUMP_REGISTER)result.sourceRegister=jumpSourceRegister(result);if([OP.PUSH_REGISTER,OP.POP_REGISTER].includes(operation))result.stackRegister=stackRegister(result);if(operation===OP.ADD_REGISTER_MEMORY)result.addMemoryOperand=addMemoryOperand(result);}catch(error){throw new Error('Invalid broker continuation metadata: '+error.message);}
     return result;
   }
 
@@ -144,7 +164,15 @@
     const gp=layout.cpu.generalRegistersOffset;
     if(gp!==undefined&&(!Number.isSafeInteger(gp)||gp<0||gp%8||gp+16*8>layout.cpu.size||
        (gp<layout.cpu.ripOffset+8&&gp+16*8>layout.cpu.ripOffset)))throw new TypeError('Invalid general registers checkpoint offset');
-    return {spans,generalRegistersOffset:gp,ripAddress:ABI.threadBase+spans[0].offset+layout.cpu.ripOffset,
+    const flagNames=['parityRawOffset','auxiliaryRawOffset','nzcvOffset'];let arithmeticFlags;
+    if(flagNames.some(n=>layout.cpu[n]!==undefined)) {
+      const protectedRanges=[[layout.cpu.ripOffset,8],...(gp===undefined?[]:[[gp,128]]),...(sp===undefined?[]:[[sp,8]])];
+      const offsets=flagNames.map(n=>layout.cpu[n]);
+      for(let i=0;i<offsets.length;i++){const a=offsets[i];if(!Number.isSafeInteger(a)||a<0||a%4||a+4>layout.cpu.size||
+        protectedRanges.some(([b,n])=>a<b+n&&a+4>b)||offsets.slice(0,i).some(b=>a<b+4&&a+4>b))throw new TypeError('Invalid arithmetic flag checkpoint offsets');}
+      arithmeticFlags=Object.freeze(Object.fromEntries(flagNames.map((n,i)=>[n,offsets[i]])));
+    }
+    return {spans,generalRegistersOffset:gp,arithmeticFlags,ripAddress:ABI.threadBase+spans[0].offset+layout.cpu.ripOffset,
       stackAddress:sp===undefined?undefined:ABI.threadBase+spans[0].offset+sp};
   }
   function cpuRip(s){return s.view.getBigUint64(s.layout.ripAddress,true);}
@@ -205,19 +233,26 @@
     }
     // Called at a safe boundary after native code has spilled the full CPU state.
     // operation/width must come from compile-time admission, never guest input.
-    beginInstruction(token,{rip,operation=0,width=0,continuations,nextRip,sourceRegister,stackRegister}) {
+    beginInstruction(token,{rip,operation=0,width=0,continuations,nextRip,sourceRegister,stackRegister,addMemoryOperand}) {
       const s=requireOwner(this,token);rip=u64(rip);
       if(s.preparedCopies.size)throw new BrokerInvariantError('Prepared copyout must complete before BEGIN');
       if(s.active||s.waits.size)invariant(s,'Instruction already active or parked');
       s.spilledSyscall=false;s.syscallCheckpoint=null;
       if(!(([0,OP.SYSCALL,OP.FLAGS,OP.BRANCH,OP.JUMP_REGISTER].includes(operation)&&width===0)||([OP.READ,OP.WRITE,OP.READ_FLAGS].includes(operation)&&[1,2,4,8].includes(width))||
-           ([OP.CAS,OP.FETCH_ADD,OP.ADD_MEMORY].includes(operation)&&[4,8].includes(width))||([OP.CALL,OP.RETURN,OP.PUSH_REGISTER,OP.POP_REGISTER].includes(operation)&&width===8)))
+           ([OP.CAS,OP.FETCH_ADD,OP.ADD_MEMORY,OP.ADD_REGISTER_MEMORY].includes(operation)&&[4,8].includes(width))||([OP.CALL,OP.RETURN,OP.PUSH_REGISTER,OP.POP_REGISTER].includes(operation)&&width===8)))
         throw new TypeError('Unsupported instruction admission');
       if(operation===OP.BRANCH||operation===OP.CALL) {
         if(!Array.isArray(continuations)||continuations.length<1||continuations.length>2)throw new TypeError('Finite branch continuations required');
         continuations=Object.freeze(continuations.map(u64));
       }
       let stackBefore,stackAfter;
+      const readAdd=operation===OP.ADD_REGISTER_MEMORY,o=addMemoryOperand;
+      if(readAdd&&(s.layout.generalRegistersOffset===undefined||!s.layout.arithmeticFlags||!o||
+         !['register','base','index'].every(n=>Number.isInteger(o[n])&&o[n]>=(n==='register'?0:-1)&&o[n]<16)||
+         ![1,2,4,8].includes(o.scale)||typeof o.displacement!=='bigint'||o.displacement<-(1n<<31n)||o.displacement>=(1n<<31n)||
+         typeof o.ripRelative!=='boolean'||(o.ripRelative&&(o.base!==-1||o.index!==-1))||
+         !Number.isInteger(o.length)||o.length<2||o.length>8||!canonical(rip)||!canonical(nextRip)||nextRip!==rip+BigInt(o.length)||
+         !Array.isArray(continuations)||continuations.length!==1||continuations[0]!==nextRip))throw new TypeError('Checked register memory ADD metadata required');
       const registerStack=operation===OP.PUSH_REGISTER||operation===OP.POP_REGISTER;
       if(registerStack&&(s.layout.generalRegistersOffset===undefined||
          s.layout.stackAddress!==ABI.threadBase+s.layout.spans[0].offset+s.layout.generalRegistersOffset+32||
@@ -239,10 +274,14 @@
       const snapshot=s.layout.spans.map(p=>({offset:p.offset,
         bytes:new Uint8Array(s.memory.buffer,ABI.threadBase+p.offset,p.size).slice()}));
       const jumpTarget=operation===OP.JUMP_REGISTER?new DataView(snapshot[0].bytes.buffer).getBigUint64(s.layout.generalRegistersOffset+sourceRegister*8,true):undefined;
+      let memoryAdd;
+      if(readAdd){const cpu=new DataView(snapshot[0].bytes.buffer),reg=n=>n<0?0n:cpu.getBigUint64(s.layout.generalRegistersOffset+n*8,true);
+        memoryAdd=Object.freeze({register:o.register,destinationValue:reg(o.register),
+          address:BigInt.asUintN(64,(o.ripRelative?nextRip:0n)+reg(o.base)+reg(o.index)*BigInt(o.scale)+o.displacement)});}
       let stackValue;
       if(registerStack){const cpu=new DataView(snapshot[0].bytes.buffer);stackBefore=cpu.getBigUint64(s.layout.generalRegistersOffset+32,true);
         stackAfter=stackBefore+(operation===OP.PUSH_REGISTER?-8n:8n);stackValue=cpu.getBigUint64(s.layout.generalRegistersOffset+stackRegister*8,true);}
-      s.active={rip,generation:++s.checkpoint,operation,width,continuations,snapshot,result:null,nextRip,stackBefore,stackAfter,jumpTarget,stackRegister,stackValue};return s.checkpoint;
+      s.active={rip,generation:++s.checkpoint,operation,width,continuations,snapshot,result:null,nextRip,stackBefore,stackAfter,jumpTarget,stackRegister,stackValue,memoryAdd};return s.checkpoint;
     }
     // The caller uses its authenticated thread record's token, not a request PID.
     // This synchronous route has no syscall, signal, redirect or await callbacks.
@@ -266,8 +305,9 @@
         return fail(REASON.ACCESS);
       const a=s.active;
       if(!a||q.getBigUint64(FIELD.rip,true)!==a.rip||q.getBigUint64(FIELD.checkpoint,true)!==a.generation||
-         operation!==([OP.READ_FLAGS,OP.RETURN,OP.POP_REGISTER].includes(a.operation)?OP.READ:[OP.CALL,OP.PUSH_REGISTER].includes(a.operation)?OP.WRITE:a.operation)||width!==a.width)return fail(REASON.CHECKPOINT);
+         operation!==([OP.READ_FLAGS,OP.RETURN,OP.POP_REGISTER,OP.ADD_REGISTER_MEMORY].includes(a.operation)?OP.READ:[OP.CALL,OP.PUSH_REGISTER].includes(a.operation)?OP.WRITE:a.operation)||width!==a.width)return fail(REASON.CHECKPOINT);
       const address=q.getBigUint64(FIELD.address,true);
+      if(a.operation===OP.ADD_REGISTER_MEMORY&&address!==a.memoryAdd.address)return fail(REASON.CHECKPOINT);
       if(a.operation===OP.PUSH_REGISTER||a.operation===OP.POP_REGISTER) {
         // POP may leave a one-past-window RSP, or load any 64-bit RSP data.
         // Validate the actual old-RSP access, without treating popped data as
@@ -357,10 +397,28 @@
         if(([OP.BRANCH,OP.CALL].includes(a.operation)&&!a.continuations.includes(nextRip))||
            ([OP.RETURN,OP.JUMP_REGISTER].includes(a.operation)&&nextRip!==a.result?.data)||
            ([OP.CALL,OP.RETURN].includes(a.operation)&&s.view.getBigUint64(s.layout.stackAddress,true)!==a.stackAfter)||
-           ([OP.READ,OP.WRITE,OP.CAS,OP.FETCH_ADD,OP.READ_FLAGS,OP.CALL,OP.RETURN,OP.ADD_MEMORY,OP.JUMP_REGISTER,OP.PUSH_REGISTER,OP.POP_REGISTER].includes(a.operation)&&a.result?.status!==STATUS.OK)||
+           ([OP.READ,OP.WRITE,OP.CAS,OP.FETCH_ADD,OP.READ_FLAGS,OP.CALL,OP.RETURN,OP.ADD_MEMORY,OP.JUMP_REGISTER,OP.PUSH_REGISTER,OP.POP_REGISTER,OP.ADD_REGISTER_MEMORY].includes(a.operation)&&a.result?.status!==STATUS.OK)||
            ([0,OP.FLAGS,OP.BRANCH].includes(a.operation)&&a.result)||
            a.operation===OP.SYSCALL||cpuRip(s)!==nextRip)
           invariant(s,'Full successful post-state was not spilled');
+        if(a.operation===OP.ADD_REGISTER_MEMORY) {
+          if(nextRip!==a.nextRip)invariant(s,'Register memory ADD fallthrough changed');
+          const sum=BigInt.asUintN(a.width*8,a.memoryAdd.destinationValue+a.result.data),flags=s.layout.arithmeticFlags;
+          for(const p of a.snapshot){const expected=p.bytes.slice(),actual=new Uint8Array(s.memory.buffer,ABI.threadBase+p.offset,expected.length);
+            if(p.offset===s.layout.spans[0].offset){const cpu=new DataView(expected.buffer);
+              cpu.setBigUint64(s.layout.ripAddress-ABI.threadBase-p.offset,a.nextRip,true);
+              cpu.setBigUint64(s.layout.generalRegistersOffset+a.memoryAdd.register*8,sum,true);
+              cpu.setUint32(flags.parityRawOffset,Number(BigInt.asUintN(32,sum)),true);
+              cpu.setUint32(flags.auxiliaryRawOffset,Number(BigInt.asUintN(32,a.memoryAdd.destinationValue^a.result.data)),true);
+              // This exact flag word may be stale or materialized depending on
+              // the emitter's lazy carry-inversion optimization. The complete
+              // native IR proof and arithmetic oracle validate its semantics.
+              if(!actual.every((v,i)=>(i>=flags.nzcvOffset&&i<flags.nzcvOffset+4)||v===expected[i]))invariant(s,'Register memory ADD changed unexpected CPU state');
+            }else if(p.offset===s.layout.spans[1].offset){
+              if(!actual.subarray(4,8).every((v,i)=>v===expected[i+4]))invariant(s,'Register memory ADD changed lazy padding');
+            }else if(!actual.every((v,i)=>v===expected[i]))invariant(s,'Register memory ADD changed rounding state');
+          }
+        }
         if(a.operation===OP.PUSH_REGISTER||a.operation===OP.POP_REGISTER) {
           if(nextRip!==a.nextRip)invariant(s,'Register stack fallthrough changed');
           for(const p of a.snapshot) {
@@ -490,6 +548,6 @@
         faults:b.faults,unsupported:b.unsupported,rejected:b.rejected});
     }
   }
-  root.BetterJITGuestMemoryBroker=Object.freeze({ABI,FIELD,STATUS,REASON,OP,STEP,LIFECYCLE,jumpSourceRegister,stackRegister,instructionContinuations,parseStepHeader,createInternalMemory,
+  root.BetterJITGuestMemoryBroker=Object.freeze({ABI,FIELD,STATUS,REASON,OP,STEP,LIFECYCLE,jumpSourceRegister,stackRegister,addMemoryOperand,instructionContinuations,parseStepHeader,createInternalMemory,
     BrokerInvariantError,UserCopyUnsupported,GuestMemoryBroker});
 })(typeof globalThis!=='undefined'?globalThis:self);

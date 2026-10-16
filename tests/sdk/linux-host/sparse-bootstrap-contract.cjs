@@ -144,6 +144,17 @@ async function main(){try{
   assert.equal(r.executedWasmSteps,fault.minimumSteps);assert.equal(r.broker.requests,mode==='push-underflow'?1:3);assert.equal(r.broker.unsupported,1);assert.equal(r.steps.at(-1).status,2);assert.equal(r.stackPointerAfter,mode==='push-underflow'?4n:0xffffffffffffffffn);
   assert.equal(r.stoppedRip,require('./sparse-linux-image-fixture.cjs').BASE+(mode==='push-underflow'?0x100dn:0x100fn));records.push({mode,steps:r.executedWasmSteps,broker:r.broker,native:report.native});
  }
+ // Exact production dynamic metadata, checked READ and old-address aliasing.
+ for(const readOnly of [false,true]){
+  phase='register-memory-add'+(readOnly?'-readonly':'');const input=inputs('--synthetic'),F=require('./sparse-linux-image-fixture.cjs'),pointer=new Uint8Array(8);new DataView(pointer.buffer).setBigUint64(0,F.BASE+0x3180n,true);
+  input.minimumSteps=6;new DataView(input.interpreter.buffer).setBigUint64(0x2180,7n,true);
+  if(readOnly)new DataView(input.interpreter.buffer).setUint32(64+2*56+4,4,true);
+  input.interpreter.set([0x48,0x89,0xe7,0x48,0xb8,...pointer,0x48,0xba,1,0,0,0,0xef,0xbe,0xad,0xde,0x48,3,0x10,3,0x10,0x48,3,0,0x0f,0x0b],0x1000);
+  input.evidence='Synthetic ELF register-destination memory ADD, both widths, upper32 clearing and old-base destination alias; not Wine.';
+  const report=await probe(()=>input,path.join(directory,phase+'.json')),r=report.result;
+  assert.equal(r.executedWasmSteps,6);assert.equal(r.broker.requests,3);assert.equal(r.broker.ok,3);assert.equal(r.raxAfter,F.BASE+0x3187n);assert.equal(r.rdxAfter,15n);assert.equal(r.stoppedRip,F.BASE+0x101fn);
+  records.push({mode:phase,steps:r.executedWasmSteps,broker:r.broker,native:report.native,raxAfter:r.raxAfter,rdxAfter:r.rdxAfter});
+ }
  const result={evidence:'Actual FEX/Wasm probe-harness contracts, including deliberate initial-state corruption and native-child death. No Wine or physical-device evidence.',records};
  console.log(save(result));
  }finally{fs.rmSync(directory,{recursive:true,force:true});}}

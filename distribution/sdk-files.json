@@ -309,6 +309,12 @@
     "tests/sdk/linux-host/sparse-stack-oracle.c": "tests/sdk/linux-host/sparse-stack-oracle.c",
     "tests/sdk/linux-host/sparse-stack-oracle.json": "tests/sdk/linux-host/sparse-stack-oracle.json",
     "tests/sdk/linux-host/sparse-stack.cjs": "tests/sdk/linux-host/sparse-stack.cjs",
-    "tests/sdk/linux-sparse-stack.test.mjs": "tests/sdk/linux-sparse-stack.test.mjs"
+    "tests/sdk/linux-sparse-stack.test.mjs": "tests/sdk/linux-sparse-stack.test.mjs",
+    "docs/sdk/sparse-register-memory-add.md": "docs/sdk/sparse-register-memory-add.md",
+    "fexwasm/src/testing/register-memory-add-ir.cpp": "fexwasm/src/testing/register-memory-add-ir.cpp",
+    "tests/sdk/linux-host/sparse-read-add-oracle.c": "tests/sdk/linux-host/sparse-read-add-oracle.c",
+    "tests/sdk/linux-host/sparse-read-add-oracle.json": "tests/sdk/linux-host/sparse-read-add-oracle.json",
+    "tests/sdk/linux-host/sparse-read-add.cjs": "tests/sdk/linux-host/sparse-read-add.cjs",
+    "tests/sdk/linux-sparse-read-add.test.mjs": "tests/sdk/linux-sparse-read-add.test.mjs"
   }
 }

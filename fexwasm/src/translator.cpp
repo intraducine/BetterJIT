@@ -404,7 +404,7 @@ const char* fexwasm_config_json(fexwasm_translator* T) {
            "\"fsOff\":%zu,\"gsOff\":%zu,\"mxcsrOff\":%zu,\"nzcvAddr\":%u,\"memoryTraceAddr\":%u,\"memoryTraceVersion\":2,"
            "\"guestMemory\":\"%s\",\"maxInstructions\":%u,\"debugGuestInstructions\":%s,"
            "\"regArgs\":%u,\"callsViaDispatcher\":%s,"
-           "\"checkpoint\":{\"version\":1,\"cpu\":{\"offset\":%u,\"size\":%zu,\"ripOffset\":%zu,\"stackPointerOffset\":%zu,\"generalRegistersOffset\":%zu},"
+           "\"checkpoint\":{\"version\":1,\"cpu\":{\"offset\":%u,\"size\":%zu,\"ripOffset\":%zu,\"stackPointerOffset\":%zu,\"generalRegistersOffset\":%zu,\"parityRawOffset\":%zu,\"auxiliaryRawOffset\":%zu,\"nzcvOffset\":%zu},"
            "\"lazyFlags\":{\"offset\":%u,\"size\":24},\"roundMode\":{\"offset\":%u,\"size\":4}},"
            "\"memoryABI\":%u,\"stepABI\":%u,\"coverageVersion\":%u,\"stepHeaderBytes\":%u,\"buildID\":\"%s\"}",
            Cfg.MemPages, CTX, sizeof(CPUState), T->ImageLow, STACK_TOP, HALT, uint32_t(T->Window >> 32), offsetof(CPUState, gregs),
@@ -416,7 +416,8 @@ const char* fexwasm_config_json(fexwasm_translator* T) {
            Cfg.NZCVAddr, Cfg.MemoryTraceAddr, Cfg.BrokerMemory ? "broker1" : "direct",
            T->SingleInstruction ? 1u : 0u, T->DebugGuestInstructions ? "true" : "false",
            Cfg.RegArgs, Cfg.CallsViaDispatcher ? "true" : "false",
-           Cfg.CtxAddr, sizeof(CPUState), offsetof(CPUState, rip), offsetof(CPUState, gregs) + 4 * 8, offsetof(CPUState, gregs), Cfg.FlagSpillAddr, Cfg.RoundModeAddr,
+           Cfg.CtxAddr, sizeof(CPUState), offsetof(CPUState, rip), offsetof(CPUState, gregs) + 4 * 8, offsetof(CPUState, gregs),
+           offsetof(CPUState, pf_raw), offsetof(CPUState, af_raw), offsetof(CPUState, flags) + FEXCore::X86State::RFLAG_NZCV_LOC, Cfg.FlagSpillAddr, Cfg.RoundModeAddr,
            Cfg.BrokerMemory ? fexwasm::broker::MemoryABI : 0, Cfg.BrokerMemory ? fexwasm::broker::StepABI : 0,
            Cfg.BrokerMemory ? fexwasm::broker::Coverage : 0, fexwasm::broker::HeaderBytes, FEXWASM_BUILD_ID);
   T->Json = B;
@@ -583,7 +584,11 @@ fexwasm_bytes fexwasm_step(fexwasm_translator* T, uint64_t RIP) {
   Cfg.BrokerFlow = Plan.Flow;
   Cfg.BrokerNoEffects = Plan.NoEffects;
   Cfg.BrokerTargetRegister = Plan.Register;
-  if (Plan.Operation == 13 || Plan.Operation == 14) {
+  if (Plan.Operation == 15) {
+    if (Length != Plan.Length || Plan.Register >= 16 || RIP + Length >= (1ull << 47)) {
+      T->Host->Release(); return Reject("register memory ADD instruction address/length");
+    }
+  } else if (Plan.Operation == 13 || Plan.Operation == 14) {
     if (Length != Plan.Length || Plan.Register >= 16 || RIP + Length >= (1ull << 47)) {
       T->Host->Release(); return Reject("register stack instruction address/length");
     }
