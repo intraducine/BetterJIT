@@ -104,3 +104,11 @@ RDI clobber, a different entry sequence, an incorrect initial stack transfer,
 native startup/death and a post-result assertion failure. Its synthetic results
 do not identify the exact failed assertion in run 38863139120, whose Wine
 command failed before producing a report.
+
+The enclosing contract test also saves a bounded checkpoint before inspecting
+the native-death subprocess report. On failure it retains `contract-failed`
+JSON with partial case results, subprocess exit status/signal, redacted stderr,
+executable-access booleans and fault-injection milestones. A confirmed third-step
+kill is distinguished from an earlier startup exit or an unconfirmed kill.
+The failure artifact retains these diagnostics after temporary files are removed.
+The original report, exit, counter and progress assertions remain required.

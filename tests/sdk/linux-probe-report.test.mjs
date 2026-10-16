@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import test from 'node:test';import assert from 'node:assert/strict';
 import P from './linux-host/sparse-linux-probe-report.cjs';
+import {spawnSync} from 'node:child_process';
 const entry=0x12340000n,stackPointer=0x7ffff000n;
 const image=bytes=>({entry,stackPointer,codes:[{address:entry,bytes:Uint8Array.from(bytes)}],space:{executableSnapshot(){throw Error('Must not read guest mapping');}}});
 test('entry transfer is checked at first MOV, independently of later RDI',()=>{
@@ -25,4 +26,27 @@ test('failure JSON is bounded, serializable and excludes paths, stacks and memor
  const report=P.failureReport({stage:'execute',input:{path:'/workspace/private',elf:Uint8Array.of(1),interpreter:Uint8Array.of(2)},progress,native:{units:3},cfg:{buildID:'test',coverageVersion:10}},error);
  const text=P.stringify(report);assert(text.length<12000);assert(!/secret\.bin|PRIVATE|SECRET STACK|1000000|workspace/.test(text));
  assert.equal(report.status,'probe-failed');assert.equal(report.error.expected,'[integer omitted]');assert.equal(report.progress.instruction.length,15);assert.equal(report.progress.steps.length,64);assert.equal(JSON.parse(text).progress.rdi,'0x1');
+});
+test('subprocess diagnostics distinguish startup failures from a confirmed intended kill',()=>{
+ const startup=P.subprocessInfo({status:1,signal:null,stderr:'Error: preload failed'},{});
+ assert.equal(startup.classification,'before-native-wrapper');assert.equal(startup.fault.killSent,false);
+ const fault={phase:'kill-sent',stepRequests:3,killPointObserved:true,killRequested:true,killSent:true};
+ for(const reportExists of [false,true]){
+  const info=P.subprocessInfo({status:1,signal:null},{reportExists,wrapperStarted:true,fault});
+  assert.equal(info.classification,reportExists?'kill-confirmed-report-present':'kill-confirmed-report-missing');assert.equal(info.fault.stepRequests,3);
+ }
+ const missing=P.subprocessInfo({status:null,error:Object.assign(Error('spawn /private/secret ENOENT'),{code:'ENOENT'})});
+ assert.equal(missing.classification,'subprocess-startup-failed');assert.equal(missing.error.code,'ENOENT');
+ const timeout=P.subprocessInfo({status:null,signal:'SIGTERM',error:Object.assign(Error('timed out'),{code:'ETIMEDOUT'})},{wrapperStarted:true,fault});
+ assert.equal(timeout.classification,'subprocess-control-error');assert.equal(timeout.fault.killSent,true);assert.equal(timeout.signal,'SIGTERM');
+});
+test('real child startup stderr is bounded and removes host paths, credentials and stack frames',()=>{
+ const child=spawnSync(process.execPath,['--eval',"throw Error('EARLY_CHILD_STARTUP /private/secret/file API_TOKEN=TOPSECRET token: OTHERSECRET https://hidden.invalid/?secret=value')"],{encoding:'utf8'});
+ const info=P.subprocessInfo(child);assert.equal(info.status,1);assert.match(info.stderr,/EARLY_CHILD_STARTUP/);
+ assert(!/TOPSECRET|OTHERSECRET|hidden\.invalid|secret\/file|\n\s*at\s/.test(info.stderr));assert(info.stderr.length<=1024);
+ const report=P.contractFailure('native-child-died',[{mode:'calls',steps:6}],info,Error('Expected report absent'));
+ assert.equal(report.status,'contract-failed');assert.equal(report.completedCases[0].steps,6);assert(P.stringify(report).length<4000);
+ const quoted=P.subprocessInfo({status:1,stderr:"Error: cannot open '/private/highly confidential's folder/key'\n at load (/private/secret.js:1)"});
+ assert(!/confidential|folder|secret\.js|\n\s*at\s/.test(quoted.stderr));assert.match(quoted.stderr,/cannot open/);
+ assert(P.subprocessInfo({stderr:'x'.repeat(1000000)}).stderr.length<=1024);
 });

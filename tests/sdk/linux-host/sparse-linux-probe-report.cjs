@@ -22,6 +22,7 @@ function observeEntry(check,last,rdi) {
 }
 function clean(value,limit=1024) {
   return String(value??'').slice(0,2048).replace(/\b(?:https?|file):\/\/\S+/gi,'[url]')
+    .replace(/(^|[\s"'(=])(?:\/|\.\.?[\\/]|[A-Za-z]:[\\/])[^\r\n]*/gm,'$1[path]')
     .replace(/\b[A-Za-z]:[\\/][^\s"'<>()[\]{}]+/g,'[path]')
     .replace(/\/[^\s"'<>()[\]{}:,;]+/g,'[path]').slice(0,limit);
 }
@@ -32,6 +33,26 @@ function errorInfo(error) {
     const value=error[key];result[key]=typeof value==='bigint'&&(value>0xffffffffffffffffn||value< -0xffffffffffffffffn)?'[integer omitted]':value;
   }
   return result;
+}
+function subprocessInfo(child,{reportExists=false,wrapperStarted=false,fault={}}={}) {
+  const stderr=String(child.stderr??'').slice(0,8192).split('\n').filter(line=>!/^\s*at\s/.test(line))
+    .join('\n').replace(/\b[A-Za-z_][A-Za-z0-9_]*\s*=\s*(?:"[^"\n]*"|'[^'\n]*'|[^\s]+)/g,'[assignment redacted]')
+    .replace(/\b(?:token|password|secret|authorization|cookie|api[_-]?key)\s*:\s*(?:"[^"\n]*"|'[^'\n]*'|[^\s]+)/gi,'[credential redacted]');
+  const info={status:Number.isInteger(child.status)?child.status:null,signal:typeof child.signal==='string'&&/^SIG[A-Z0-9]{1,16}$/.test(child.signal)?child.signal:null,
+    stderr:clean(stderr),reportExists:reportExists===true,wrapperStarted:wrapperStarted===true,
+    fault:{phase:clean(fault.phase??'not observed',64),stepRequests:Number.isSafeInteger(fault.stepRequests)?fault.stepRequests:0,
+      killPointObserved:fault.killPointObserved===true,killRequested:fault.killRequested===true,killSent:fault.killSent===true}};
+  if(child.error)info.error=errorInfo(child.error);
+  info.classification=child.error?(['ENOENT','EACCES','ENOEXEC'].includes(child.error.code)?'subprocess-startup-failed':'subprocess-control-error'):info.fault.killSent?
+    (info.reportExists?'kill-confirmed-report-present':'kill-confirmed-report-missing'):
+    info.fault.killRequested?'kill-not-confirmed':info.fault.killPointObserved?'at-kill-point-before-signal':
+    info.fault.stepRequests?'before-kill-point':info.wrapperStarted?'before-first-translation':'before-native-wrapper';
+  return info;
+}
+function contractFailure(phase,records,subprocess,error) {
+  return {schema:1,status:'contract-failed',evidence:'Probe harness regression failure; this command does not execute Wine.',phase:clean(phase,64),error:errorInfo(error),subprocess,
+    completedCases:records.slice(0,16).map(record=>({mode:clean(record.mode,64),steps:record.steps,
+      failureStatus:record.report?.status==='probe-failed'?'probe-failed':undefined,progressSteps:record.report?.progress?.executedWasmSteps}))};
 }
 function inputIdentity(input) {
   if(!input)return null;
@@ -69,4 +90,4 @@ function failureReport(context,error) {
   return report;
 }
 const stringify=value=>JSON.stringify(value,(_key,v)=>typeof v==='bigint'?'0x'+v.toString(16):v,2)+'\n';
-module.exports={codeBytes,entryStackCheck,observeEntry,errorInfo,inputIdentity,progressInfo,failureReport,stringify};
+module.exports={codeBytes,entryStackCheck,observeEntry,errorInfo,subprocessInfo,contractFailure,inputIdentity,progressInfo,failureReport,stringify};
