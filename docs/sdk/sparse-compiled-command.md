@@ -25,7 +25,7 @@ zero-fill BSS case while retaining alignment restrictions for file-backed loads;
 readable distinct R/RW/RX pages, W+X refusal and rollback bounds still apply.
 
 Native memory/checkpoint versions remain 1/1, step remains 3 with a 96-byte header,
-and **coverage is now 9**, including the later finite-stdin/sign-branch,
+and **coverage is now 10**, including the later architectural NOP, finite-stdin/sign-branch,
 [immediate AND](sparse-linux-bootstrap.md), [checked CALL/RET](sparse-call-return.md)
 and [integer extension](sparse-integer-extensions.md) increments.
 The added family `READ_FLAGS=8` accepts exactly one

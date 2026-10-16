@@ -1,0 +1,25 @@
+{
+  "forms": 1490,
+  "executions": 71520,
+  "addresses": [
+    "0x0",
+    "0x123456780000",
+    "0x100000000000000",
+    "0xffffffffffffffff"
+  ],
+  "flags": [
+    68,
+    16,
+    85,
+    2117,
+    2196,
+    128
+  ],
+  "registersUnchanged": 16,
+  "fullRFLAGSUnchanged": true,
+  "directionFlagStates": [
+    0,
+    1
+  ],
+  "instructionSHA256": "a8ba4ec4d48bdbe3154ed5168b02caac5ea6f71345cc14bcc14f305bf414914a"
+}

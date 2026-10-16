@@ -231,6 +231,7 @@ jobs:
           node tests/sdk/linux-host/sparse-and.cjs .build/host-fex/fexserve .build/sparse-and-results.json
           node tests/sdk/linux-host/sparse-call.cjs .build/host-fex/fexserve .build/sparse-call-results.json
           node tests/sdk/linux-host/sparse-extend.cjs .build/host-fex/fexserve .build/sparse-extend-results.json
+          node tests/sdk/linux-host/sparse-nop.cjs .build/host-fex/fexserve .build/sparse-nop-results.json
           node tests/sdk/linux-host/sparse-compiled.cjs .build/host-fex/fexserve .build/sparse-compiled-results.json
           node tests/sdk/linux-host/sparse-compiled.cjs .build/host-fex/fexserve .build/sparse-compiled-fresh-results.json .build/sparse-compiled-input/sparse-rot13-fresh.json
           node tests/sdk/linux-host/sparse-cat.cjs .build/host-fex/fexserve .build/sparse-cat-results.json
@@ -242,6 +243,7 @@ jobs:
         run: |
           node tests/sdk/linux-host/sparse-linux-bootstrap.cjs .build/host-fex/fexserve .build/sparse-call-bootstrap-results.json --synthetic-calls
           node tests/sdk/linux-host/sparse-linux-bootstrap.cjs .build/host-fex/fexserve .build/sparse-extend-bootstrap-results.json --synthetic-extensions
+          node tests/sdk/linux-host/sparse-linux-bootstrap.cjs .build/host-fex/fexserve .build/sparse-nop-bootstrap-results.json --synthetic-nops
           node tests/sdk/linux-host/sparse-linux-bootstrap.cjs .build/host-fex/fexserve .build/sparse-wine-bootstrap-results.json .build/device-linuxroot
       - name: Execute the compiled command in real macOS WebKit
         if: github.ref == 'refs/heads/experimental/sparse-guest-backing'
@@ -267,6 +269,8 @@ jobs:
             .build/sparse-call-bootstrap-results.json
             .build/sparse-extend-results.json
             .build/sparse-extend-bootstrap-results.json
+            .build/sparse-nop-results.json
+            .build/sparse-nop-bootstrap-results.json
             .build/sparse-compiled-results.json
             .build/sparse-compiled-fresh-results.json
             .build/sparse-cat-results.json

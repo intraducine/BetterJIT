@@ -58,3 +58,7 @@ hashes matched the preceding four-step result. A later real Wine boundary must
 be established by rerunning those retained inputs; the synthetic control does
 not establish one. Relocations, TLS and RELRO were incomplete, guest exit was
 null, and guest-access quiescence did not imply physical worker retirement.
+
+The subsequent `35daab3` probe passed CDQE and reached nine real Wine/musl
+steps before the architectural NOP boundary. See [sparse NOPs](sparse-nops.md)
+for the exact retained input identities and current coverage 10 constraints.

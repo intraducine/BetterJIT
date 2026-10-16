@@ -11107,7 +11107,8 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
   if (Cfg.BrokerMemory) {
     if (Cfg.RegArgs || Cfg.RegArgMask || Cfg.Relocs || !Cfg.SharedMemory || !Cfg.ThreadBaseGlobal ||
         Cfg.MemPages != broker::Pages || Cfg.MemMaxPages != broker::Pages || Cfg.CallsViaDispatcher || Cfg.FetchIR ||
-        Cfg.HotThreshold || Cfg.ABILocalFlags || Cfg.ABI != BackendConfig::GuestABI::None || Cfg.FlagsDeadAt) {
+        Cfg.HotThreshold || Cfg.ABILocalFlags || Cfg.ABI != BackendConfig::GuestABI::None || Cfg.FlagsDeadAt ||
+        (Cfg.BrokerNoEffects && (Cfg.BrokerOperation || Cfg.BrokerWidth || Cfg.BrokerFlow))) {
       CompileResult R; R.Error = "invalid broker backend contract"; return R;
     }
     // Admission of raw scalar/flag/branch semantics and this complete IR allowlist both
@@ -11131,6 +11132,17 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
       CompileResult R; R.Error = "broker unsupported IR " + std::string(GetName(H->Op)); return R;
     };
     for (auto [Block, Header] : IR.GetBlocks()) { Blocks++; for (auto [Node, H] : IR.GetCode(Block)) {
+      // A NOP must have no architectural effects, including otherwise-allowed
+      // register/flag operations or address arithmetic. Validate FEX's actual
+      // IR instead of synthesizing a module from the raw NOP bytes.
+      if (Cfg.BrokerNoEffects) {
+        switch (H->Op) {
+        case OP_IRHEADER: case OP_CODEBLOCK: case OP_BEGINBLOCK: case OP_ENDBLOCK:
+        case OP_GUESTOPCODE: case OP_INLINECONSTANT: case OP_INLINEENTRYPOINTOFFSET:
+        case OP_CONSTANT: case OP_ENTRYPOINTOFFSET: case OP_EXITFUNCTION: break;
+        default: return Reject(H);
+        }
+      }
       switch (H->Op) {
       case OP_IRHEADER: case OP_CODEBLOCK: case OP_BEGINBLOCK: case OP_ENDBLOCK:
       case OP_GUESTOPCODE: case OP_INLINECONSTANT: case OP_INLINEENTRYPOINTOFFSET:

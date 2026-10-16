@@ -5,18 +5,54 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 9;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 10;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
   bool Supported = false;
   uint32_t Operation = 0, Width = 0; // 0 register-only, 1 read, 2 write
   uint32_t Flow = 0; // 0 fallthrough, 1 jump, 2 conditional, 3 direct call, 4 checked return
+  bool NoEffects = false; // NOP: only instruction markers and constant fallthrough IR
+  uint32_t Length = 0; // independent NOP encoding length, checked against FEX
 };
+// Bounded architectural NOP encodings. Legacy prefixes may repeat, followed
+// by at most one REX. REP/LOCK and a REX before a legacy prefix are excluded.
+// ModRM/SIB/displacement bytes describe encoding length, never a memory read.
+inline Admission AdmitNOP(const uint8_t* Bytes, size_t Size) {
+  if (!Bytes || !Size) return {};
+  if (Size > 15) Size = 15;
+  size_t I = 0;
+  while (I < Size) {
+    const uint8_t B = Bytes[I];
+    if (B != 0x66 && B != 0x67 && B != 0x26 && B != 0x2e &&
+        B != 0x36 && B != 0x3e && B != 0x64 && B != 0x65) break;
+    I++;
+  }
+  uint8_t Rex = 0;
+  if (I < Size && Bytes[I] >= 0x40 && Bytes[I] <= 0x4f) Rex = Bytes[I++];
+  if (I >= Size) return {};
+  if (Bytes[I] == 0x90) {
+    // REX.B changes XCHG (E/R)AX,(E/R)AX into a genuine exchange with R8.
+    if (Rex & 1) return {};
+    return {true, 0, 0, 0, true, uint32_t(I + 1)};
+  }
+  if (I + 2 >= Size || Bytes[I++] != 0x0f || Bytes[I++] != 0x1f) return {};
+  const uint8_t ModRM = Bytes[I++], Mod = ModRM >> 6, RM = ModRM & 7;
+  if (ModRM & 0x38) return {}; // 0F 1F /0 only; no reserved opcode extensions
+  size_t Displacement = Mod == 1 ? 1 : Mod == 2 ? 4 : 0;
+  if (Mod != 3 && RM == 4) {
+    if (I >= Size) return {};
+    if ((Bytes[I++] & 7) == 5 && Mod == 0) Displacement = 4;
+  } else if (Mod == 0 && RM == 5) Displacement = 4;
+  if (Displacement > Size - I) return {};
+  return {true, 0, 0, 0, true, uint32_t(I + Displacement)};
+}
 // FEX supplies/validates the complete instruction length separately. This only
 // admits an explicit semantic family; unsupported prefixes/opcodes never run.
 inline Admission Admit(const uint8_t* Bytes, size_t Size) {
   if (!Bytes || !Size) return {};
+  const auto NOP = AdmitNOP(Bytes, Size);
+  if (NOP.Supported) return NOP;
   // Exact ENDBR64 encoding only: this profile does not enable/advertise CET,
   // so FEX decodes its legacy no-op semantics. Keep all other REP encodings
   // outside admission and retain the complete IR-effect check below decode.
@@ -74,7 +110,6 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
     }
   }
   if (Lock && Op != 0x0f) return {};
-  if (Op == 0x90 && I == 1) return {true, 0, 0}; // plain NOP only
   if (Op >= 0xb0 && Op <= 0xbf) return {true, 0, 0}; // MOV register, immediate
   bool Write = false, Extension = false;
   uint32_t AccessWidth = Width;

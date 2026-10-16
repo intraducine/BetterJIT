@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Synthetic ELF layout controls; these bytes are not a Wine compatibility test.
 const INTERP='/lib/ld-test.so',MAIN=0x555500000000n,BASE=0x7f0000000000n;
-function image({interpreter=false,type=3,calls=false,extensions=false}={}) {
+function image({interpreter=false,type=3,calls=false,extensions=false,nops=false}={}) {
  const bytes=new Uint8Array(0x3200),v=new DataView(bytes.buffer),headers=[];
  const ph=(type,flags,off,va,filesz,memsz=filesz,align=4096n)=>headers.push({type,flags,off,va,filesz,memsz,align});
  bytes.set([127,69,76,70,2,1,1]);v.setUint16(16,type,true);v.setUint16(18,62,true);v.setUint32(20,1,true);
@@ -20,6 +20,10 @@ function image({interpreter=false,type=3,calls=false,extensions=false}={}) {
  // accumulator widths inside the nested-call control before its plain RET.
  if(calls&&extensions)bytes.set([0x48,0xb8,0x80,0xff,0xff,0xff,0x78,0x56,0x34,0x12,
    0x66,0x98,0x98,0x48,0x98,0x66,0x99,0x99,0x48,0x99,0xc3],0x1030);
+ // Six zero-effect forms, including the exact Wine NOP and a legal 15-byte
+ // boundary. They sit before the leaf RET and add no stack or operand RPCs.
+ if(calls&&extensions&&nops)bytes.set([0x90,0x66,0x90,0x48,0x90,0x0f,0x1f,0,
+   0x66,0x66,0x2e,0x0f,0x1f,0x84,0,0,0,0,0,...Array(12).fill(0x66),0x0f,0x1f,0xc0,0xc3],0x1044);
  v.setUint16(56,headers.length,true);
  headers.forEach((p,i)=>{const at=64+i*56;v.setUint32(at,p.type,true);v.setUint32(at+4,p.flags,true);for(const [off,key]of [[8,'off'],[16,'va'],[32,'filesz'],[40,'memsz'],[48,'align']])v.setBigUint64(at+off,p[key],true);});
  return bytes;

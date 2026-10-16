@@ -277,6 +277,12 @@
     "tests/sdk/linux-host/sparse-linux-image-fixture.cjs": "tests/sdk/linux-host/sparse-linux-image-fixture.cjs",
     "tests/sdk/linux-host/sparse-linux-bootstrap.cjs": "tests/sdk/linux-host/sparse-linux-bootstrap.cjs",
     "tests/sdk/linux-host/sparse-linux-bootstrap-kernel.cjs": "tests/sdk/linux-host/sparse-linux-bootstrap-kernel.cjs",
-    "docs/sdk/sparse-linux-bootstrap.md": "docs/sdk/sparse-linux-bootstrap.md"
+    "docs/sdk/sparse-linux-bootstrap.md": "docs/sdk/sparse-linux-bootstrap.md",
+    "tests/sdk/linux-host/sparse-nop-cases.cjs": "tests/sdk/linux-host/sparse-nop-cases.cjs",
+    "tests/sdk/linux-host/sparse-nop.cjs": "tests/sdk/linux-host/sparse-nop.cjs",
+    "tests/sdk/linux-host/sparse-nop-oracle.c": "tests/sdk/linux-host/sparse-nop-oracle.c",
+    "tests/sdk/linux-host/sparse-nop-oracle.S": "tests/sdk/linux-host/sparse-nop-oracle.S",
+    "tests/sdk/linux-host/sparse-nop-oracle.json": "tests/sdk/linux-host/sparse-nop-oracle.json",
+    "docs/sdk/sparse-nops.md": "docs/sdk/sparse-nops.md"
   }
 }

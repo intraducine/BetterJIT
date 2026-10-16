@@ -28,6 +28,7 @@ struct BackendConfig {
   // Experimental broker step. Guest accesses never use direct Wasm offsets;
   // run() returns a typed status and writes the full next RIP to CPUState.
   bool BrokerMemory = false;
+  bool BrokerNoEffects = false; // raw NOP admission requires marker/constant-exit IR only
   uint32_t BrokerOperation = 0, BrokerWidth = 0;
   uint64_t BrokerNextRIP = 0;
   uint64_t BrokerTarget = 0;

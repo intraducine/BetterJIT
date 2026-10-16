@@ -574,12 +574,14 @@ fexwasm_bytes fexwasm_step(fexwasm_translator* T, uint64_t RIP) {
   const auto* IR = T->Host->GenerateIR(RIP, &Instructions);
   T->Stats.FexMs += NowMs() - BeforeIR;
   const uint32_t Length = T->Host->InstructionLength(RIP);
-  if (!IR || Instructions != 1 || !Length || Length > 15 || Length > Available || RIP > UINT64_MAX - Length) {
+  if (!IR || Instructions != 1 || !Length || Length > 15 || Length > Available || RIP > UINT64_MAX - Length ||
+      (Plan.NoEffects && Length != Plan.Length)) {
     T->Host->Release(); return Reject("single-instruction decode");
   }
   auto Cfg = T->Cfg;
   Cfg.BrokerOperation = Plan.Operation; Cfg.BrokerWidth = Plan.Width; Cfg.BrokerNextRIP = RIP + Length;
   Cfg.BrokerFlow = Plan.Flow;
+  Cfg.BrokerNoEffects = Plan.NoEffects;
   if (Plan.Flow == 4) {
     if (Length != 1 || Code[0] != 0xc3 || RIP + Length >= (1ull << 47)) {
       T->Host->Release(); return Reject("return instruction address/length");
