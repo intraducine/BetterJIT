@@ -239,6 +239,7 @@ jobs:
           node tests/sdk/linux-host/sparse-setcc.cjs .build/host-fex/fexserve .build/sparse-setcc-results.json
           .build/host-fex/sparse-setcc-ir > .build/sparse-setcc-ir-results.log
           node tests/sdk/linux-host/sparse-test-immediate.cjs .build/host-fex/fexserve .build/sparse-test-immediate-results.json
+          node tests/sdk/linux-host/sparse-bit-test.cjs .build/host-fex/fexserve .build/sparse-bit-test-results.json
           .build/host-fex/sparse-test-immediate-ir > .build/sparse-test-immediate-ir-results.log
           node tests/sdk/linux-host/sparse-memory-or.cjs .build/host-fex/fexserve .build/sparse-memory-or-results.json
           .build/host-fex/sparse-memory-or-ir > .build/sparse-memory-or-ir-results.log
@@ -295,6 +296,7 @@ jobs:
             .build/sparse-setcc-results.json
             .build/sparse-setcc-ir-results.log
             .build/sparse-test-immediate-results.json
+            .build/sparse-bit-test-results.json
             .build/sparse-test-immediate-ir-results.log
             .build/sparse-memory-or-results.json
             .build/sparse-memory-or-ir-results.log

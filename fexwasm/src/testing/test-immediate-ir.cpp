@@ -84,6 +84,105 @@ static int CheckAccumulatorLogical(fexwasm::FexHost& Host){
  }
  printf("checked %u actual accumulator-logical IR copies; valid %u; unexpected %u; raw truncations %u\n",Checked,Valid,Unexpected,Truncated);return Unexpected?1:0;
 }
+struct BitShape {
+ const IRListView& IR;
+ Ref Source{},Index{},Mask{},Shift{},Bit{},Read{},Merge{},Carry{},Store{},Marker{},Exit{};
+ BitShape(const IRListView& View,unsigned Base,unsigned IndexRegister):IR(View){
+  for(auto [Block,Header]:IR.GetBlocks())for(auto [Node,H]:IR.GetCode(Block))switch(H->Op){
+   case OP_LOADREGISTER:{const auto R=H->C<IROp_LoadRegister>()->Reg;if(R==Base)Source=Node;if(R==IndexRegister)Index=Node;break;}
+   case OP_AND:Mask=Node;break;case OP_LSHR:Shift=Node;break;case OP_BFE:Bit=Node;break;
+   case OP_LOADNZCV:Read=Node;break;case OP_BFI:Merge=Node;break;case OP_XOR:Carry=Node;break;
+   case OP_STORENZCV:Store=Node;break;case OP_GUESTOPCODE:Marker=Node;break;case OP_EXITFUNCTION:Exit=Node;break;default:break;
+  }
+ }
+ IROp_Header* Op(Ref N){return IR.GetOp<IROp_Header>(N);}
+ void Before(Ref N,Ref Target){N->Unlink(IR.GetListData());Target->prepend(IR.GetListData(),N);}
+ void After(Ref N,Ref Target){N->Unlink(IR.GetListData());Target->append(IR.GetListData(),N);}
+};
+static int CheckBitTest(fexwasm::FexHost& Host){
+ struct Mutation{const char* Name;std::function<void(BitShape&)> Change;std::function<bool(const BitShape&)> Applicable{};};
+ const Mutation Cases[]={
+  {"valid",[](BitShape&){}},
+  {"profile-width",[](BitShape&){}},{"profile-operation",[](BitShape&){}},{"profile-wire-width",[](BitShape&){}},
+  {"profile-base",[](BitShape&){}},{"profile-index",[](BitShape&){}},{"profile-bit",[](BitShape&){}},
+  {"profile-index-domain",[](BitShape&){}},{"profile-bit-domain",[](BitShape&){}},{"profile-flow",[](BitShape&){}},
+  {"profile-target",[](BitShape&){}},{"profile-NOP",[](BitShape&){}},{"profile-TEST",[](BitShape&){}},
+  {"profile-SETcc",[](BitShape&){}},{"profile-next",[](BitShape&){}},{"profile-shared",[](BitShape&){}},
+  {"source-register",[](BitShape& S){S.IR.GetOp<IROp_LoadRegister>(S.Source)->Reg^=1;}},
+  {"source-class",[](BitShape& S){S.IR.GetOp<IROp_LoadRegister>(S.Source)->Class=RegClass::FPR;}},
+  {"source-width",[](BitShape& S){S.Op(S.Source)->Size=OpSize::i32Bit;}},
+  {"source-after-bit",[](BitShape& S){S.After(S.Source,S.Bit);}},
+  {"index-register",[](BitShape& S){S.IR.GetOp<IROp_LoadRegister>(S.Index)->Reg^=1;},[](const BitShape& S){return S.Index&&S.Index!=S.Source;}},
+  {"word-mask",[](BitShape& S){S.IR.GetOp<IROp_InlineConstant>(S.Op(S.Mask)->Args[1])->Constant=14;},[](const BitShape& S){return S.Mask!=nullptr;}},
+  {"word-mask-width",[](BitShape& S){S.Op(S.Mask)->Size=OpSize::i32Bit;},[](const BitShape& S){return S.Mask!=nullptr;}},
+  {"word-mask-source",[](BitShape& S){S.Op(S.Mask)->Args[0]=S.IR.GetOp<IROp_ExitFunction>(S.Exit)->NewRIP;},[](const BitShape& S){return S.Mask!=nullptr;}},
+  {"word-mask-before-index",[](BitShape& S){S.Before(S.Mask,S.Index);},[](const BitShape& S){return S.Mask!=nullptr;}},
+  {"word-mask-op",[](BitShape& S){S.Op(S.Mask)->Op=OP_OR;},[](const BitShape& S){return S.Mask!=nullptr;}},
+  {"shift-op",[](BitShape& S){S.Op(S.Shift)->Op=OP_ASHR;},[](const BitShape& S){return S.Shift!=nullptr;}},
+  {"shift-width",[](BitShape& S){S.Op(S.Shift)->Size=OpSize::i128Bit;},[](const BitShape& S){return S.Shift!=nullptr;}},
+  {"shift-value",[](BitShape& S){S.Op(S.Shift)->Args[0]=S.IR.GetOp<IROp_ExitFunction>(S.Exit)->NewRIP;},[](const BitShape& S){return S.Shift!=nullptr;}},
+  {"shift-index",[](BitShape& S){S.Op(S.Shift)->Args[1]=S.IR.GetOp<IROp_ExitFunction>(S.Exit)->NewRIP;},[](const BitShape& S){return S.Shift!=nullptr;}},
+  {"shift-before-source",[](BitShape& S){S.Before(S.Shift,S.Source);},[](const BitShape& S){return S.Shift!=nullptr;}},
+  {"bit-width",[](BitShape& S){S.IR.GetOp<IROp_Bfe>(S.Bit)->Width=2;}},
+  {"bit-offset",[](BitShape& S){S.IR.GetOp<IROp_Bfe>(S.Bit)->lsb^=1;}},
+  {"bit-source",[](BitShape& S){S.IR.GetOp<IROp_Bfe>(S.Bit)->Src=S.IR.GetOp<IROp_ExitFunction>(S.Exit)->NewRIP;}},
+  {"bit-size",[](BitShape& S){S.Op(S.Bit)->Size=OpSize::i32Bit;}},
+  {"bit-before-source",[](BitShape& S){S.Before(S.Bit,S.Source);}},
+  {"NZCV-width",[](BitShape& S){S.Op(S.Read)->Size=OpSize::i64Bit;}},
+  {"NZCV-before-bit",[](BitShape& S){S.Before(S.Read,S.Bit);}},
+  {"merge-width",[](BitShape& S){S.IR.GetOp<IROp_Bfi>(S.Merge)->Width=2;}},
+  {"merge-offset",[](BitShape& S){S.IR.GetOp<IROp_Bfi>(S.Merge)->lsb=28;}},
+  {"merge-old-NZCV",[](BitShape& S){S.IR.GetOp<IROp_Bfi>(S.Merge)->Dest=S.IR.WrapNode(S.Bit);}},
+  {"merge-bit",[](BitShape& S){S.IR.GetOp<IROp_Bfi>(S.Merge)->Src=S.IR.WrapNode(S.Source);}},
+  {"merge-size",[](BitShape& S){S.Op(S.Merge)->Size=OpSize::i64Bit;}},
+  {"merge-before-NZCV",[](BitShape& S){S.Before(S.Merge,S.Read);}},
+  {"carry-mask",[](BitShape& S){S.IR.GetOp<IROp_InlineConstant>(S.Op(S.Carry)->Args[1])->Constant=0x10000000;}},
+  {"carry-source",[](BitShape& S){S.Op(S.Carry)->Args[0]=S.IR.WrapNode(S.Read);}},
+  {"carry-width",[](BitShape& S){S.Op(S.Carry)->Size=OpSize::i64Bit;}},
+  {"carry-op",[](BitShape& S){S.Op(S.Carry)->Op=OP_OR;}},
+  {"carry-before-merge",[](BitShape& S){S.Before(S.Carry,S.Merge);}},
+  {"store-source",[](BitShape& S){S.Op(S.Store)->Args[0]=S.IR.WrapNode(S.Merge);}},
+  {"store-width",[](BitShape& S){S.Op(S.Store)->Size=OpSize::i64Bit;}},
+  {"store-before-carry",[](BitShape& S){S.Before(S.Store,S.Carry);}},
+  {"extra-GPR-write",[](BitShape& S){S.Op(S.Marker)->Op=OP_STOREREGISTER;}},
+  {"extra-memory-read",[](BitShape& S){S.Op(S.Marker)->Op=OP_LOADMEM;}},
+  {"extra-memory-write",[](BitShape& S){S.Op(S.Marker)->Op=OP_STOREMEM;}},
+  {"extra-context-read",[](BitShape& S){S.Op(S.Marker)->Op=OP_LOADCONTEXT;}},
+  {"extra-context-write",[](BitShape& S){S.Op(S.Marker)->Op=OP_STORECONTEXT;}},
+  {"extra-PF-read",[](BitShape& S){S.Op(S.Marker)->Op=OP_LOADPF;}},
+  {"extra-PF-write",[](BitShape& S){S.Op(S.Marker)->Op=OP_STOREPF;}},
+  {"extra-AF-read",[](BitShape& S){S.Op(S.Marker)->Op=OP_LOADAF;}},
+  {"extra-AF-write",[](BitShape& S){S.Op(S.Marker)->Op=OP_STOREAF;}},
+  {"extra-syscall",[](BitShape& S){S.Op(S.Marker)->Op=OP_SYSCALL;}},
+  {"extra-atomic",[](BitShape& S){S.Op(S.Marker)->Op=OP_ATOMICFETCHADD;}},
+  {"extra-invalidation",[](BitShape& S){S.Op(S.Marker)->Op=OP_INVALIDATEFLAGS;}},
+  {"variable-exit",[](BitShape& S){S.IR.GetOp<IROp_ExitFunction>(S.Exit)->NewRIP=S.IR.WrapNode(S.Source);}},
+  {"call-exit",[](BitShape& S){S.IR.GetOp<IROp_ExitFunction>(S.Exit)->Hint=BranchHint::Call;}},
+  {"early-exit",[](BitShape& S){S.Before(S.Exit,S.Store);}},
+  {"store-after-exit",[](BitShape& S){S.After(S.Store,S.Exit);}}
+ };
+ std::vector<std::vector<unsigned char>> Prefixes={{},{0x66}};for(unsigned R=0x40;R<=0x4f;R++)Prefixes.push_back({(unsigned char)R});for(unsigned R=0x40;R<=0x4f;R++)Prefixes.push_back({0x66,(unsigned char)R});
+ unsigned Checked=0,Valid=0,Unexpected=0,Truncated=0;
+ for(const auto& Prefix:Prefixes)for(unsigned Kind=0;Kind<2;Kind++)for(unsigned RM=0;RM<8;RM++)for(unsigned N=0;N<(Kind?12u:8u);N++){
+  const unsigned Immediates[]={0,1,7,15,16,31,32,63,64,127,128,255};auto Bytes=Prefix;Bytes.push_back(15);Bytes.push_back(Kind?0xba:0xa3);Bytes.push_back(0xc0+((Kind?4:N)<<3)+RM);if(Kind)Bytes.push_back(Immediates[N]);
+  const auto Plan=fexwasm::broker::Admit(Bytes.data(),Bytes.size());if(!Plan.Supported||Plan.Operation!=6||Plan.Width||Plan.Length!=Bytes.size()||!Plan.BitWidth||Plan.TestWidth||Plan.SetCondition!=16)return 30;
+  for(unsigned L=0;L<Bytes.size();L++){if(fexwasm::broker::Admit(Bytes.data(),L).Supported)return 31;Truncated++;}
+  constexpr uint64_t RIP=0x123400008000;if(!Host.MapGuest(RIP,Bytes.data(),Bytes.size()))return 32;uint64_t Insts=0;const auto* Original=Host.GenerateIR(RIP,&Insts);if(!Original||Insts!=1||Host.InstructionLength(RIP)!=Plan.Length)return 33;
+  for(const auto& C:Cases){
+   std::vector<unsigned char> Data(Original->GetDataSize()),List(Original->GetListSize());std::memcpy(Data.data(),reinterpret_cast<const void*>(Original->GetData()),Data.size());std::memcpy(List.data(),reinterpret_cast<const void*>(Original->GetListData()),List.size());IRListView IR(Data.data(),List.data(),Data.size(),List.size());BitShape S(IR,Plan.Register,Plan.BitRegister);
+   if(!S.Source||!S.Bit||!S.Read||!S.Merge||!S.Carry||!S.Store||!S.Marker||!S.Exit||(!Kind&&(!S.Index||!S.Shift)))return 34;if(C.Applicable&&!C.Applicable(S))continue;C.Change(S);
+   fexwasm::BackendConfig Cfg;Cfg.BrokerMemory=true;Cfg.BrokerOperation=6;Cfg.BrokerTargetRegister=Plan.Register;Cfg.BrokerBitWidth=Plan.BitWidth;Cfg.BrokerBitRegister=Plan.BitRegister;Cfg.BrokerBitIndex=Plan.BitIndex;Cfg.BrokerNextRIP=RIP+Plan.Length;Cfg.SharedMemory=true;Cfg.ThreadBaseGlobal=true;Cfg.MemPages=Cfg.MemMaxPages=fexwasm::broker::Pages;Cfg.RegArgs=0;Cfg.CallsViaDispatcher=false;
+   if(!strcmp(C.Name,"profile-width"))Cfg.BrokerBitWidth=1;if(!strcmp(C.Name,"profile-operation"))Cfg.BrokerOperation=0;if(!strcmp(C.Name,"profile-wire-width"))Cfg.BrokerWidth=1;
+   if(!strcmp(C.Name,"profile-base"))Cfg.BrokerTargetRegister^=1;if(!strcmp(C.Name,"profile-index"))Cfg.BrokerBitRegister=Kind?0:Plan.BitRegister^1;if(!strcmp(C.Name,"profile-bit"))Cfg.BrokerBitIndex^=1;
+   if(!strcmp(C.Name,"profile-index-domain"))Cfg.BrokerBitRegister=17;if(!strcmp(C.Name,"profile-bit-domain"))Cfg.BrokerBitIndex=Plan.BitWidth*8;if(!strcmp(C.Name,"profile-flow"))Cfg.BrokerFlow=1;
+   if(!strcmp(C.Name,"profile-target"))Cfg.BrokerTarget=RIP;if(!strcmp(C.Name,"profile-NOP"))Cfg.BrokerNoEffects=true;if(!strcmp(C.Name,"profile-TEST"))Cfg.BrokerTestWidth=1;
+   if(!strcmp(C.Name,"profile-SETcc"))Cfg.BrokerSetCondition=0;if(!strcmp(C.Name,"profile-next"))Cfg.BrokerNextRIP++;if(!strcmp(C.Name,"profile-shared"))Cfg.SharedMemory=false;
+   const auto R=fexwasm::Compile(IR,RIP,Cfg);const bool Expected=!strcmp(C.Name,"valid"),OK=Expected?(R.Error.empty()&&!R.Module.empty()):(!R.Error.empty()&&R.Module.empty());Checked++;Valid+=Expected;Unexpected+=!OK;
+   printf("BT width%u kind%u base%u index%u %s: %s%s\n",Plan.BitWidth*8,Kind,Plan.Register,Kind?Plan.BitIndex:Plan.BitRegister,C.Name,R.Error.empty()?"ACCEPTED":R.Error.c_str(),OK?"":" [UNEXPECTED]");
+  }Host.Release();
+ }
+ printf("checked %u actual register-BT IR copies; valid %u; unexpected %u; raw truncations %u\n",Checked,Valid,Unexpected,Truncated);return Unexpected?1:0;
+}
 int main(){
  const Case Cases[]={
   {"valid",[](Shape&){}},
@@ -160,5 +259,5 @@ int main(){
    const auto R=fexwasm::Compile(IR,RIP,Cfg);const bool Expected=!std::strcmp(C.Name,"valid"),OK=Expected?(R.Error.empty()&&!R.Module.empty()):(!R.Error.empty()&&R.Module.empty());Checked++;Valid+=Expected;Unexpected+=!OK;printf("%s width%u mask%u: %s%s\n",C.Name,Width*8,MaskIndex,R.Error.empty()?"ACCEPTED":R.Error.c_str(),OK?"":" [UNEXPECTED]");
   }Host.Release();
  }
- printf("checked %u actual immediate-TEST IR copies; valid %u; unexpected %u\n",Checked,Valid,Unexpected);const int Logical=CheckAccumulatorLogical(Host);return Unexpected?1:Logical;
+ printf("checked %u actual immediate-TEST IR copies; valid %u; unexpected %u\n",Checked,Valid,Unexpected);const int Logical=CheckAccumulatorLogical(Host),Bit=CheckBitTest(Host);return Unexpected||Logical||Bit?1:0;
 }

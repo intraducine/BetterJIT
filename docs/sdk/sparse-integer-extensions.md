@@ -71,4 +71,8 @@ for the exact retained input identities and the coverage 10 milestone.
 [immediate register TEST](sparse-test-immediate.md) documents coverage 17;
 [register SETcc](sparse-setcc.md) documents coverage 18;
 [accumulator logical immediates](sparse-linux-bootstrap.md#accumulator-logical-immediates) document coverage 19;
-[byte/word register shifts](sparse-register-shifts.md#byte-and-word-register-shifts) document current coverage 20.
+[byte/word register shifts](sparse-register-shifts.md#byte-and-word-register-shifts) document coverage 20.
+
+Coverage 21 additionally supports [register-only BT](sparse-bit-test.md) with
+register or immediate bit indexes, modulo operand width, carry-only writes and
+full operand preservation. It retains the historical receipts above.

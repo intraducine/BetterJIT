@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 20;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 21;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
@@ -18,6 +18,7 @@ struct Admission {
   uint32_t TestWidth = 0, TestShift = 0; // internal immediate-TEST proof, no wire operation change
   uint64_t TestMask = 0;
   uint32_t SetCondition = 16, SetShift = 0; // register SETcc proof; 16 means absent
+  uint32_t BitWidth = 0, BitRegister = 16, BitIndex = 0; // BT; register 16 selects imm8
 };
 // Bounded architectural NOP encodings. Legacy prefixes may repeat, followed
 // by at most one REX. REP/LOCK and a REX before a legacy prefix are excluded.
@@ -100,6 +101,18 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
   if (I == 1 && ((Op >= 0x72 && Op <= 0x79) ||
       (Op == 0x0f && I < Size && (Bytes[I] >= 0x82 && Bytes[I] <= 0x89)))) return {true, 7, 0, 2};
   const uint32_t Width = Rex & 8 ? 8 : Word ? 2 : 4;
+  if (!Segment && !Lock && Op == 0x0f && I + 1 < Size && (Bytes[I] == 0xa3 || Bytes[I] == 0xba)) {
+    // BT only: the base is a register and the bit index is a register or
+    // imm8 modulo the operand width. BTS/BTR/BTC and memory stay excluded.
+    const bool Immediate = Bytes[I++] == 0xba;
+    const uint8_t M = Bytes[I++];
+    if ((M & 0xc0) != 0xc0 || (Immediate && (M & 0x38) != 0x20) || (Immediate && I >= Size)) return {};
+    Admission A {true, 6, 0, 0, false, uint32_t(I + Immediate), uint32_t((M & 7) + ((Rex & 1) ? 8 : 0))};
+    A.BitWidth = Width;
+    if (Immediate) A.BitIndex = Bytes[I] & (Width * 8 - 1);
+    else A.BitRegister = (M >> 3 & 7) + ((Rex & 4) ? 8 : 0);
+    return A;
+  }
   if (!Segment && !Lock && (Op == 0xd0 || Op == 0xd1 || Op == 0xd2 || Op == 0xd3 || Op == 0xc0 || Op == 0xc1)) {
     // Register SHL/SHR/SAR at all scalar widths, count one/CL/imm8 only.
     // Byte opcodes ignore operand size; any REX replaces AH..BH with low

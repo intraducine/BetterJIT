@@ -11300,9 +11300,104 @@ static CompileResult CheckBrokerSetCC(const IRListView& IR, uint64_t EntryRIP, c
   return {};
 }
 
+// BT changes only carry. Bind the complete pinned register-only lowering to
+// the decoded operands; in particular, no GPR, PF, AF or guest-memory write
+// may be hidden in an otherwise valid generic FLAGS instruction.
+static CompileResult CheckBrokerBitTest(const IRListView& IR, uint64_t EntryRIP, const BackendConfig& Cfg) {
+  auto Reject = [](const char* Why) { CompileResult R; R.Error = std::string("broker register BT ") + Why; return R; };
+  const uint32_t Width = Cfg.BrokerBitWidth;
+  const bool Immediate = Cfg.BrokerBitRegister == 16;
+  if ((Width != 2 && Width != 4 && Width != 8) || Cfg.BrokerOperation != 6 || Cfg.BrokerWidth ||
+      Cfg.BrokerFlow || Cfg.BrokerTarget || Cfg.BrokerNoEffects || Cfg.BrokerTargetRegister >= 16 ||
+      Cfg.BrokerBitRegister > 16 || Cfg.BrokerBitIndex >= Width * 8 || (!Immediate && Cfg.BrokerBitIndex) ||
+      Cfg.BrokerTestWidth || Cfg.BrokerTestShift || Cfg.BrokerTestMask || Cfg.BrokerSetCondition != 16 || Cfg.BrokerSetShift) return Reject("profile");
+  OrderedNodeWrapper Loads[16];
+  for (auto& Load : Loads) Load = OrderedNodeWrapper {};
+  OrderedNodeWrapper Mask {}, Shift {}, Bit {}, ReadNZCV {}, Merge {}, Carry {}, StoreNZCV {}, Exit {};
+  std::unordered_map<uint32_t, uint32_t> Order; uint32_t Position = 0, LoadCount = 0;
+  for (auto [Block, Header] : IR.GetBlocks()) for (auto [Node, H] : IR.GetCode(Block)) {
+    const auto W = IR.WrapNode(Node); Order.emplace(IR.GetID(Node).Value, ++Position);
+    if (!Exit.IsInvalid() && H->Op != OP_ENDBLOCK) return Reject("effect after exit");
+    auto Once = [&](OrderedNodeWrapper& Slot) { if (!Slot.IsInvalid()) return false; Slot = W; return true; };
+    switch (H->Op) {
+    case OP_IRHEADER: case OP_CODEBLOCK: case OP_BEGINBLOCK: case OP_ENDBLOCK:
+    case OP_GUESTOPCODE: case OP_INLINECONSTANT: case OP_CONSTANT: case OP_INLINEENTRYPOINTOFFSET: case OP_ENTRYPOINTOFFSET: break;
+    case OP_LOADREGISTER: {
+      const auto* L = H->C<IROp_LoadRegister>();
+      if (uint32_t(H->Size) != 8 || L->Class != RegClass::GPR || L->Reg >= 16 ||
+          (L->Reg != Cfg.BrokerTargetRegister && (Immediate || L->Reg != Cfg.BrokerBitRegister)) || !Once(Loads[L->Reg])) return Reject("operand read");
+      LoadCount++; break;
+    }
+    case OP_AND: if (!Once(Mask) || uint32_t(H->Size) != 8) return Reject("index mask"); break;
+    case OP_LSHR: if (!Once(Shift) || uint32_t(H->Size) != (Width == 8 ? 8u : 4u)) return Reject("bit shift"); break;
+    case OP_BFE: if (!Once(Bit) || uint32_t(H->Size) != 8) return Reject("bit extraction"); break;
+    case OP_LOADNZCV: if (!Once(ReadNZCV) || uint32_t(H->Size) != 4) return Reject("NZCV read"); break;
+    case OP_BFI: if (!Once(Merge) || uint32_t(H->Size) != 4) return Reject("carry merge"); break;
+    case OP_XOR: if (!Once(Carry) || uint32_t(H->Size) != 4) return Reject("carry normalization"); break;
+    case OP_STORENZCV: if (!Once(StoreNZCV) || uint32_t(H->Size) != 4) return Reject("NZCV store"); break;
+    case OP_EXITFUNCTION: if (!Once(Exit)) return Reject("exit count"); break;
+    default: return Reject("uncovered effect");
+    }
+  }
+  auto Before = [&](OrderedNodeWrapper A, OrderedNodeWrapper B) {
+    if (A.IsInvalid() || B.IsInvalid()) return false;
+    const auto X = Order.find(IR.GetID(IR.GetNode(A)).Value), Y = Order.find(IR.GetID(IR.GetNode(B)).Value);
+    return X != Order.end() && Y != Order.end() && X->second < Y->second;
+  };
+  auto Constant = [&](OrderedNodeWrapper W, uint64_t Expected, OrderedNodeWrapper Use) {
+    if (!Before(W, Use)) return false;
+    const auto* H = IR.GetOp<IROp_Header>(W); if (uint32_t(H->Size) != 8) return false;
+    return (H->Op == OP_INLINECONSTANT && H->C<IROp_InlineConstant>()->Constant == Expected) ||
+           (H->Op == OP_CONSTANT && H->C<IROp_Constant>()->Constant == Expected);
+  };
+  const auto Source = Loads[Cfg.BrokerTargetRegister];
+  if (Source.IsInvalid() || LoadCount != (Immediate || Cfg.BrokerTargetRegister == Cfg.BrokerBitRegister ? 1u : 2u) ||
+      !Before(Bit, ReadNZCV) || !Before(ReadNZCV, Merge) || !Before(Bit, Merge) ||
+      !Before(Merge, Carry) || !Before(Carry, StoreNZCV) || !Before(StoreNZCV, Exit)) return Reject("ordered effects");
+  OrderedNodeWrapper Value = Source;
+  if (Immediate) {
+    if (!Mask.IsInvalid() || !Shift.IsInvalid() || !Before(Source, Bit)) return Reject("immediate dataflow");
+  } else {
+    auto Index = Loads[Cfg.BrokerBitRegister];
+    if (Index.IsInvalid() || Shift.IsInvalid()) return Reject("register index");
+    if (Width == 2) {
+      if (Mask.IsInvalid()) return Reject("missing word mask");
+      const auto* M = IR.GetOp<IROp_Header>(Mask);
+      if (M->Args[0] != Index || !Before(Index, Mask) || !Constant(M->Args[1], 15, Mask)) return Reject("word index dataflow");
+      Index = Mask;
+    } else if (!Mask.IsInvalid()) return Reject("unexpected index mask");
+    const auto* S = IR.GetOp<IROp_Header>(Shift);
+    if (S->Args[0] != Source || S->Args[1] != Index || !Before(Source, Shift) || !Before(Index, Shift) || !Before(Shift, Bit)) return Reject("register bit dataflow");
+    Value = Shift;
+  }
+  const auto* B = IR.GetOp<IROp_Bfe>(Bit);
+  const auto* M = IR.GetOp<IROp_Bfi>(Merge);
+  const auto* C = IR.GetOp<IROp_Header>(Carry);
+  if (B->Width != 1 || B->lsb != (Immediate ? Cfg.BrokerBitIndex : 0) || B->Src != Value ||
+      M->Width != 1 || M->lsb != 29 || M->Dest != ReadNZCV || M->Src != Bit ||
+      C->Args[0] != Merge || !Constant(C->Args[1], 0x20000000, Carry) ||
+      IR.GetOp<IROp_Header>(StoreNZCV)->Args[0] != Carry) return Reject("carry dataflow");
+  const auto* X = IR.GetOp<IROp_ExitFunction>(Exit);
+  if (X->Hint != BranchHint::None || !X->CallReturnAddress.IsInvalid() || !X->CallReturnBlock.IsInvalid() || !Before(X->NewRIP, Exit)) return Reject("exit metadata");
+  const auto* PC = IR.GetOp<IROp_Header>(X->NewRIP); uint64_t Next;
+  if (uint32_t(PC->Size) != 8) return Reject("exit width");
+  switch (PC->Op) {
+  case OP_INLINEENTRYPOINTOFFSET: Next = EntryRIP + PC->C<IROp_InlineEntrypointOffset>()->Offset; break;
+  case OP_ENTRYPOINTOFFSET: Next = EntryRIP + PC->C<IROp_EntrypointOffset>()->Offset; break;
+  case OP_INLINECONSTANT: Next = PC->C<IROp_InlineConstant>()->Constant; break;
+  case OP_CONSTANT: Next = PC->C<IROp_Constant>()->Constant; break;
+  default: return Reject("exit PC");
+  }
+  if (Next != Cfg.BrokerNextRIP) return Reject("fallthrough");
+  return {};
+}
+
 CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConfig& Cfg) {
   OrderedNodeWrapper BrokerAddend {};
   if (Cfg.BrokerMemory) {
+    if (Cfg.BrokerBitWidth || Cfg.BrokerBitRegister != 16 || Cfg.BrokerBitIndex) {
+      auto Bit = CheckBrokerBitTest(IR, EntryRIP, Cfg); if (!Bit.Error.empty()) return Bit;
+    }
     if (Cfg.BrokerSetCondition != 16 || Cfg.BrokerSetShift) {
       auto Set = CheckBrokerSetCC(IR, EntryRIP, Cfg); if (!Set.Error.empty()) return Set;
     }
