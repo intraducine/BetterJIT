@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 8;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 9;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
@@ -41,6 +41,10 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
   if (I < Size && Bytes[I] >= 0x40 && Bytes[I] <= 0x4f) Rex = Bytes[I++];
   if (I >= Size) return {};
   const uint8_t Op = Bytes[I++];
+  // Accumulator sign extension: CBW/CWDE/CDQE and CWD/CDQ/CQO. Optional
+  // operand-size and REX prefixes select width; REX.W takes precedence.
+  // FEX's SBFE/BFI lowering must still pass the register-only effect check.
+  if (!Segment && !Lock && (Op == 0x98 || Op == 0x99)) return {true, 0, 0};
   if (I == 1 && Op == 0xe8) return {true, 9, 8, 3};
   if (I == 1 && Op == 0xc3) return {true, 10, 8, 4};
   if (I == 1 && (Op == 0xeb || Op == 0xe9)) return {true, 7, 0, 1};

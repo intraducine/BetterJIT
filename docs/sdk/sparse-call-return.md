@@ -6,6 +6,9 @@ remain unsupported. This is ordinary stack return-address behavior, without a
 shadow stack or call-history policy. The existing instruction limit and mapped
 guest stack bound nesting; guest calls do not recurse through host Wasm calls.
 
+Coverage 9 retains these target and post-effect invariant restrictions while
+adding [integer extensions](sparse-integer-extensions.md).
+
 The 96-byte step header and memory/checkpoint/step ABIs stay 1/1/3. Operation 9
 is an eight-byte stack write plus a fixed direct continuation (flow 3).
 Operation 10 is an eight-byte stack read plus a checked return continuation

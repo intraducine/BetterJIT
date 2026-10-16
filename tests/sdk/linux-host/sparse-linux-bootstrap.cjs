@@ -5,6 +5,7 @@ const resources=path.resolve(__dirname,'../../../Sources/BetterJITLinux/Resource
 for(const n of ['guest_memory','guest_memory_broker','thread_core'])vm.runInThisContext(fs.readFileSync(path.join(resources,'linux',n+'.js'),'utf8'));
 vm.runInThisContext(fs.readFileSync(path.join(resources,'linux/web/sparse_process_host.js'),'utf8'));
 function inputs(location) {
+ if(location==='--synthetic-extensions') {const F=require('./sparse-linux-image-fixture.cjs');return {path:'/test/synthetic-extensions',elf:F.image(),interpreterPath:F.INTERP,interpreter:F.image({interpreter:true,calls:true,extensions:true}),evidence:'Synthetic ELF interpreter with all six accumulator extensions and nested direct calls; not Wine or a real libc.',minimumSteps:13,expectedSteps:13,expectedRax:'0xffffffffffffff80',expectedRdx:'0xffffffffffffffff'};}
  if(location==='--synthetic-calls') {const F=require('./sparse-linux-image-fixture.cjs');return {path:'/test/synthetic-calls',elf:F.image(),interpreterPath:F.INTERP,interpreter:F.image({interpreter:true,calls:true}),evidence:'Synthetic ELF interpreter with nested direct calls and checked returns; not Wine or a real libc.',minimumSteps:6,expectedSteps:6};}
  if(location==='--synthetic') {const F=require('./sparse-linux-image-fixture.cjs');return {path:'/test/synthetic',elf:F.image(),interpreterPath:F.INTERP,interpreter:F.image({interpreter:true}),evidence:'Synthetic ELF layout and musl-shaped entry stub; not Wine or a real libc.',minimumSteps:2};}
  if(location==='--system-elf')return {path:'/bin/true',elf:new Uint8Array(fs.readFileSync('/bin/true')),interpreterPath:'/lib64/ld-linux-x86-64.so.2',interpreter:new Uint8Array(fs.readFileSync('/lib64/ld-linux-x86-64.so.2')),evidence:'Host-system true and glibc interpreter bytes; no Wine compatibility claim.',minimumSteps:1};
@@ -41,6 +42,7 @@ async function execute(get,cfg,state,input) {
   await Promise.all(host.drops);assert(host.history.every(r=>r.acked&&!r.pending.size));assert(workers.every(w=>!w.exited));
   assert.equal(result.status,'unsupported-instruction');assert.equal(result.guestExitCode,null);assert(result.executedWasmSteps>=input.minimumSteps);assert(result.executedWasmSteps<64);
   if(input.expectedSteps!==undefined){assert.equal(result.executedWasmSteps,input.expectedSteps);assert.equal(result.stackPointerAfter,result.stackPointer);assert.equal(result.broker.requests,4);assert.equal(result.broker.ok,4);}
+  if(input.expectedRax!==undefined){assert.equal(result.raxAfter,BigInt(input.expectedRax));assert.equal(result.rdxAfter,BigInt(input.expectedRdx));}
   return {...result,actualWorkersStillAlive:workers.length,nativeRequestsDrained:true};
  }finally{clearTimeout(timer);host?.close();await Promise.allSettled(terminations);await kernel?.terminate();}
 }

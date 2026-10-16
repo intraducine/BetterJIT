@@ -85,6 +85,8 @@ fexwasm_bytes fexwasm_unit(fexwasm_translator* T, uint32_t rip32);
 // (operation10/width8/flow4). CALL declares its checked direct target; RET's
 // header target is zero and its PC is resolved by the broker-owned stack read.
 // Checkpoint cpu.stackPointerOffset identifies the full 64-bit RSP slot.
+// Coverage9 adds register-only accumulator sign extension 98/99 at 16/32/64
+// operand widths; flags and the existing checked memory contract are unchanged.
 // Unsupported results have status 2, no module and no executable fallback.
 fexwasm_bytes fexwasm_step(fexwasm_translator* T, uint64_t rip);
 

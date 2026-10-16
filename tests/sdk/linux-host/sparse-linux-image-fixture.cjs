@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Synthetic ELF layout controls; these bytes are not a Wine compatibility test.
 const INTERP='/lib/ld-test.so',MAIN=0x555500000000n,BASE=0x7f0000000000n;
-function image({interpreter=false,type=3,calls=false}={}) {
+function image({interpreter=false,type=3,calls=false,extensions=false}={}) {
  const bytes=new Uint8Array(0x3200),v=new DataView(bytes.buffer),headers=[];
  const ph=(type,flags,off,va,filesz,memsz=filesz,align=4096n)=>headers.push({type,flags,off,va,filesz,memsz,align});
  bytes.set([127,69,76,70,2,1,1]);v.setUint16(16,type,true);v.setUint16(18,62,true);v.setUint32(20,1,true);
@@ -16,6 +16,10 @@ function image({interpreter=false,type=3,calls=false}={}) {
  // Optional nested-call control, explicitly synthetic. Both returns restore
  // the original stack before the same expected unsupported UD2 boundary.
  if(calls){bytes.set([0xe8,0x11,0,0,0,0x0f,0x0b],0x100a);bytes.set([0xe8,0x0b,0,0,0,0xc3],0x1020);bytes[0x1030]=0xc3;}
+ // Seed nonzero upper bits and a negative low byte, then exercise all six
+ // accumulator widths inside the nested-call control before its plain RET.
+ if(calls&&extensions)bytes.set([0x48,0xb8,0x80,0xff,0xff,0xff,0x78,0x56,0x34,0x12,
+   0x66,0x98,0x98,0x48,0x98,0x66,0x99,0x99,0x48,0x99,0xc3],0x1030);
  v.setUint16(56,headers.length,true);
  headers.forEach((p,i)=>{const at=64+i*56;v.setUint32(at,p.type,true);v.setUint32(at+4,p.flags,true);for(const [off,key]of [[8,'off'],[16,'va'],[32,'filesz'],[40,'memsz'],[48,'align']])v.setBigUint64(at+off,p[key],true);});
  return bytes;
