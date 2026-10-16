@@ -660,7 +660,10 @@ async function executeSparseThread(env) {
     status=instance.exports.run();executed++;
     if(![0,1,2,3].includes(status))throw new Error('Invalid typed step exit');
     const completion=exchange(B.ABI.instructionBoundary,++boundarySequence,2,status);
-    if(status===B.STEP.SYSCALL) {
+    if(status===B.STEP.OK) {
+      if(![B.STEP.OK,B.STEP.UNSUPPORTED].includes(completion))throw new Error('Invalid successful step completion');
+      status=completion;
+    } else if(status===B.STEP.SYSCALL) {
       if(![0,2,B.LIFECYCLE.syscallExit].includes(completion))throw new Error('Invalid spilled syscall completion');
       if(completion===B.LIFECYCLE.syscallExit) {
         guestExitCode=Number(view.getBigUint64(d.tb+cfg.ctx+cfg.gregsOff+7*8,true)&255n);status=0;

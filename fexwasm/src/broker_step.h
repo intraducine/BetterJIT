@@ -5,15 +5,16 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 12;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 13;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
   bool Supported = false;
   uint32_t Operation = 0, Width = 0; // 0 register-only, 1 read, 2 write
-  uint32_t Flow = 0; // 0 fallthrough, 1 jump, 2 conditional, 3 direct call, 4 checked return
+  uint32_t Flow = 0; // 0 fallthrough, 1 jump, 2 conditional, 3 direct call, 4 checked return, 5 register jump
   bool NoEffects = false; // NOP: only instruction markers and constant fallthrough IR
   uint32_t Length = 0; // independent NOP encoding length, checked against FEX
+  uint32_t Register = 16; // exact source of a bounded register-indirect jump
 };
 // Bounded architectural NOP encodings. Legacy prefixes may repeat, followed
 // by at most one REX. REP/LOCK and a REX before a legacy prefix are excluded.
@@ -98,6 +99,8 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
       // FEX validates the complete encoding and masks the count; the complete
       // IR effect gate still refuses memory, other shifts and unknown effects.
       const uint8_t Group = Bytes[I] >> 3 & 7;
+      if (Register && Op == 0xff && Group == 4)
+        return {true, 12, 0, 5, false, uint32_t(I + 1), uint32_t((Bytes[I] & 7) + ((Rex & 1) ? 8 : 0))};
       if (Register && (Op == 0xd1 || Op == 0xc1 || Op == 0xd3) && (Group == 4 || Group == 5 || Group == 7))
         return {true, 6, 0};
       // Non-LOCK ADD r/m32,r32 and r/m64,r64 only. A dedicated broker

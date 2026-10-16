@@ -63,4 +63,5 @@ The subsequent `35daab3` probe passed CDQE and reached nine real Wine/musl
 steps before the architectural NOP boundary. See [sparse NOPs](sparse-nops.md)
 for the exact retained input identities and the coverage 10 milestone.
 [Non-LOCK memory ADD](sparse-memory-add.md) documents the coverage 11 milestone;
-[register shifts](sparse-register-shifts.md) document current coverage 12.
+[register shifts](sparse-register-shifts.md) document coverage 12;
+[register jumps](sparse-register-jumps.md) document current coverage 13.

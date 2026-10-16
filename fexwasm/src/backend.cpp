@@ -1535,7 +1535,7 @@ private:
       SysBase(); B.i32c(int32_t(Value)); B.mem(op::i32_store, 2, At + Offset);
     };
     Word(0, 0x314d4a42); Word(4, broker::MemoryABI);
-    Word(16, Operation); Word(20, Width); Word(24, Operation == 1 ? 1 : Operation == 2 ? 2 : 3);
+    Word(16, Operation); Word(20, Width); Word(24, Operation == 12 ? 4 : Operation == 1 ? 1 : Operation == 2 ? 2 : 3);
     SysBase(); B.i64c(int64_t(Entry)); B.mem(op::i64_store, 3, At + 40);
     Call(FUNC_MEMORY);
     B.set(TC);
@@ -5089,7 +5089,11 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
   case OP_EXITFUNCTION: {
     auto Op = IROp->C<IROp_ExitFunction>();
     if (Cfg.BrokerMemory) {
-      if (Cfg.BrokerFlow) { GPR(Op->NewRIP); B.set(T0); }
+      if (Cfg.BrokerOperation == 12) {
+        SysBase(); GPR(Op->NewRIP); B.mem(op::i64_store, 3, broker::Scratch + 32);
+        BrokerRequest(12, 0);
+        SysBase(); B.mem(op::i64_load, 3, broker::Scratch + 72); B.set(T0);
+      } else if (Cfg.BrokerFlow) { GPR(Op->NewRIP); B.set(T0); }
       Epilogue();
       SysBase(); if (Cfg.BrokerFlow) B.get(T0); else B.i64c(int64_t(Cfg.BrokerNextRIP));
       B.mem(op::i64_store, 3, Cfg.CtxAddr + offsetof(CPUState, rip));
@@ -11124,7 +11128,7 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
     // can reach a legacy direct-access emitter.
     uint32_t Reads = 0, Writes = 0, Atomics = 0, Syscalls = 0, Exits = 0, Blocks = 0, Branches = 0;
     bool SawFallthrough = false, SawTarget = false;
-    OrderedNodeWrapper ReturnValue {};
+    OrderedNodeWrapper ReturnValue {}, JumpValue {};
     auto ConstantPC = [&](OrderedNodeWrapper W, uint64_t& Value) {
       if (W.IsInvalid()) return false;
       const auto* H = IR.GetOp<IROp_Header>(W);
@@ -11139,6 +11143,9 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
     auto Reject = [](const IROp_Header* H) {
       CompileResult R; R.Error = "broker unsupported IR " + std::string(GetName(H->Op)); return R;
     };
+    if (Cfg.BrokerOperation == 12 && (Cfg.BrokerWidth || Cfg.BrokerFlow != 5 || Cfg.BrokerTarget || Cfg.BrokerTargetRegister >= 16)) {
+      CompileResult R; R.Error = "invalid broker register jump contract"; return R;
+    }
     if (Cfg.BrokerOperation == 11) {
       // Fuse only a proven single load + ADD-with-flags + same-address store.
       // FEX may regenerate equivalent SIB/RIP-relative address SSA nodes.
@@ -11230,6 +11237,13 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
           !SameAddress(L->Addr, W->Addr, 0) || !SameAddress(L->Offset, W->Offset, 0)) return Reject(&W->Header);
     }
     for (auto [Block, Header] : IR.GetBlocks()) { Blocks++; for (auto [Node, H] : IR.GetCode(Block)) {
+      if (Cfg.BrokerOperation == 12) {
+        switch (H->Op) {
+        case OP_IRHEADER: case OP_CODEBLOCK: case OP_BEGINBLOCK: case OP_ENDBLOCK:
+        case OP_GUESTOPCODE: case OP_LOADREGISTER: case OP_EXITFUNCTION: break;
+        default: return Reject(H);
+        }
+      }
       // A NOP must have no architectural effects, including otherwise-allowed
       // register/flag operations or address arithmetic. Validate FEX's actual
       // IR instead of synthesizing a module from the raw NOP bytes.
@@ -11297,6 +11311,10 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
         break;
       case OP_LOADREGISTER: {
         auto O = H->C<IROp_LoadRegister>();
+        if (Cfg.BrokerOperation == 12) {
+          if (!JumpValue.IsInvalid() || O->Class != RegClass::GPR || O->Reg != Cfg.BrokerTargetRegister || uint32_t(H->Size) != 8) return Reject(H);
+          JumpValue = IR.WrapNode(Node);
+        }
         if (O->Class != RegClass::GPR || O->Reg >= (Cfg.BrokerOperation >= 3 ? NUM_STATIC : 16) ||
             ((Cfg.BrokerOperation == 9 || Cfg.BrokerOperation == 10) && (O->Reg != 4 || uint32_t(H->Size) != 8)) ||
             (Cfg.BrokerOperation == 11 && (O->Reg >= 16 || uint32_t(H->Size) != 8))) return Reject(H);
@@ -11350,6 +11368,11 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
         Writes++; break;
       case OP_EXITFUNCTION: {
         auto O = H->C<IROp_ExitFunction>();
+        if (Cfg.BrokerOperation == 12) {
+          if (JumpValue.IsInvalid() || O->NewRIP != JumpValue || O->Hint != BranchHint::None ||
+              !O->CallReturnAddress.IsInvalid() || !O->CallReturnBlock.IsInvalid()) return Reject(H);
+          SawTarget = true; Exits++; break;
+        }
         if (Cfg.BrokerOperation == 10) {
           if (Cfg.BrokerFlow != 4 || O->Hint != BranchHint::Return || ReturnValue.IsInvalid() || O->NewRIP != ReturnValue)
             return Reject(H);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Probe harness regressions; deliberate test-only corruption/death must fail.
 const fs=require('fs'),path=require('path'),os=require('os'),assert=require('node:assert/strict'),{spawnSync}=require('child_process');
-const {probe,inputs}=require('./sparse-linux-bootstrap.cjs'),P=require('./sparse-linux-probe-report.cjs');
+const {probe,inputs,execute}=require('./sparse-linux-bootstrap.cjs'),P=require('./sparse-linux-probe-report.cjs');
 const binary=path.resolve(process.argv[2]),directory=fs.mkdtempSync(path.join(os.tmpdir(),'betterjit-probe-')),records=[];
 let phase='controls',subprocess;
 const quote=s=>"'"+s.replace(/'/g,"'\\''")+"'";
@@ -96,6 +96,35 @@ async function main(){try{
  assert.equal(shifted.executedWasmSteps,8);assert.equal(shifted.raxAfter,0n);assert.equal(shifted.rdxAfter,0xfffffffffffffffdn);assert.equal(shifted.broker.requests,0);
  assert.equal(shifted.nativeRequestsDrained,true);assert.equal(shifted.guestBacking.ownedPayloadBytes,0);assert.equal(shifted.guestAccessQuiescenceAcknowledged,true);
  records.push({mode:'register-shifts',steps:shifted.executedWasmSteps,broker:shifted.broker,native:shiftReport.native});
+ // The same register JMP runs in the dynamic production kernel and worker.
+ // Revoke the separate target page after RPC to prove typed rollback exits
+ // once, rather than retrying a restored RIP until the instruction budget.
+ for(const revoked of [false,true]){
+  phase=revoked?'register-jump-revoked':'register-jump';const jump=inputs('--synthetic'),F=require('./sparse-linux-image-fixture.cjs');
+  jump.minimumSteps=3;jump.maximumSteps=8;jump.testRevokeJumpBeforeFinish=revoked;
+  jump.evidence='Synthetic ELF register-indirect JMP through the production sparse kernel and worker; test-only target revocation, not Wine.';
+  const v=new DataView(jump.interpreter.buffer);v.setBigUint64(64+56+32,0x1100n,true);v.setBigUint64(64+56+40,0x2000n,true);
+  const target=new Uint8Array(8);new DataView(target.buffer).setBigUint64(0,F.BASE+0x2000n,true);
+  jump.interpreter.set([0x48,0x89,0xe7,0x48,0xb8,...target,0xff,0xe0,0x0f,0x0b],0x1000);jump.interpreter.set([0x0f,0x0b],0x2000);
+  const report=revoked?await require('./native-step-contract.cjs').serve('guestmem=broker1',async get=>{
+   const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer()),result=await execute(get,cfg,state,jump),native=await(await get('/xlat/totals')).json();
+   assert.equal(native.failed,0);assert.equal(native.units,3);assert.equal(native.guestInsts,3);return {result,native};
+  }):await probe(()=>jump,path.join(directory,phase+'.json')),result=report.result;
+  assert.equal(result.executedWasmSteps,3);assert.equal(result.broker.requests,1);assert.equal(result.stoppedRip,F.BASE+(revoked?0x100dn:0x2000n));
+  assert.equal(result.steps.at(-1).status,revoked?2:0);assert.equal(result.guestExitCode,null);assert.equal(result.guestAccessQuiescenceAcknowledged,true);
+  records.push({mode:phase,steps:result.executedWasmSteps,stoppedRip:result.stoppedRip,broker:result.broker,native:report.native});
+ }
+ // Change an operand byte after the second jump to an already cached
+ // target. The successful JMP stays completed; cached target Wasm must never
+ // run after the full instruction bytes cease to match its admission header.
+ phase='cached-jump-target-changed';const cachedJump=inputs('--synthetic'),F=require('./sparse-linux-image-fixture.cjs'),target=F.BASE+0x2000n,targetBytes=new Uint8Array(8);
+ cachedJump.minimumSteps=3;cachedJump.maximumSteps=12;cachedJump.testChangeCachedJumpTarget=true;
+ const cv=new DataView(cachedJump.interpreter.buffer);cv.setBigUint64(64+56+32,0x1100n,true);cv.setBigUint64(64+56+40,0x2000n,true);new DataView(targetBytes.buffer).setBigUint64(0,target,true);
+ cachedJump.interpreter.set([0x48,0x89,0xe7,0x48,0xb8,...targetBytes,0xff,0xe0,0x0f,0x0b],0x1000);cachedJump.interpreter.set([0xba,1,0,0,0,0xff,0xe0],0x2000);
+ cachedJump.evidence='Synthetic ELF with cached register-JMP target operand mutation; full-byte admission must fail before cached Wasm executes.';
+ const changedOutput=path.join(directory,'cached-jump-target-changed.json');await assert.rejects(probe(()=>cachedJump,changedOutput),/Sparse executable bytes changed/);
+ const changed=JSON.parse(fs.readFileSync(changedOutput));assert.equal(changed.status,'probe-failed');assert.equal(changed.result,null);assert.equal(changed.progress.executedWasmSteps,5);assert.equal(BigInt(changed.progress.rip),target);assert.equal(BigInt(changed.progress.rdx),1n);assert.equal(changed.native.units,5);assert.equal(changed.native.failed,0);
+ records.push({mode:phase,report:changed});
  const result={evidence:'Actual FEX/Wasm probe-harness contracts, including deliberate initial-state corruption and native-child death. No Wine or physical-device evidence.',records};
  console.log(save(result));
  }finally{fs.rmSync(directory,{recursive:true,force:true});}}

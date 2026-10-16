@@ -30,6 +30,15 @@ try {
  },d.cfg);
  initial=kernel.createSparseProcess({space:image.space,entryRip:image.entry,dynamic:true,standardIO:true,standardInput:new Uint8Array(0)});initial.proc.mm.catalog={id:initial.proc.space,refs:1};
  const t=initial.thread,g=t.tb+d.cfg.ctx+d.cfg.gregsOff;t.sparse.view.setBigUint64(g+32,image.stackPointer,true);
+ // Explicit test-only authority revocation after a successful JMP RPC and
+ // before its FINISH. This exercises real worker status propagation.
+ if(d.testRevokeJumpBeforeFinish||d.testChangeCachedJumpTarget){let jumps=0;const dispatch=kernel.sparseBroker.dispatch.bind(kernel.sparseBroker);kernel.sparseBroker.dispatch=(token,request)=>{
+  const result=dispatch(token,request),q=new DataView(t.sparse.memory.buffer,t.tb+BetterJITGuestMemoryBroker.ABI.scratchOffset,128);
+  if(result.status===0&&q.getUint32(BetterJITGuestMemoryBroker.FIELD.operation,true)===BetterJITGuestMemoryBroker.OP.JUMP_REGISTER){const target=result.data;
+   if(d.testRevokeJumpBeforeFinish)image.space.protect(target&~4095n,4096n,1);
+   else if(++jumps===2){image.space.protect(target&~4095n,4096n,3);image.space.write(target+1n,Uint8Array.of(2));image.space.protect(target&~4095n,4096n,5);}}
+  return result;
+ };}
  stage='execute';parentPort.postMessage({op:'spawn',spec:{...initial.worker,codes:image.codes}});kernel.run();
  stage='terminal-validation';parentPort.postMessage({op:'probe-progress',diagnostic:{...progress(),steps}});
  assert(t.sparse.executionQuiesced&&!t.sparse.retired);assert.equal(t.sparse.terminalStatus,2);assert.equal(t.sparse.guestExitCode,undefined);

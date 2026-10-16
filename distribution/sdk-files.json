@@ -297,6 +297,12 @@
     "fexwasm/src/testing/scalar-shift-ir.cpp": "fexwasm/src/testing/scalar-shift-ir.cpp",
     "tests/sdk/linux-host/sparse-shift-oracle.c": "tests/sdk/linux-host/sparse-shift-oracle.c",
     "tests/sdk/linux-host/sparse-shift-oracle.json": "tests/sdk/linux-host/sparse-shift-oracle.json",
-    "tests/sdk/linux-host/sparse-shift.cjs": "tests/sdk/linux-host/sparse-shift.cjs"
+    "tests/sdk/linux-host/sparse-shift.cjs": "tests/sdk/linux-host/sparse-shift.cjs",
+    "docs/sdk/sparse-register-jumps.md": "docs/sdk/sparse-register-jumps.md",
+    "fexwasm/src/testing/register-jump-ir.cpp": "fexwasm/src/testing/register-jump-ir.cpp",
+    "tests/sdk/linux-host/sparse-jump-oracle.c": "tests/sdk/linux-host/sparse-jump-oracle.c",
+    "tests/sdk/linux-host/sparse-jump-oracle.json": "tests/sdk/linux-host/sparse-jump-oracle.json",
+    "tests/sdk/linux-host/sparse-jump.cjs": "tests/sdk/linux-host/sparse-jump.cjs",
+    "tests/sdk/linux-sparse-jump.test.mjs": "tests/sdk/linux-sparse-jump.test.mjs"
   }
 }

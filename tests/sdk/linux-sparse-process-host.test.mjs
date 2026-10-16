@@ -30,3 +30,13 @@ test('a certified pre-RUN worker failure is owned by kernel rollback, never a fa
 });
 
 test('rollback before spawn never sends a drop for an unowned namespace',()=>{let requests=0;const f=fixture(async()=>{requests++;return{ok:true};});f.host.drop({space:42});assert.equal(requests,0);f.host.close();});
+
+test('retired numeric namespaces cannot restart native work or reuse a cached unit through aliases',async()=>{
+ let requests=0;const old=globalThis.FexLinuxThread;globalThis.FexLinuxThread={parseBrokerStep:()=>({status:2,code:new Uint8Array(0)})};
+ const f=fixture(async()=>{requests++;return{ok:true,arrayBuffer:async()=>new ArrayBuffer(0)};}),d=spec();try{
+  f.host.spawn(d);await tick();f.workers[0].onmessage({data:{op:'unit-request',id:1,space:1,rip:4096n}});await tick();
+  assert.equal(f.host.cache.size,1);result(f.workers[0],d);f.host.drop({space:1});await Promise.all(f.host.drops);assert.equal(f.host.cache.size,0);
+  const before=requests;for(const space of [1,'1',1n,0,-1,1.5,0x100000000,NaN])assert.throws(()=>f.host.spawn({...spec(1),space,codes:[{address:4096n,bytes:Uint8Array.of(0xff,0xe0)}]}),/namespace/);
+  assert.equal(requests,before);assert.equal(f.host.history.length,1);assert.equal(f.workers.length,1);assert.equal(f.errors.length,0);
+ }finally{f.host.close();globalThis.FexLinuxThread=old;}
+});

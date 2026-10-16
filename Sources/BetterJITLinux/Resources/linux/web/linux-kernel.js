@@ -1219,7 +1219,8 @@ class Kernel {
        this.cfg.regArgs!==0||this.cfg.callsViaDispatcher!==false||this.cfg.maxInstructions!==1||this.cfg.shared!==true||
        this.cfg.checkpoint?.cpu?.offset!==this.cfg.ctx||this.cfg.checkpoint?.cpu?.size!==this.cfg.stateSize||
        this.cfg.checkpoint?.cpu?.ripOffset!==this.cfg.ripOff||
-       this.cfg.checkpoint?.cpu?.stackPointerOffset!==this.cfg.gregsOff+4*8)
+       this.cfg.checkpoint?.cpu?.stackPointerOffset!==this.cfg.gregsOff+4*8||
+       this.cfg.checkpoint?.cpu?.generalRegistersOffset!==this.cfg.gregsOff)
       throw new Error('Incompatible broker step configuration');
     if(this.freezing)throw new Error('Sparse snapshots are unsupported');
     if((this.sparseContexts||0)>=B.ABI.maximumThreads)throw new Error('Sparse internal thread capacity exhausted');
@@ -1230,12 +1231,13 @@ class Kernel {
       if(p.status!==0||typeof p.rip!=='bigint'||p.rip<0n||p.rip>=(1n<<64n)||
          !Number.isInteger(p.length)||p.length<1||p.length>15||p.nextRip!==p.rip+BigInt(p.length)||
          !(p.instruction instanceof Uint8Array)||p.instruction.length!==p.length||approved.has(p.rip)||
-         !(([0,5,6,7].includes(p.operation)&&p.width===0)||([1,2,8].includes(p.operation)&&[1,2,4,8].includes(p.width))||
+         !(([0,5,6,7,12].includes(p.operation)&&p.width===0)||([1,2,8].includes(p.operation)&&[1,2,4,8].includes(p.width))||
            ([3,4,11].includes(p.operation)&&[4,8].includes(p.width))||([9,10].includes(p.operation)&&p.width===8)))
         throw new Error('Invalid admitted instruction metadata');
       const actual=space.executableSnapshot(p.rip,p.length);
       if(!actual.every((x,i)=>x===p.instruction[i]))throw new Error('Executable bytes differ from the compiled step');
-      approved.set(p.rip,Object.freeze({...p,continuations:B.instructionContinuations(p),instruction:p.instruction.slice()}));
+      approved.set(p.rip,Object.freeze({...p,continuations:B.instructionContinuations(p),
+        sourceRegister:p.operation===B.OP.JUMP_REGISTER?B.jumpSourceRegister(p):undefined,instruction:p.instruction.slice()}));
     }
     if(dynamic)space.executableSnapshot(entryRip,1);
     if((!dynamic&&!approved.has(entryRip))||!(this.host.state instanceof Uint8Array)||this.host.state.length!==this.cfg.stateSize)
@@ -1281,7 +1283,7 @@ class Kernel {
         // Refuse at this safe boundary; never deliver while Wasm locals live.
         if(this.freezing||t.pending||t.proc.pending)throw new Error('Sparse signals/snapshots are unsupported');
         const plan=this.sparsePlan(t),rip=plan.rip;
-        const generation=this.sparseBroker.beginInstruction(s.token,{rip,operation:plan.operation,width:plan.width,continuations:plan.continuations,nextRip:plan.nextRip});
+        const generation=this.sparseBroker.beginInstruction(s.token,{rip,operation:plan.operation,width:plan.width,continuations:plan.continuations,nextRip:plan.nextRip,sourceRegister:plan.sourceRegister});
         s.active=plan;
         view.setBigUint64(scratch+B.FIELD.checkpoint,generation,true);
         view.setBigUint64(scratch+B.FIELD.checkpointRip,rip,true);
@@ -1294,6 +1296,7 @@ class Kernel {
           s.unsupported={syscall:s.view.getBigUint64(t.tb+this.cfg.ctx+this.cfg.gregsOff,true),rip:s.active.rip,reason:s.unsupportedReason??'Outside the bounded sparse syscall contract'};
         }
         s.last=this.sparseBroker.finishInstruction(s.token,{status,nextRip:s.active.nextRip});
+        status=s.last.status;
         s.active=null;s.steps++;
         if(status===B.STEP.SYSCALL) {
           s.syscalls++;

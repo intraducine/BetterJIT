@@ -11,9 +11,9 @@ for(const name of ['guest_memory.js','guest_memory_broker.js','web/linux-kernel.
  new URL('../../Sources/BetterJITLinux/Resources/linux/'+name,import.meta.url),'utf8'));
 const M=BetterJITGuestMemory,B=BetterJITGuestMemoryBroker,{Kernel,SLOT_BASE,SLOT_SIZE,S_REQ,S_DONE,S_BUSY,W_OCCUPIED}=LinuxBundle.require('./kernel.js');
 const RIP=0x123400004000n,AT=0x123456780000n,P=4096n;
-const cfg={guestMemory:'broker1',memoryABI:1,stepABI:3,coverageVersion:12,stepHeaderBytes:96,memPages:33,memMaxPages:33,threadBase:65536,
+const cfg={guestMemory:'broker1',memoryABI:1,stepABI:3,coverageVersion:13,stepHeaderBytes:96,memPages:33,memMaxPages:33,threadBase:65536,
  regArgs:0,callsViaDispatcher:false,maxInstructions:1,shared:true,ctx:256,stateSize:1024,ripOff:24,gregsOff:32,
- checkpoint:{version:1,cpu:{offset:256,size:1024,ripOffset:24,stackPointerOffset:64},lazyFlags:{offset:64,size:24},roundMode:{offset:112,size:4}}};
+ checkpoint:{version:1,cpu:{offset:256,size:1024,ripOffset:24,stackPointerOffset:64,generalRegistersOffset:32},lazyFlags:{offset:64,size:24},roundMode:{offset:112,size:4}}};
 function setup(t,options) {
  const budget=new M.BackingBudget(options),object=new M.SharedBacking(budget,P);t.after(()=>object.close());const spaces=[],steps=[];
  const k=new Kernel({vfs:{},state:new Uint8Array(cfg.stateSize),log:()=>{},sparseStep:(th,r)=>steps.push({tid:th.tid,result:r.result})},cfg);

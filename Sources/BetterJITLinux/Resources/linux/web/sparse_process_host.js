@@ -16,6 +16,7 @@
   }
   spawn(d){
    if(this.closed)throw Error('Sparse process host closed');
+   if(!Number.isSafeInteger(d.space)||d.space<1||d.space>0xffffffff||this.dropped.has(d.space))throw Error('Invalid or retired sparse namespace');
    if(this.records.has(d.slot)||this.history.length>=8||typeof d.lease!=='bigint'||!(d.quiescence instanceof SharedArrayBuffer)||d.quiescence.byteLength!==16||!(d.stopControl instanceof SharedArrayBuffer)||d.stopControl.byteLength!==4)throw Error('Invalid retained sparse worker');
    const r={spec:d,pending:new Set(),requests:new Set(),stopping:false,finished:null,acked:false,worker:null};this.records.set(d.slot,r);this.history.push(r);
    this.track(r,(async()=>{
