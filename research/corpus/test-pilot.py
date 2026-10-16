@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Measurement-integrity tests; no production decoder/backend behavior is mocked as evidence."""
 import contextlib
+import copy
+import hashlib
 import io
 import json
+import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,9 +16,127 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parent))
 import pilot
 import assets
+from state_contract import ASSERTIONS, compare as compare_state
 
 
 class Integrity(unittest.TestCase):
+    def test_canonical_materializer_matches_exact_production_function(self):
+        root = Path(__file__).resolve().parents[2]
+        source = (root / 'fexwasm/src/backend.cpp').read_text()
+        helpers = source[source.index('enum FlagKind : int32_t {'):source.index('// Whether an arm64 condition holds')]
+        body = source[source.index('uint32_t MaterializeFlags(uint32_t Kind,'):source.index('\nstd::vector<uint8_t> BuildDispatcher')]
+        self.assertEqual(hashlib.sha256((helpers + body).encode()).hexdigest(), ASSERTIONS['materializerSourceSHA256'])
+        program = '#include <cstdint>\n#include <cstring>\n#include <iostream>\n' + helpers + body + '''
+int main() {
+  uint32_t kind, nzcv; uint64_t a, b;
+  while (std::cin >> kind >> std::hex >> a >> b >> nzcv >> std::dec)
+    std::cout << MaterializeFlags(kind, a, b, nzcv) << '\\n';
+}
+'''
+        values = [0, 1, 0x7fffffff, 0x80000000, 0xffffffff, 0x7fffffffffffffff,
+                  0x8000000000000000, 0xffffffffffffffff, 0x3f800000, 0x7f800000,
+                  0x7fc00001, 0xff800000, 0x3ff0000000000000, 0x7ff0000000000000,
+                  0x7ff8000000000001, 0xfff0000000000000]
+        rows = [[kind | inversion, hex(a), hex(b), nzcv]
+                for inversion in [0, 16] for kind in range(15) for a in values for b in values
+                for nzcv in [0, 0x20000000, 0x40000000, 0x80000000, 0xf0000000]]
+        with tempfile.TemporaryDirectory() as directory:
+            cpp, binary = Path(directory) / 'reference.cpp', Path(directory) / 'reference'
+            cpp.write_text(program)
+            subprocess.run([os.environ.get('CXX', 'c++'), '-std=c++20', '-O2', str(cpp), '-o', str(binary)], check=True, capture_output=True, timeout=20)
+            inputs = ''.join(f'{kind} {a} {b} {nzcv:x}\n' for kind, a, b, nzcv in rows)
+            reference = subprocess.run([str(binary)], input=inputs, capture_output=True, text=True, check=True, timeout=20)
+            reader = subprocess.run([os.environ.get('NODE', 'node'), str(Path(__file__).parent / 'test-flags.cjs')],
+                                    input=json.dumps(rows), capture_output=True, text=True, check=True, timeout=20)
+        self.assertEqual(json.loads(reader.stdout), [int(line) for line in reference.stdout.splitlines()])
+        self.assertEqual(len(rows), 38400)
+
+    def test_unknown_lazy_descriptor_is_rejected(self):
+        for kind in [-1, 15, 31, 2.5]:
+            result = subprocess.run([os.environ.get('NODE', 'node'), str(Path(__file__).parent / 'test-flags.cjs')],
+                                    input=json.dumps([[kind, '0x0', '0x0', 0]]), capture_output=True, text=True, timeout=5)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('unknown lazy flag kind', result.stderr)
+
+    def test_old_wasm_receipt_cannot_be_canonicalized_without_descriptor(self):
+        with self.assertRaisesRegex(AssertionError, 'cannot be corrected post hoc'):
+            pilot.validate_flag_observation(self.sample_state(), 'wasm')
+
+    @staticmethod
+    def sample_state(flags=0x202, fsw=0, ftw=0):
+        return {'state': {'RIP': '0x400400000', 'RFLAGS': hex(flags),
+                         'GPR': ['0x0'] * 16, 'XMM': [['0x0', '0x0'] for _ in range(16)],
+                         'MM': [['0x0', '0x0'] for _ in range(8)],
+                         'MXCSR': 0x1f80, 'FCW': 0x37f, 'FSW': fsw, 'FTW': ftw}}
+
+    def test_undeclared_register_and_control_mutations_fail(self):
+        row = {'path': 'unittests/ASM/Primary/Primary_98.asm'}
+        reference = self.sample_state()
+        self.assertTrue(compare_state(row, reference, reference)['matches'])
+        for register in range(16):
+            observed = copy.deepcopy(reference); observed['state']['GPR'][register] = '0x1'
+            self.assertFalse(compare_state(row, observed, reference)['matches'])
+            for lane in range(2):
+                observed = copy.deepcopy(reference); observed['state']['XMM'][register][lane] = '0x1'
+                self.assertFalse(compare_state(row, observed, reference)['matches'])
+        for field in ['MXCSR', 'FCW', 'FTW']:
+            observed = copy.deepcopy(reference); observed['state'][field] ^= 1
+            self.assertFalse(compare_state(row, observed, reference)['matches'])
+
+    def test_defined_flags_and_seed_controls_fail_but_undefined_bits_do_not(self):
+        for fixture, excluded in [('Primary/SHL.asm', 0x811), ('TwoByte/0F_AD_3.asm', 0x10)]:
+            row = {'path': 'unittests/ASM/' + fixture}
+            reference = self.sample_state(flags=0x246)
+            observed = copy.deepcopy(reference); observed['state']['RFLAGS'] = hex(0x246 ^ excluded ^ 0x10000)
+            self.assertTrue(compare_state(row, observed, reference)['matches'])
+            for bit in [0x4, 0x40, 0x80, 0x400, 0x2, 0x200]:
+                observed = copy.deepcopy(reference); observed['state']['RFLAGS'] = hex(0x246 ^ bit)
+                self.assertFalse(compare_state(row, observed, reference)['matches'], (fixture, hex(bit)))
+
+    def test_x87_checks_only_live_payloads_and_defined_status(self):
+        row = {'path': 'unittests/ASM/fadd.asm'}
+        reference = self.sample_state(fsw=0x3800, ftw=0x80)
+        reference['state']['MM'][7] = ['0xc90fdb0000000000', '0x4001']
+        self.assertTrue(compare_state(row, reference, reference)['matches'])
+        for register in range(7):
+            observed = copy.deepcopy(reference); observed['state']['MM'][register] = ['0xffffffffffffffff', '0xffff']
+            self.assertTrue(compare_state(row, observed, reference)['matches'])
+        for lane in range(2):
+            observed = copy.deepcopy(reference); observed['state']['MM'][7][lane] = '0x0'
+            self.assertFalse(compare_state(row, observed, reference)['matches'])
+        for bit in [0x100, 0x400, 0x4000]:
+            observed = copy.deepcopy(reference); observed['state']['FSW'] ^= bit
+            self.assertTrue(compare_state(row, observed, reference)['matches'])
+        for bit in [1, 0x200, 0x800]:
+            observed = copy.deepcopy(reference); observed['state']['FSW'] ^= bit
+            self.assertFalse(compare_state(row, observed, reference)['matches'])
+
+    def test_fsw_condition_bits_are_excluded_only_for_x87_arithmetic(self):
+        arithmetic = {'unittests/ASM/fadd.asm', 'unittests/ASM/X87/valid_operation.asm'}
+        for fixture, rule in ASSERTIONS['fixtures'].items():
+            x87 = fixture in arithmetic
+            self.assertEqual(int(rule['fswMask'], 0), 0xbaff if x87 else 0xffff)
+            row = {'path': fixture}
+            reference = self.sample_state(flags=0x202 | int(rule['expectedMaskedFlags'], 0),
+                                          fsw=int(rule['expectedMaskedFSW'], 0))
+            self.assertTrue(compare_state(row, reference, reference)['matches'], fixture)
+            for bit in [0x100, 0x400, 0x4000]:  # C0, C2, C3
+                observed = copy.deepcopy(reference); observed['state']['FSW'] ^= bit
+                result = compare_state(row, observed, reference)
+                self.assertEqual(result['matches'], x87, (fixture, hex(bit)))
+                self.assertEqual(result['checks']['definedX87Status'], x87)
+                self.assertEqual(result['checks']['definedFSWMatchesOracle'], x87)
+
+    def test_dormant_andn_contract_is_correct_and_profile_skipped(self):
+        fixture = 'unittests/ASM/VEX/andn.asm'
+        rule = ASSERTIONS['fixtures'][fixture]
+        self.assertEqual(rule['flagsMask'], '0xcc1')
+        self.assertEqual(rule['expectedMaskedFlags'], '0x40')
+        self.assertFalse(pilot.SPEC['profile']['guestAVX'])
+        row = next(dict(f) for f in pilot.SPEC['fixtures'] if f['path'] == fixture)
+        row.update(metadata={'HostFeatures': ['BMI1']}, policy={'oracle': []})
+        self.assertIn('BMI1', pilot.gate(row, 'oracle'))
+
     def test_timeout_reaps_process_group(self):
         with tempfile.TemporaryDirectory() as directory:
             pidfile = Path(directory) / 'pid'

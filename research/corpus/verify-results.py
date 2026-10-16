@@ -8,12 +8,14 @@ from pathlib import Path
 
 root = Path(sys.argv[1])
 spec = json.loads((Path(__file__).parent / 'pilot.json').read_text())
+assertions = json.loads((Path(__file__).parent / 'assertions.json').read_text())
 results = root / 'results'
 results.mkdir(parents=True, exist_ok=True)
 for layer in ['oracle', 'single', 'block500', 'multi500', 'wasm']:
     path = results / (layer + '.jsonl')
     if not path.exists():
-        rows = [{'schema': 1, 'fixture': f['path'], 'sourceSHA256': f['sourceSHA256'],
+        rows = [{'schema': 2, 'comparisonContract': assertions['contract'],
+                 'fixture': f['path'], 'sourceSHA256': f['sourceSHA256'],
                  'layer': layer, 'status': 'untested', 'semanticPass': None, 'rawExitCode': None,
                  'reason': 'layer did not produce an execution ledger; inspect workflow infrastructure/build outcome'}
                 for f in spec['fixtures']]

@@ -1,0 +1,92 @@
+{
+  "schema": 2,
+  "contract": "meaningful-final-state-v2",
+  "qualification": "Final defined flags and meaningful final architectural state only. Does not establish overwritten intermediate flags, full corpus/ISA coverage or device parity. BMI1 and guest32 remain skipped.",
+  "fixtures": {
+    "unittests/ASM/FEX_bugs/add_sub_carry.asm": {
+      "flagsMask": "0xcd5",
+      "expectedMaskedFlags": "0x0",
+      "expectedMaskedFSW": "0x0",
+      "fswMask": "0xffff"
+    },
+    "unittests/ASM/Primary/Primary_98.asm": {
+      "flagsMask": "0xcd5",
+      "expectedMaskedFlags": "0x0",
+      "expectedMaskedFSW": "0x0",
+      "fswMask": "0xffff"
+    },
+    "unittests/ASM/Primary/SHL.asm": {
+      "flagsMask": "0x4c4",
+      "expectedMaskedFlags": "0x44",
+      "expectedMaskedFSW": "0x0",
+      "fswMask": "0xffff"
+    },
+    "unittests/ASM/TwoByte/0F_C0_2.asm": {
+      "flagsMask": "0xcd5",
+      "expectedMaskedFlags": "0x0",
+      "expectedMaskedFSW": "0x0",
+      "fswMask": "0xffff"
+    },
+    "unittests/ASM/TwoByte/0F_84.asm": {
+      "flagsMask": "0xcd5",
+      "expectedMaskedFlags": "0x44",
+      "expectedMaskedFSW": "0x0",
+      "fswMask": "0xffff"
+    },
+    "unittests/ASM/Primary/Primary_EB.asm": {
+      "flagsMask": "0xcd5",
+      "expectedMaskedFlags": "0x0",
+      "expectedMaskedFSW": "0x0",
+      "fswMask": "0xffff"
+    },
+    "unittests/ASM/TwoByte/0F_16.asm": {
+      "flagsMask": "0xcd5",
+      "expectedMaskedFlags": "0x0",
+      "expectedMaskedFSW": "0x0",
+      "fswMask": "0xffff"
+    },
+    "unittests/ASM/TwoByte/0F_17.asm": {
+      "flagsMask": "0xcd5",
+      "expectedMaskedFlags": "0x0",
+      "expectedMaskedFSW": "0x0",
+      "fswMask": "0xffff"
+    },
+    "unittests/ASM/TwoByte/0F_10_2.asm": {
+      "flagsMask": "0xcd5",
+      "expectedMaskedFlags": "0x0",
+      "expectedMaskedFSW": "0x0",
+      "fswMask": "0xffff"
+    },
+    "unittests/ASM/TwoByte/0F_AD_3.asm": {
+      "flagsMask": "0xcc5",
+      "expectedMaskedFlags": "0x44",
+      "expectedMaskedFSW": "0x0",
+      "fswMask": "0xffff"
+    },
+    "unittests/ASM/fadd.asm": {
+      "flagsMask": "0xcd5",
+      "expectedMaskedFlags": "0x0",
+      "expectedMaskedFSW": "0x3800",
+      "fswMask": "0xbaff"
+    },
+    "unittests/ASM/X87/valid_operation.asm": {
+      "flagsMask": "0xcc5",
+      "expectedMaskedFlags": "0x44",
+      "expectedMaskedFSW": "0x3000",
+      "fswMask": "0xbaff"
+    },
+    "unittests/ASM/VEX/andn.asm": {
+      "flagsMask": "0xcc1",
+      "expectedMaskedFlags": "0x40",
+      "expectedMaskedFSW": "0x0",
+      "fswMask": "0xffff"
+    },
+    "unittests/32Bit_ASM/Primary/Primary_60.asm": {
+      "flagsMask": "0xcd5",
+      "expectedMaskedFlags": "0x0",
+      "expectedMaskedFSW": "0x0",
+      "fswMask": "0xffff"
+    }
+  },
+  "materializerSourceSHA256": "b5d2f4deb1edc0aaeb68085158038ffe9326a0be90eb070fa414b6109adbb776"
+}

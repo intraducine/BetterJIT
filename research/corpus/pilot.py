@@ -13,6 +13,7 @@ import signal
 import subprocess
 import time
 from pathlib import Path
+from state_contract import ASSERTIONS, compare as compare_state
 
 HERE = Path(__file__).resolve().parent
 SPEC = json.loads((HERE / 'pilot.json').read_text())
@@ -158,7 +159,10 @@ def prepare(args):
                 'specSHA256': sha((HERE / 'pilot.json').read_bytes()),
                 'policySources': policy_sources,
                 'policyCPUClass': {'oracle': 'x64', 'native': 'unclassified: pinned ClassifyCPU.py emits no class for macOS arm64'},
-                'comparisonContract': 'Explicit RegData lanes + exact HLT RIP + full code/stack SHA256 versus matched x86 oracle. Original Match metadata retained; this limited projection is not upstream full-harness equivalence.'}
+                'assertionsSHA256': sha((HERE / 'assertions.json').read_bytes()),
+                'comparisonContract': ASSERTIONS['contract'],
+                'comparisonQualification': ASSERTIONS['qualification']}
+    (output / 'assertions.json').write_bytes((HERE / 'assertions.json').read_bytes())
     write(output / 'manifest.json', manifest)
     print(json.dumps({'prepared': len(rows), 'assembled': sum(r['assemblyStatus'] == 'assembled' for r in rows)}))
 
@@ -171,6 +175,9 @@ def normalize(observed):
         observed[name + 'SHA256'] = sha(data)
     assert set(observed['state']) == {'RIP', 'RFLAGS', 'GPR', 'XMM', 'MM', 'MXCSR', 'FCW', 'FSW', 'FTW'}
     assert len(observed['state']['GPR']) == 16 and len(observed['state']['XMM']) == 16 and len(observed['state']['MM']) == 8
+    for vector in observed['state']['XMM'] + observed['state']['MM']:
+        assert len(vector) == 2
+    assert 0 <= observed['state']['FTW'] <= 255
     observed['architecturalStateSHA256'] = sha(json.dumps(observed['state'], sort_keys=True, separators=(',', ':')).encode())
     return observed
 
@@ -195,9 +202,16 @@ def projection(row, observed):
     return {'expectedRegData': expected, 'observedRegData': actual, 'matches': expected == actual}
 
 
+def validate_flag_observation(observed, layer):
+    if layer == 'wasm':
+        assert observed.get('lazyFlags', {}).get('representation') == 'backend-materialize-v1', 'missing raw lazy descriptor; old flags cannot be corrected post hoc'
+
+
 def run(args):
     manifest = json.loads((args.inputs / 'manifest.json').read_text())
     assert manifest['specSHA256'] == sha((HERE / 'pilot.json').read_bytes()), 'pilot changed since oracle assembly'
+    assert manifest['assertionsSHA256'] == sha((HERE / 'assertions.json').read_bytes()), 'assertion contract changed since preparation'
+    assert sha((args.inputs / 'assertions.json').read_bytes()) == manifest['assertionsSHA256'], 'transferred assertions differ'
     assert manifest['source'] == SPEC['source'] and manifest['layout'] == SPEC['layout']
     assert [r['path'] for r in manifest['fixtures']] == [f['path'] for f in SPEC['fixtures']], 'pilot selection changed'
     for number, (row, frozen) in enumerate(zip(manifest['fixtures'], SPEC['fixtures'])):
@@ -222,7 +236,8 @@ def run(args):
         assert pin == expected['FEXPin'], 'production translator pin changed outside the frozen measurement profile'
     results = []
     for row in manifest['fixtures']:
-        record = {'schema': 1, 'fixture': row['path'], 'family': row['family'], 'layer': layer,
+        record = {'schema': 2, 'comparisonContract': ASSERTIONS['contract'],
+                  'fixture': row['path'], 'family': row['family'], 'layer': layer,
                   'sourceSHA256': row['sourceSHA256'], 'binarySHA256': row.get('binarySHA256'),
                   'requiredHostFeatures': row['metadata'].get('HostFeatures', []), 'policy': row['policy'][layer],
                   'upstreamKnownFailure': any(p['category'] == 'Known_Failures' for p in row['policy'][layer]),
@@ -268,7 +283,9 @@ def run(args):
                               diagnostic=observed, reason=receipt['interrupted'] or 'raw execution failed')
                 continue
             observed = normalize(observed)
+            validate_flag_observation(observed, layer)
             comparison = projection(row, observed)
+            state_comparison = compare_state(row, observed)
             halt = int(SPEC['layout']['codeBase'], 0) + row['haltOffset']
             comparison['haltMatches'] = observed['termination'] == 'hlt' and int(observed['state']['RIP'], 0) == halt
             if layer != 'oracle':
@@ -278,9 +295,15 @@ def run(args):
                 comparison['memoryMatches'] = all(observed[k] == reference_state.get(k) for k in ['codeSHA256', 'stackSHA256'])
                 comparison['oracleProjectionMatches'] = comparison['observedRegData'] == reference.get('comparison', {}).get('observedRegData')
                 comparison['oracleMatchedBytes'] = reference.get('binarySHA256') == row['binarySHA256']
-            passed = comparison['matches'] and comparison['haltMatches']
+                if 'state' in reference_state:
+                    state_comparison = compare_state(row, observed, reference_state)
+                    comparison['oracleFinalStateContract'] = compare_state(row, reference_state)['matches']
+                else:
+                    comparison['oracleFinalStateContract'] = False
+            comparison['meaningfulFinalState'] = state_comparison
+            passed = comparison['matches'] and comparison['haltMatches'] and state_comparison['matches']
             if layer != 'oracle':
-                passed &= comparison['oracleStatus'] in ['pass', 'xpass'] and all(comparison[k] for k in ['memoryMatches', 'oracleProjectionMatches', 'oracleMatchedBytes'])
+                passed &= comparison['oracleStatus'] in ['pass', 'xpass'] and all(comparison[k] for k in ['memoryMatches', 'oracleProjectionMatches', 'oracleMatchedBytes', 'oracleFinalStateContract'])
             known = record['upstreamKnownFailure']
             status = ('xpass' if passed else 'xfail') if known else ('pass' if passed else 'failure')
             record.update(status=status, semanticPass=bool(passed), observed=observed, comparison=comparison)
@@ -295,8 +318,9 @@ def run(args):
                   dict(SPEC['wasmTranslatorSource']) if layer == 'wasm' else
                   {'kind': 'unmodified pinned native FEX core', 'FEXPin': SPEC['source']['commit']})
     summary = {'layer': layer, 'fixtureSource': SPEC['source'], 'translatorSource': translator, 'profile': SPEC['profile'],
+               'comparisonContract': ASSERTIONS['contract'], 'comparisonQualification': ASSERTIONS['qualification'],
                'measurementRecipe': {p.name: sha(p.read_bytes()) for p in
-                                     [HERE / 'pilot.py', HERE / 'wasm.cjs', HERE / 'native-x86.c',
+                                     [HERE / 'pilot.py', HERE / 'wasm.cjs', HERE / 'flags.cjs', HERE / 'assertions.json', HERE / 'state_contract.py', HERE / 'native-x86.c',
                                       HERE / 'native-x86.S', HERE / 'native-arm64.cpp', HERE / 'state.h']},
                'executableSHA256': sha(args.executable.read_bytes()),
                'counts': dict(collections.Counter(r['status'] for r in results)),

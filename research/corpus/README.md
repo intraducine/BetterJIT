@@ -55,14 +55,42 @@ Result summaries distinguish this translator recipe from the fixture/native
 target pin and retain the actual executable SHA256 and runtime buildID.
 
 Every outcome retains source/binary identity, raw exit, feature/policy decisions
-and declared expectations. Successful and refused Wasm states include all 16
-GPRs, 16 XMMs, eight physical x87/MM payloads, RIP, RFLAGS, MXCSR, FCW, FSW and
-FTW; full mapped code/stack contents are hashed. Opaque FEX frame pointers are
-excluded. A pass requires the explicit RegData projection, exact HLT address,
-matched oracle bytes and both complete memory hashes. Undefined flags and
-unspecified register lanes are retained for diagnosis, without blanket equality
-assertions. Original `Match` metadata is retained; this limited comparison is
-not upstream full-harness equivalence.
+and declared expectations. Successful and refused Wasm states retain all 16
+GPRs, 16 XMMs, eight physical x87/MM payloads, RIP, flags and FP controls/status.
+Full mapped code/stack contents are hashed. Opaque FEX frame pointers are excluded.
+
+The original frozen pilot checked RegData, exact HLT RIP and complete code/stack
+hashes. Its flag reader inspected stored NZCV without the backend's pending
+lazy descriptor. SHL and SHRD-suite final snapshots therefore showed stale
+SF/ZF. These old Wasm receipts omit the descriptor and cannot be corrected after
+the fact. Their original projection pass counts remain unchanged.
+
+The separate `meaningful-final-state-v2` contract adds all 16 GPRs, all 16 XMMs,
+MXCSR, FCW, FTW and live tagged physical x87 payloads against the matched oracle.
+Empty x87 payload bytes are retained but excluded from equality. The two x87
+arithmetic fixtures use FSW mask `0xBAFF`, excluding undefined C0/C2/C3; expected
+final FSW is `0x3800` for fadd and `0x3000` for valid_operation. Non-x87 fixtures
+use `0xFFFF` and preserve the complete seeded zero FSW, including C0/C2/C3.
+
+`assertions.json` defines fixture-specific final flag masks independently of
+the compiled native component recipe: `0xCD5` by default, `0x4C4` for SHL and
+`0xCC5` for the final XOR/AND fixtures. The dormant, profile-skipped ANDN entry
+uses `0xCC1` with expected masked flags `0x40`. Expected masked flags are `0x44` for SHL,
+Jcc, the SHRD suite and valid_operation, and zero for the other enabled fixtures.
+Reserved bit1 and preserved IF are checked separately from seed `0x202`; trap
+RF and undefined bits are excluded. These final checks do not establish flags
+overwritten by later instructions. Original Match metadata is retained without
+claiming stock full-harness equivalence or device parity.
+
+`flags.cjs` reproduces the existing production materializer in the reader,
+without changing guest memory or backend code. Each snapshot retains raw FK,
+FA, FB, stored NZCV/RFLAGS, PF/AF/DF raw values and derived NZCV. The integrity
+suite compares 38,400 boundary vectors with the exact extracted production C++
+function, including carry inversion, kept carry and float/NaN cases. Negative
+mutations cover defined flags, seed controls, every GPR/XMM lane, FP controls,
+live x87 payloads and defined FSW. Undefined flags/status, RF and empty x87
+payloads are explicitly tested as exclusions. Missing descriptors and unknown
+lazy kinds fail. BMI1 and guest32 remain skipped; refusals remain refusals.
 
 Global, host/jit and CPU policy source lists are retained. The pinned classifier
 does not classify macOS `arm64`, so no CPU-specific policy is silently guessed.
@@ -86,17 +114,26 @@ runtime overrides. Madeira's scripts preserve an existing CMake cache. The
 installed device-effective options, probes, linked module and CPUID remain
 unknown. This uncertainty does not block the explicit macOS core measurement.
 
-Local Linux reproduction, after installing NASM and building the existing host
-translator through its approved build script:
+Local Linux reproduction requires NASM, Node, Python and a C++ compiler for the
+materializer reference test. Build the existing host translator through its
+approved build script:
 
 ```sh
 python3 research/corpus/source.py .build/corpus-source/fex
+python3 research/corpus/test-pilot.py
 python3 research/corpus/pilot.py prepare --fex .build/corpus-source/fex --nasm nasm --output .build/corpus-pilot/inputs
 cc -O2 -mno-red-zone -Wall -Wextra -Werror research/corpus/native-x86.c research/corpus/native-x86.S -o .build/corpus-pilot/corpus-native-x86
 python3 research/corpus/pilot.py run --inputs .build/corpus-pilot/inputs --layer oracle --executable .build/corpus-pilot/corpus-native-x86 --output .build/corpus-pilot/results/oracle.jsonl
 python3 research/corpus/pilot.py run --inputs .build/corpus-pilot/inputs --layer wasm --executable .build/host-fex/fexserve --oracle .build/corpus-pilot/results/oracle.jsonl --output .build/corpus-pilot/results/wasm.jsonl
 python3 research/corpus/verify-results.py .build/corpus-pilot
 ```
+
+A bounded future integrity task remains for arbitrary CLI oracle ledgers: validate
+oracle layer/method, unique fixture identities, state shape/digest, HLT and raw
+exit before accepting them as independent references. The current loader trusts
+supplied layer/status/digest fields and can accept a Wasm ledger as its own
+reference. Same-run workflow artifact naming protects the current controlled
+route; arbitrary CLI reference independence is not yet established.
 
 No overall coverage percentage is defined: the legal-form denominator, full
 2467-fixture corpus, native ARM64 results, dense semantic coverage and device

@@ -21,6 +21,9 @@ jobs:
           persist-credentials: false
       - name: Install assembler
         run: sudo apt-get update && sudo apt-get install -y nasm
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
       - name: Verify measurement failure, gate, timeout and hash handling
         run: python3 research/corpus/test-pilot.py
       - name: Fetch immutable public fixture source

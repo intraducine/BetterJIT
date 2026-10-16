@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const net = require('node:net');
 const {spawn} = require('node:child_process');
 const assert = require('node:assert/strict');
+const {materializeNZCV} = require('./flags.cjs');
 const spec = require('./pilot.json');
 const CODE = BigInt(spec.layout.codeBase), STACK = BigInt(spec.layout.stackBase);
 const low = value => Number(BigInt.asUintN(32, value));
@@ -106,13 +107,27 @@ async function main() {
   assert(halted, 'block budget exhausted');
   function capture() {
   const pf = view.getUint32(context + cfg.checkpoint.cpu.parityRawOffset, true) & 255, af = view.getUint32(context + cfg.checkpoint.cpu.auxiliaryRawOffset, true);
-  const nzcv = view.getUint32(flags + 24, true);
-  let rflags = 0;
-  for (let bit = 0; bit < 24; ++bit) if (![0, 2, 4, 6, 7, 8, 10, 11].includes(bit)) rflags |= buffer[flags + bit] << bit;
-  const parity = value => {let count = 0; for (; value; value >>>= 1) count ^= value & 1; return count;};
-  rflags |= (((nzcv >>> 29) ^ 1) & 1) | (parity(pf ^ 1) << 2) | ((af ^ pf) & 16);
-  rflags |= ((nzcv >>> 30) & 1) << 6 | ((nzcv >>> 31) & 1) << 7 | ((nzcv >>> 28) & 1) << 11;
-  rflags |= (buffer[flags + 8] & 1) << 8 | (buffer[flags + 10] >>> 7) << 10;
+  const storedNZCV = view.getUint32(flags + 24, true);
+  const kind = view.getUint32(tb + cfg.flagSpillAddr, true);
+  const operandA = view.getBigUint64(tb + cfg.flagSpillAddr + 8, true);
+  const operandB = view.getBigUint64(tb + cfg.flagSpillAddr + 16, true);
+  const nzcv = materializeNZCV(kind, operandA, operandB, storedNZCV);
+  function compactFlags(value) {
+    let result = 0;
+    for (let bit = 0; bit < 24; ++bit)
+      if (![0, 2, 4, 6, 7, 8, 10, 11].includes(bit)) result |= buffer[flags + bit] << bit;
+    const parity = byte => {let count = 0; for (; byte; byte >>>= 1) count ^= byte & 1; return count;};
+    result |= (((value >>> 29) ^ 1) & 1) | (parity(pf ^ 1) << 2) | ((af ^ pf) & 16);
+    result |= ((value >>> 30) & 1) << 6 | ((value >>> 31) & 1) << 7 | ((value >>> 28) & 1) << 11;
+    result |= (buffer[flags + 8] & 1) << 8 | (buffer[flags + 10] >>> 7) << 10;
+    return result >>> 0;
+  }
+  const rflags = compactFlags(nzcv);
+  const lazyFlags = {representation: 'backend-materialize-v1', kind, operandA: hex(operandA), operandB: hex(operandB),
+    storedNZCV: hex(BigInt(storedNZCV)), materializedNZCV: hex(BigInt(nzcv)),
+    storedRFLAGS: hex(BigInt(compactFlags(storedNZCV))),
+    parityRaw: view.getUint32(context + cfg.checkpoint.cpu.parityRawOffset, true),
+    auxiliaryRaw: af, directionRaw: buffer[flags + 10]};
   let fsw = 0;
   for (let bit = 0; bit < 11; ++bit) fsw |= (buffer[flags + 32 + bit] & 1) << bit;
   fsw |= (buffer[flags + 43] & 7) << 11 | (buffer[flags + 46] & 1) << 14 | (buffer[flags + 47] & 1) << 15;
@@ -123,7 +138,7 @@ async function main() {
     MM: Array.from({length: 8}, (_, r) => [read(1056 + 16 * r), hex(BigInt(view.getUint16(context + 1056 + 16 * r + 8, true)))]),
     MXCSR: view.getUint32(context + cfg.mxcsrOff, true), FCW: view.getUint16(context + 1200, true),
     FSW: fsw, FTW: buffer[context + 1202]};
-  return {state, codeHex: Buffer.from(memory.buffer, low(CODE), 65536).toString('hex'),
+  return {state, lazyFlags, codeHex: Buffer.from(memory.buffer, low(CODE), 65536).toString('hex'),
     stackHex: Buffer.from(memory.buffer, low(STACK), 65536).toString('hex')};
   }
   await stop();
