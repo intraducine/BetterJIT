@@ -13,6 +13,7 @@
  async function fail(kind,message){if(closed||settling)return;settling=true;try{await send([{kind,text:String(message).slice(0,2048)}]);}catch{}stop();}
  async function settle(){if(settling||!kernelResult||!threadResult)return;settling=true;const k=kernelResult,t=threadResult;
   try{if(k.terminal.status===2||t.status===2){const u=k.terminal.unsupported;await send([{kind:'unsupported',text:u?'Syscall '+u.syscall+' at 0x'+u.rip.toString(16)+': '+u.reason:'The compiled command reached an instruction or syscall outside the sparse profile.'}]);return;}
+   if(k.terminal.status===BetterJITGuestMemoryBroker.STEP.DIVIDE_ERROR){if(t.status!==k.terminal.status||t.guestExitCode!==undefined||k.terminal.guestExitCode!==null||k.terminal.exception?.kind!=='divide-error'||k.terminal.exception.rip!==t.rip||k.broker.threads!==0)throw Error('Incomplete sparse divide-error termination');await send([{kind:'failure',text:'Guest divide error: '+serial(k.terminal.exception)}]);return;}
    if(k.terminal.status!==0||t.status!==0||k.terminal.guestExitCode===undefined||t.guestExitCode!==k.terminal.guestExitCode||k.broker.threads!==0||k.internalBytes!==33*65536||!k.retainedUntilSessionTeardown||k.workerRetirementAcknowledged)throw Error('Incomplete sparse command termination');
    for(const fd of [1,2])text(fd===1?'stdout':'stderr',decoders[fd].decode());
    text('log','[sparse-command] '+serial({steps:k.steps,internalBytes:k.internalBytes,broker:k.broker,backing:k.backing,stdin:k.stdin,retainedUntilSessionTeardown:true,workerRetirementAcknowledged:false,jspiRequired:false})+'\n');
@@ -24,7 +25,9 @@
   if(!processHost.history.every(r=>r.acked&&!r.pending.size)||k.internalContextsRetained!==processHost.history.length||k.broker.threads!==0||k.guestBacking.ownedPayloadBytes!==0||!k.guestAccessQuiescenceAcknowledged||k.workerRetirementAcknowledged||!k.internalContextsRetainedUntilSessionTeardown)throw Error('Incomplete bounded process completion');
   await Promise.all(processHost.drops);if(closed)return;
   for(const fd of [1,2])text(fd===1?'stdout':'stderr',decoders[fd].decode());
-  text('log','[sparse-processes] '+serial(k)+'\n');await send([{kind:'exit',code:k.exitCode}]);
+  text('log','[sparse-processes] '+serial(k)+'\n');
+  if(k.terminal?.status===BetterJITGuestMemoryBroker.STEP.DIVIDE_ERROR){if(k.exitCode!==null||k.terminal.guestExitCode!==null||k.terminal.exception?.kind!=='divide-error')throw Error('Incomplete sparse divide-error termination');await send([{kind:'failure',text:'Guest divide error: '+serial(k.terminal.exception)}]);}
+  else await send([{kind:'exit',code:k.exitCode}]);
  }catch(error){await send([{kind:'failure',text:String(error)}]);}}
  async function start(){
   if(!crossOriginIsolated||typeof SharedArrayBuffer==='undefined')return fail('unsupported','This engine lacks isolated shared memory required by the compiled C command.');

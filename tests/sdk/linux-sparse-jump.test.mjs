@@ -57,7 +57,7 @@ test('register checkpoint window and BEGIN metadata are bounded and independent 
 });
 function kernelFixture(t,{sourceRegister=15}={}){
  const budget=new M.BackingBudget(),space=new M.GuestAddressSpace(budget,{virtualLimit:1n<<47n}),p={...plan(),sourceRegister};space.mapAnonymous(RIP,4096n,3);space.write(RIP,p.instruction);space.protect(RIP,4096n,5);space.mapAnonymous(TARGET,4096n,3);space.write(TARGET,Uint8Array.of(0xb8,1,0,0,0));space.protect(TARGET,4096n,5);
- const cfg={guestMemory:'broker1',memoryABI:1,stepABI:3,coverageVersion:B.ABI.coverageVersion,stepHeaderBytes:96,memPages:33,memMaxPages:33,threadBase:65536,regArgs:0,callsViaDispatcher:false,maxInstructions:1,shared:true,ctx:256,stateSize:1024,ripOff:24,gregsOff:32,checkpoint:layout};
+ const cfg={guestMemory:'broker1',memoryABI:1,stepABI:4,coverageVersion:B.ABI.coverageVersion,stepHeaderBytes:96,memPages:33,memMaxPages:33,threadBase:65536,regArgs:0,callsViaDispatcher:false,maxInstructions:1,shared:true,ctx:256,stateSize:1024,ripOff:24,gregsOff:32,checkpoint:layout};
  const k=new Kernel({vfs:{},state:new Uint8Array(1024),log:()=>{}},cfg),made=k.createSparseProcess({space,entryRip:RIP,plans:[p,{status:0,operation:0,width:0,rip:TARGET,nextRip:TARGET+5n,length:5,instruction:Uint8Array.of(0xb8,1,0,0,0)}]}),s=made.thread.sparse,base=(SLOT_BASE+made.thread.slot*SLOT_SIZE)>>2,b64=base>>1;let boundary=0;
  s.view.setBigUint64(made.thread.tb+288,TARGET,true);s.view.setBigUint64(made.thread.tb+288+15*8,TARGET+999n,true);
  const phase=(which,status=0)=>{k.k64[b64+1]=BigInt(B.ABI.instructionBoundary);k.k64[b64+2]=s.token.generation;k.k64[b64+3]=BigInt(++boundary);k.k64[b64+4]=BigInt(which);k.k64[b64+5]=BigInt(status);Atomics.store(k.k32,base,S_REQ);k.serviceRequests();assert.equal(Atomics.load(k.k32,base),S_DONE);Atomics.store(k.k32,base,0);return Number(k.k64[b64+8]);};
@@ -86,7 +86,7 @@ test('successful JMP cannot forge any CPU, lazy-flag or rounding byte beyond RIP
  const f=fixture(t);f.begin();f.request();f.spill();f.view.setUint8(f.at+layout.roundMode.offset,1);f.space.protect(TARGET,8192n,1);assert.throws(()=>f.finish(0),/non-RIP checkpoint/);
 });
 test('dynamic header parsing derives source register and rejects forged control metadata and old coverage',()=>{
- function header(p){const b=new Uint8Array(96),v=new DataView(b.buffer);[0x31534a42,1,1,3,B.ABI.coverageVersion,0,p.operation,p.width].forEach((x,i)=>v.setUint32(i*4,x,true));v.setBigUint64(32,p.rip,true);v.setBigUint64(40,p.nextRip,true);v.setUint32(56,1,true);v.setUint32(60,p.length,true);b.set(p.instruction,64);v.setBigUint64(80,p.branchTarget,true);v.setUint32(88,p.continuationKind,true);return b;}
+ function header(p){const b=new Uint8Array(96),v=new DataView(b.buffer);[0x31534a42,1,1,4,B.ABI.coverageVersion,0,p.operation,p.width].forEach((x,i)=>v.setUint32(i*4,x,true));v.setBigUint64(32,p.rip,true);v.setBigUint64(40,p.nextRip,true);v.setUint32(56,1,true);v.setUint32(60,p.length,true);b.set(p.instruction,64);v.setBigUint64(80,p.branchTarget,true);v.setUint32(88,p.continuationKind,true);return b;}
  for(let reg=0;reg<16;reg++)assert.equal(B.parseStepHeader(header(plan(reg))).sourceRegister,reg);
  for(const change of [{width:8},{continuationKind:0},{branchTarget:TARGET},{instruction:Uint8Array.of(0xff,0x20)}])assert.throws(()=>B.parseStepHeader(header({...plan(),...change})),/metadata/);
  const h=header(plan());new DataView(h.buffer).setUint32(16,13,true);assert.throws(()=>B.parseStepHeader(h),/ABI/);

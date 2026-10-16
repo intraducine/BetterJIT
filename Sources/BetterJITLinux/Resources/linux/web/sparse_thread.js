@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// One normal-exit worker. This profile never acknowledges Worker.terminate().
+// One controlled run-loop return, including owned terminal CPU exceptions.
+// This profile never acknowledges Worker.terminate().
 'use strict';
 importScripts('../guest_memory.js','../guest_memory_broker.js','../thread_core.js');
 let pending=new Map(),next=0,started=false;

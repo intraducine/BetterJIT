@@ -63,7 +63,7 @@ test('stack register BEGIN metadata requires a bound register/RSP layout and exa
  const f=fixture(t,{checkpointLayout:{...layout,cpu:{...layout.cpu,stackPointerOffset:72}}});assert.throws(()=>f.begin(),/register stack/);
 });
 test('dynamic stack headers derive the operand register and reject malformed metadata or prior coverage',()=>{
- const header=p=>{const b=new Uint8Array(96),v=new DataView(b.buffer);[0x31534a42,1,1,3,B.ABI.coverageVersion,0,p.operation,p.width].forEach((x,i)=>v.setUint32(i*4,x,true));v.setBigUint64(32,p.rip,true);v.setBigUint64(40,p.nextRip,true);v.setUint32(56,1,true);v.setUint32(60,p.length,true);b.set(p.instruction,64);v.setBigUint64(80,p.branchTarget,true);v.setUint32(88,p.continuationKind,true);return b;};
+ const header=p=>{const b=new Uint8Array(96),v=new DataView(b.buffer);[0x31534a42,1,1,4,B.ABI.coverageVersion,0,p.operation,p.width].forEach((x,i)=>v.setUint32(i*4,x,true));v.setBigUint64(32,p.rip,true);v.setBigUint64(40,p.nextRip,true);v.setUint32(56,1,true);v.setUint32(60,p.length,true);b.set(p.instruction,64);v.setBigUint64(80,p.branchTarget,true);v.setUint32(88,p.continuationKind,true);return b;};
  for(const kind of ['push','pop'])for(let reg=0;reg<16;reg++)assert.equal(B.parseStepHeader(header(plan(kind,reg))).stackRegister,reg);
  for(const extra of [{width:4},{continuationKind:1},{branchTarget:RIP},{instruction:Uint8Array.of(0x6a)}])assert.throws(()=>B.parseStepHeader(header({...plan(),...extra})),/metadata/);
  const old=header(plan());new DataView(old.buffer).setUint32(16,13,true);assert.throws(()=>B.parseStepHeader(old),/ABI/);
@@ -77,6 +77,6 @@ test('shared stacks expose the committed PUSH exactly once and POP never detache
 });
 test('kernel static plans cannot override the byte-derived PUSH/POP register',t=>{
  globalThis.self=globalThis;for(const n of ['thread_core','web/linux-kernel'])vm.runInThisContext(fs.readFileSync(new URL('../../Sources/BetterJITLinux/Resources/linux/'+n+'.js',import.meta.url),'utf8'));
- const {Kernel}=LinuxBundle.require('./kernel.js'),cfg={guestMemory:'broker1',memoryABI:1,stepABI:3,coverageVersion:B.ABI.coverageVersion,stepHeaderBytes:96,memPages:33,memMaxPages:33,threadBase:65536,regArgs:0,callsViaDispatcher:false,maxInstructions:1,shared:true,ctx:256,stateSize:1024,ripOff:24,gregsOff:32,checkpoint:layout};
+ const {Kernel}=LinuxBundle.require('./kernel.js'),cfg={guestMemory:'broker1',memoryABI:1,stepABI:4,coverageVersion:B.ABI.coverageVersion,stepHeaderBytes:96,memPages:33,memMaxPages:33,threadBase:65536,regArgs:0,callsViaDispatcher:false,maxInstructions:1,shared:true,ctx:256,stateSize:1024,ripOff:24,gregsOff:32,checkpoint:layout};
  for(const kind of ['push','pop'])for(const forged of [-1,0,16]){const space=new M.GuestAddressSpace(new M.BackingBudget(),{virtualLimit:1n<<47n}),p={...plan(kind,5),stackRegister:forged};space.mapAnonymous(RIP,4096n,3);space.write(RIP,p.instruction);space.protect(RIP,4096n,5);const k=new Kernel({state:new Uint8Array(1024),vfs:{},log:()=>{}},cfg),made=k.createSparseProcess({space,entryRip:RIP,plans:[p]});assert.equal(made.thread.sparse.plans.get(RIP).stackRegister,5);t.after(()=>{k.sparseBroker.unregister(made.thread.sparse.token);space.close();});}
 });

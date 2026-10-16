@@ -43,7 +43,7 @@ separate regressions.
 Later bounded profiles add [memory ADD](sparse-memory-add.md),
 [register shifts](sparse-register-shifts.md), [register JMP](sparse-register-jumps.md)
 and [register PUSH/POP](sparse-register-stack.md), followed by
-[register-destination memory ADD](sparse-register-memory-add.md). Current coverage is 15; the
+[register-destination memory ADD](sparse-register-memory-add.md). Coverage at that milestone was 15; the
 counts and compiler/phone receipts on this page describe their original milestones.
 
 The fresh Ubuntu GCC 13 output also contains GNU property metadata and `ENDBR64`

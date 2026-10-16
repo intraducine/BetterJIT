@@ -37,6 +37,7 @@ class AssetTests(unittest.TestCase):
         self.or_ir_binary = self.asset/'sparse-memory-or-ir'; self.or_ir_binary.write_bytes(self.binary.read_bytes()); self.or_ir_binary.chmod(0o755)
         self.test_ir_binary = self.asset/'sparse-test-immediate-ir'; self.test_ir_binary.write_bytes(self.binary.read_bytes()); self.test_ir_binary.chmod(0o755)
         self.setcc_ir_binary = self.asset/'sparse-setcc-ir'; self.setcc_ir_binary.write_bytes(self.binary.read_bytes()); self.setcc_ir_binary.chmod(0o755)
+        self.div_ir_binary = self.asset/'sparse-register-div-ir'; self.div_ir_binary.write_bytes(self.binary.read_bytes()); self.div_ir_binary.chmod(0o755)
         self.producer = {'repository':assets.REPOSITORY, 'workflow':assets.WORKFLOW,
                          'run':'123', 'attempt':'1', 'commit':'a'*40, 'step':'build-host', 'outcome':'success'}
     def seal(self): return assets.seal(self.asset, 'fex-host', self.expected, self.producer, NOW)
@@ -58,7 +59,7 @@ class AssetTests(unittest.TestCase):
         (self.root/'COPYING').write_text('changed notice')
         self.assertNotEqual(assets.identity(self.root, 'fex-ios', self.tools), before)
     def test_ir_diagnostic_is_hashed_and_its_source_invalidates_host_reuse(self):
-        for binary, source in ((self.ir_binary, 'memory-add-ir.cpp'), (self.shift_ir_binary, 'scalar-shift-ir.cpp'), (self.jump_ir_binary, 'register-jump-ir.cpp'), (self.stack_ir_binary, 'register-stack-ir.cpp'), (self.read_add_ir_binary, 'register-memory-add-ir.cpp'), (self.or_ir_binary, 'memory-or-ir.cpp'), (self.test_ir_binary, 'test-immediate-ir.cpp'), (self.setcc_ir_binary, 'setcc-ir.cpp')):
+        for binary, source in ((self.ir_binary, 'memory-add-ir.cpp'), (self.shift_ir_binary, 'scalar-shift-ir.cpp'), (self.jump_ir_binary, 'register-jump-ir.cpp'), (self.stack_ir_binary, 'register-stack-ir.cpp'), (self.read_add_ir_binary, 'register-memory-add-ir.cpp'), (self.or_ir_binary, 'memory-or-ir.cpp'), (self.test_ir_binary, 'test-immediate-ir.cpp'), (self.setcc_ir_binary, 'setcc-ir.cpp'), (self.div_ir_binary, 'register-div-ir.cpp')):
             with self.subTest(diagnostic=binary.name):
                 sealed = self.seal()
                 self.assertIn(binary.name, sealed['files'])

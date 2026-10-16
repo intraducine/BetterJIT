@@ -32,7 +32,7 @@ async function main(){const nativeOracle=oracle();
  const rows=new Map(golden.map(r=>[[r[0],r[1],r[2],r[3],r[4]].join(':'),r]));let nativePrefixRows=0;
  for(const r of golden){assert.equal(r[5],r[4]);if(r[2]>=2){const normal=rows.get([r[0],r[1],0,r[3],r[4]].join(':'));assert.equal(r[6],normal[6]);nativePrefixRows++;}}
  await serve('guestmem=broker1',async(get,log)=>{
-  const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.coverageVersion,21);
+  const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.coverageVersion,22);
   async function request(bytes,rip=CODE){await get('/xlat/code?addr='+rip.toString(16),{method:'POST',body:Uint8Array.from(bytes)});return FexLinuxThread.parseBrokerStep(new Uint8Array(await(await get('/xlat/step?rip='+rip)).arrayBuffer()));}
   async function compile(bytes,operation=6,rip=CODE){const u=await request(bytes,rip);assert.equal(u.status,0,Buffer.from(bytes).toString('hex')+': '+log());assert.equal(u.operation,operation);assert.equal(u.width,0);assert.deepEqual([...u.instruction],bytes);assert.equal(u.nextRip,rip+BigInt(bytes.length));u.module=await WebAssembly.compile(u.code);assert(WebAssembly.Module.imports(u.module).every(i=>i.module==='e'&&['mem','tb'].includes(i.name)),'TEST must have no guest-memory import');return u;}
   const seedUnits=[await compile([0x45,1,0xc9],6,SC),await compile([0x49,0x83,0xe9,1],6,SC+0x20n)],syscall=await compile([15,5],5,SC+0x40n),branches=[];

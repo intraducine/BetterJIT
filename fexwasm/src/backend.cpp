@@ -9944,6 +9944,20 @@ CompileResult Emitter::Run() {
   Analyze();
   ComputeLiveness();
   AllocSharedLocals();
+  if (Cfg.BrokerMemory && Cfg.BrokerOperation == 17) {
+    // Architectural DIV preflight, before prologue/body/epilogue writes. The
+    // strict IR proof below binds these original GPRs to the sole UDiv. For
+    // unsigned (high:low)/d, d==0 or high>=d is exactly quotient overflow.
+    auto Operand = [&](uint32_t R) {
+      SysBase(); B.mem(op::i64_load, 3, Cfg.CtxAddr + offsetof(CPUState, gregs) + 8 * R);
+      if (Cfg.BrokerWidth == 4) { B.i64c(0xffff'ffff); B.u8(op::i64_and); }
+    };
+    Operand(Cfg.BrokerTargetRegister); B.u8(op::i64_eqz);
+    Operand(2); Operand(Cfg.BrokerTargetRegister); B.u8(op::i64_ge_u);
+    B.u8(op::i32_or); B.u8(op::if_); B.u8(0x40);
+    B.i32c(5); Return(); // typed #DE; no epilogue, trap or architectural write
+    B.u8(op::end);
+  }
   EntryPrologue();
   if (Cfg.HotThreshold && Cfg.UnitCounterBase) {
     // Tier 1 counts its own entries (however it is entered: dispatcher, call
@@ -11392,9 +11406,96 @@ static CompileResult CheckBrokerBitTest(const IRListView& IR, uint64_t EntryRIP,
   return {};
 }
 
+// Only the pinned, complete register DIV lowering may use the guarded sparse
+// path. In particular AllocateGPR/UDiv are not generic broker permissions.
+static CompileResult CheckBrokerDivide(const IRListView& IR, uint64_t EntryRIP, const BackendConfig& Cfg) {
+  auto Reject = [](const char* Why) { CompileResult R; R.Error = std::string("broker register DIV ") + Why; return R; };
+  if ((Cfg.BrokerWidth != 4 && Cfg.BrokerWidth != 8) || Cfg.BrokerTargetRegister >= 16 ||
+      Cfg.BrokerFlow || Cfg.BrokerTarget || Cfg.BrokerNoEffects ||
+      Cfg.BrokerTestWidth || Cfg.BrokerTestShift || Cfg.BrokerTestMask || Cfg.BrokerSetCondition != 16 || Cfg.BrokerSetShift ||
+      Cfg.BrokerBitWidth || Cfg.BrokerBitRegister != 16 || Cfg.BrokerBitIndex ||
+      EntryRIP >= (1ull << 47) || Cfg.BrokerNextRIP <= EntryRIP || Cfg.BrokerNextRIP >= (1ull << 47) ||
+      Cfg.BrokerNextRIP - EntryRIP < 2 || Cfg.BrokerNextRIP - EntryRIP > 3) return Reject("profile");
+  OrderedNodeWrapper Loads[16], Handles[2], Extracts[2], Stores[2], Divide {}, Exit {};
+  for (auto& V : Loads) V = OrderedNodeWrapper {};
+  for (auto& V : Handles) V = OrderedNodeWrapper {};
+  for (auto& V : Extracts) V = OrderedNodeWrapper {};
+  for (auto& V : Stores) V = OrderedNodeWrapper {};
+  std::unordered_map<uint32_t, uint32_t> Order; uint32_t Position = 0, LoadCount = 0, HandleCount = 0, ExtractCount = 0;
+  for (auto [Block, Header] : IR.GetBlocks()) for (auto [Node, H] : IR.GetCode(Block)) {
+    const auto W = IR.WrapNode(Node); Order.emplace(IR.GetID(Node).Value, ++Position);
+    if (!Exit.IsInvalid() && H->Op != OP_ENDBLOCK) return Reject("effect after exit");
+    switch (H->Op) {
+    case OP_IRHEADER: case OP_CODEBLOCK: case OP_BEGINBLOCK: case OP_ENDBLOCK:
+    case OP_GUESTOPCODE: case OP_INLINECONSTANT: case OP_CONSTANT: case OP_INLINEENTRYPOINTOFFSET: case OP_ENTRYPOINTOFFSET: break;
+    case OP_LOADREGISTER: {
+      const auto* L = H->C<IROp_LoadRegister>();
+      if (uint32_t(H->Size) != 8 || L->Class != RegClass::GPR || L->Reg >= 16 ||
+          (L->Reg != 0 && L->Reg != 2 && L->Reg != Cfg.BrokerTargetRegister) || !Loads[L->Reg].IsInvalid()) return Reject("operand read");
+      Loads[L->Reg] = W; LoadCount++; break;
+    }
+    case OP_ALLOCATEGPR:
+      if (HandleCount == 2 || uint32_t(H->Size) != 8 || !H->C<IROp_AllocateGPR>()->ForPair) return Reject("output allocation");
+      Handles[HandleCount++] = W; break;
+    case OP_UDIV:
+      if (!Divide.IsInvalid() || uint32_t(H->Size) != Cfg.BrokerWidth) return Reject("division count/width");
+      Divide = W; break;
+    case OP_BFE:
+      if (Cfg.BrokerWidth != 4 || ExtractCount == 2 || uint32_t(H->Size) != 4) return Reject("output extraction");
+      Extracts[ExtractCount++] = W; break;
+    case OP_STOREREGISTER: {
+      const auto R = PhysicalRegister(Node); const uint32_t N = R.Reg == 0 ? 0 : 1;
+      if (R.AsRegClass() != RegClass::GPRFixed || (R.Reg != 0 && R.Reg != 2) || uint32_t(H->Size) != 8 || !Stores[N].IsInvalid()) return Reject("output store");
+      Stores[N] = W; break;
+    }
+    case OP_EXITFUNCTION:
+      if (!Exit.IsInvalid()) return Reject("exit count"); Exit = W; break;
+    default: return Reject("uncovered effect");
+    }
+  }
+  auto Before = [&](OrderedNodeWrapper A, OrderedNodeWrapper B) {
+    if (A.IsInvalid() || B.IsInvalid()) return false;
+    const auto X = Order.find(IR.GetID(IR.GetNode(A)).Value), Y = Order.find(IR.GetID(IR.GetNode(B)).Value);
+    return X != Order.end() && Y != Order.end() && X->second < Y->second;
+  };
+  if (HandleCount != 2 || ExtractCount != (Cfg.BrokerWidth == 4 ? 2u : 0u) ||
+      LoadCount != (Cfg.BrokerTargetRegister == 0 || Cfg.BrokerTargetRegister == 2 ? 2u : 3u) ||
+      !Before(Loads[0], Divide) || !Before(Loads[2], Divide) || !Before(Loads[Cfg.BrokerTargetRegister], Divide) ||
+      !Before(Handles[0], Divide) || !Before(Handles[1], Divide) ||
+      !Before(Divide, Stores[0]) || !Before(Divide, Stores[1]) || !Before(Stores[0], Exit) || !Before(Stores[1], Exit)) return Reject("ordered effects");
+  const auto* D = IR.GetOp<IROp_UDiv>(Divide);
+  if (D->Lower != Loads[0] || D->Upper != Loads[2] || D->Divisor != Loads[Cfg.BrokerTargetRegister] ||
+      D->OutQuotient != Handles[0] || D->OutRemainder != Handles[1]) return Reject("division dataflow");
+  for (uint32_t N = 0; N < 2; N++) {
+    auto Value = Handles[N];
+    if (Cfg.BrokerWidth == 4) {
+      const auto* X = IR.GetOp<IROp_Bfe>(Extracts[N]);
+      if (X->Width != 32 || X->lsb || X->Src != Value || !Before(Divide, Extracts[N]) || !Before(Extracts[N], Stores[N])) return Reject("normalization dataflow");
+      Value = Extracts[N];
+    }
+    if (IR.GetOp<IROp_StoreRegister>(Stores[N])->Value != Value) return Reject("store dataflow");
+  }
+  const auto* X = IR.GetOp<IROp_ExitFunction>(Exit);
+  if (X->Hint != BranchHint::None || !X->CallReturnAddress.IsInvalid() || !X->CallReturnBlock.IsInvalid() || !Before(X->NewRIP, Exit)) return Reject("exit metadata");
+  const auto* PC = IR.GetOp<IROp_Header>(X->NewRIP); uint64_t Next;
+  if (uint32_t(PC->Size) != 8) return Reject("exit width");
+  switch (PC->Op) {
+  case OP_INLINEENTRYPOINTOFFSET: Next = EntryRIP + PC->C<IROp_InlineEntrypointOffset>()->Offset; break;
+  case OP_ENTRYPOINTOFFSET: Next = EntryRIP + PC->C<IROp_EntrypointOffset>()->Offset; break;
+  case OP_INLINECONSTANT: Next = PC->C<IROp_InlineConstant>()->Constant; break;
+  case OP_CONSTANT: Next = PC->C<IROp_Constant>()->Constant; break;
+  default: return Reject("exit PC");
+  }
+  if (Next != Cfg.BrokerNextRIP) return Reject("fallthrough");
+  return {};
+}
+
 CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConfig& Cfg) {
   OrderedNodeWrapper BrokerAddend {};
   if (Cfg.BrokerMemory) {
+    if (Cfg.BrokerOperation == 17) {
+      auto Divide = CheckBrokerDivide(IR, EntryRIP, Cfg); if (!Divide.Error.empty()) return Divide;
+    }
     if (Cfg.BrokerBitWidth || Cfg.BrokerBitRegister != 16 || Cfg.BrokerBitIndex) {
       auto Bit = CheckBrokerBitTest(IR, EntryRIP, Cfg); if (!Bit.Error.empty()) return Bit;
     }
@@ -11808,7 +11909,13 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
       case OP_ADD: case OP_SUB: case OP_AND: case OP_OR: case OP_XOR: case OP_NOT:
       case OP_LSHL: case OP_LSHR: case OP_ASHR: case OP_ADDSHIFT:
       case OP_BFE: case OP_SBFE: case OP_BFI: case OP_ORLSHL: break;
-      case OP_ALLOCATEGPR: case OP_RMWHANDLE:
+      case OP_UDIV:
+        if (Cfg.BrokerOperation != 17) return Reject(H);
+        break;
+      case OP_ALLOCATEGPR:
+        if (Cfg.BrokerOperation == 17) break; // complete output proof above
+        [[fallthrough]];
+      case OP_RMWHANDLE:
         if ((Cfg.BrokerOperation != 10 && Cfg.BrokerOperation != 14) || uint32_t(H->Size) != 8) return Reject(H);
         break;
       case OP_PUSH: {
@@ -11858,7 +11965,7 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
       case OP_STOREREGISTER: {
         auto R = PhysicalRegister(Node);
         if (Cfg.BrokerOperation == 11 || Cfg.BrokerOperation == 16 || R.AsRegClass() != RegClass::GPRFixed || R.Reg >= (Cfg.BrokerOperation >= 3 ? NUM_STATIC : 16) ||
-            (Cfg.BrokerOperation >= 9 && Cfg.BrokerOperation != 13 && Cfg.BrokerOperation != 14 && Cfg.BrokerOperation != 15 && (R.Reg != 4 || uint32_t(H->Size) != 8))) return Reject(H);
+            (Cfg.BrokerOperation >= 9 && Cfg.BrokerOperation != 13 && Cfg.BrokerOperation != 14 && Cfg.BrokerOperation != 15 && Cfg.BrokerOperation != 17 && (R.Reg != 4 || uint32_t(H->Size) != 8))) return Reject(H);
         break;
       }
       case OP_LOADCONTEXT: {

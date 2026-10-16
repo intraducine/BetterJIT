@@ -8,7 +8,7 @@ const budget=new M.BackingBudget({limitBytes:32*1024*1024}),empty=new M.GuestAdd
 let kernel,image,initial,entryStackValidation,stage='prepare';const quiesced=[],steps=[];
 function progress() {
  const t=initial?.thread,v=t?.sparse?.view,g=t&&t.tb+d.cfg.ctx+d.cfg.gregsOff;
- const result={stage,entry:image?.entry,stackPointer:image?.stackPointer,executedWasmSteps:t?.sparse?.steps,terminalStatus:t?.sparse?.terminalStatus,entryStackValidation};
+ const result={stage,entry:image?.entry,stackPointer:image?.stackPointer,executedWasmSteps:t?.sparse?.steps,terminalStatus:t?.sparse?.terminalStatus,exception:t?.sparse?.exception,entryStackValidation};
  if(v){result.rip=v.getBigUint64(t.tb+d.cfg.ctx+d.cfg.ripOff,true);for(const [name,offset]of [['rsp',32],['rdi',56],['rax',0],['rdx',16]])result[name]=v.getBigUint64(g+offset,true);
   result.instruction=P.codeBytes(image.codes,result.rip,15);}
  return result;
@@ -25,7 +25,7 @@ try {
    if(t.sparse.steps===1)P.observeEntry(entryStackValidation,last,t.sparse.view.getBigUint64(t.tb+d.cfg.ctx+d.cfg.gregsOff+56,true));
    parentPort.postMessage({op:'probe-progress',diagnostic:{...progress(),lastStep:steps.at(-1)}});
   },
-  sparseExit:t=>{assert.equal(t.sparse.terminalStatus,2);assert.equal(t.sparse.guestExitCode,undefined);},
+  sparseExit:t=>{if(t.sparse.terminalStatus!==BetterJITGuestMemoryBroker.STEP.DIVIDE_ERROR)assert.equal(t.sparse.terminalStatus,2);assert.equal(t.sparse.guestExitCode,undefined);},
   sparseGuestQuiesced:(t,r)=>{assert.equal(r.failed,false);quiesced.push(r);kernel.done=true;}
  },d.cfg);
  initial=kernel.createSparseProcess({space:image.space,entryRip:image.entry,dynamic:true,standardIO:true,standardInput:new Uint8Array(0)});initial.proc.mm.catalog={id:initial.proc.space,refs:1};
@@ -41,12 +41,12 @@ try {
  };}
  stage='execute';parentPort.postMessage({op:'spawn',spec:{...initial.worker,codes:image.codes}});kernel.run();
  stage='terminal-validation';parentPort.postMessage({op:'probe-progress',diagnostic:{...progress(),steps}});
- assert(t.sparse.executionQuiesced&&!t.sparse.retired);assert.equal(t.sparse.terminalStatus,2);assert.equal(t.sparse.guestExitCode,undefined);
+ assert(t.sparse.executionQuiesced&&!t.sparse.retired);if(t.sparse.terminalStatus!==BetterJITGuestMemoryBroker.STEP.DIVIDE_ERROR)assert.equal(t.sparse.terminalStatus,2);assert.equal(t.sparse.guestExitCode,undefined);
  assert(t.sparse.steps>0);assert.equal(quiesced.length,1);assert.equal(Atomics.load(kernel.k32,((SLOT_BASE+t.slot*SLOT_SIZE)>>2)+W_OCCUPIED),1);
  const rip=t.sparse.view.getBigUint64(t.tb+d.cfg.ctx+d.cfg.ripOff,true),instruction=image.space.executableSnapshot(rip,15),rdi=t.sparse.view.getBigUint64(g+56,true);
  if(entryStackValidation.applicable)assert.equal(entryStackValidation.verified,true,'Entry stack transfer must have been verified');
  const result={entry:image.entry,imageEntry:image.imageEntry,loadBias:image.loadBias,interpreter:image.interpreter,stackPointer:image.stackPointer,stackPointerAfter:t.sparse.view.getBigUint64(g+32,true),raxAfter:t.sparse.view.getBigUint64(g,true),rdxAfter:t.sparse.view.getBigUint64(g+16,true),phdr:image.phdr,
-  entryStackValidation,rdiAfter:rdi,status:'unsupported-instruction',guestExitCode:null,stoppedRip:rip,instruction:[...instruction],executedWasmSteps:t.sparse.steps,steps,peakGuestBackingBytes:peak,
+  entryStackValidation,rdiAfter:rdi,status:t.sparse.exception?'divide-error':'unsupported-instruction',...(t.sparse.exception?{exception:t.sparse.exception}:{}),guestExitCode:null,stoppedRip:rip,instruction:[...instruction],executedWasmSteps:t.sparse.steps,steps,peakGuestBackingBytes:peak,
   relocationsApplied:image.relocationsApplied,tlsInitialized:image.tlsInitialized,relroSealed:image.relroSealed,
   guestAccessQuiescenceAcknowledged:true,workerRetirementAcknowledged:false,internalContextsRetained:kernel.sparseContexts,internalBytesRetained:kernel.sparseContexts*33*65536};
  stage='teardown';kernel.closeSparseImage(initial.proc.mm);assert.equal(budget.stats().ownedPayloadBytes,0);assert.equal(kernel.sparseBroker.stats().threads,0);

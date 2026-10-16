@@ -1166,6 +1166,7 @@ class Kernel {
   }
 
   serviceRequests() {
+    if(this.sparseSessionStop)return this.serviceSparseSessionStop();
     let did = false;
     for(let i=0;i<MAX_SLOTS;i++) {
       const t=this.slots[i];if(!t)continue;
@@ -1181,6 +1182,10 @@ class Kernel {
       if(t.sparse) this.sparseRequest(t);
       else this.request(t);
       did=true;
+      // A terminal callback can establish the stop while servicing this slot.
+      // Do not admit a later clone/exec or release a staged READY owner after
+      // the stop captured the complete set of contexts to drain.
+      if(this.sparseSessionStop)return this.serviceSparseSessionStop()||did;
     }
     if(this.sparseClones?.size)did=this.serviceSparseClones()||did;
     if(this.sparseExecs?.size)did=this.serviceSparseExecs()||did;
@@ -1233,7 +1238,7 @@ class Kernel {
          !Number.isInteger(p.length)||p.length<1||p.length>15||p.nextRip!==p.rip+BigInt(p.length)||
          !(p.instruction instanceof Uint8Array)||p.instruction.length!==p.length||approved.has(p.rip)||
          !(([0,5,6,7,12].includes(p.operation)&&p.width===0)||([1,2,8].includes(p.operation)&&[1,2,4,8].includes(p.width))||
-           ([3,4,11,15,16].includes(p.operation)&&[4,8].includes(p.width))||([9,10,13,14].includes(p.operation)&&p.width===8)))
+           ([3,4,11,15,16,17].includes(p.operation)&&[4,8].includes(p.width))||([9,10,13,14].includes(p.operation)&&p.width===8)))
         throw new Error('Invalid admitted instruction metadata');
       const actual=space.executableSnapshot(p.rip,p.length);
       if(!actual.every((x,i)=>x===p.instruction[i]))throw new Error('Executable bytes differ from the compiled step');
@@ -1241,7 +1246,8 @@ class Kernel {
         sourceRegister:p.operation===B.OP.JUMP_REGISTER?B.jumpSourceRegister(p):undefined,
         stackRegister:[B.OP.PUSH_REGISTER,B.OP.POP_REGISTER].includes(p.operation)?B.stackRegister(p):undefined,
         addMemoryOperand:p.operation===B.OP.ADD_REGISTER_MEMORY?B.addMemoryOperand(p):undefined,
-        orMemoryOperand:p.operation===B.OP.OR_MEMORY?B.orMemoryOperand(p):undefined,instruction:p.instruction.slice()}));
+        orMemoryOperand:p.operation===B.OP.OR_MEMORY?B.orMemoryOperand(p):undefined,
+        divisionOperand:p.operation===B.OP.DIV_REGISTER?B.divisionOperand(p):undefined,instruction:p.instruction.slice()}));
     }
     if(dynamic)space.executableSnapshot(entryRip,1);
     if((!dynamic&&!approved.has(entryRip))||!(this.host.state instanceof Uint8Array)||this.host.state.length!==this.cfg.stateSize)
@@ -1283,11 +1289,13 @@ class Kernel {
       s.boundarySequence=Number(seq);
       const phase=Number(this.k64[b64+4]);
       if(phase===1) {
+        if(s.divideCompletion)throw new Error('Sparse DIVIDE_ERROR requires terminal completion');
+        s.divideCompletion=null;
         // Signal frame/snapshot semantics are not implemented for this fixture.
         // Refuse at this safe boundary; never deliver while Wasm locals live.
         if(this.freezing||t.pending||t.proc.pending)throw new Error('Sparse signals/snapshots are unsupported');
         const plan=this.sparsePlan(t),rip=plan.rip;
-        const generation=this.sparseBroker.beginInstruction(s.token,{rip,operation:plan.operation,width:plan.width,continuations:plan.continuations,nextRip:plan.nextRip,sourceRegister:plan.sourceRegister,stackRegister:plan.stackRegister,addMemoryOperand:plan.addMemoryOperand,orMemoryOperand:plan.orMemoryOperand});
+        const generation=this.sparseBroker.beginInstruction(s.token,{rip,operation:plan.operation,width:plan.width,continuations:plan.continuations,nextRip:plan.nextRip,sourceRegister:plan.sourceRegister,stackRegister:plan.stackRegister,addMemoryOperand:plan.addMemoryOperand,orMemoryOperand:plan.orMemoryOperand,divisionOperand:plan.divisionOperand});
         s.active=plan;
         view.setBigUint64(scratch+B.FIELD.checkpoint,generation,true);
         view.setBigUint64(scratch+B.FIELD.checkpointRip,rip,true);
@@ -1301,6 +1309,7 @@ class Kernel {
         }
         s.last=this.sparseBroker.finishInstruction(s.token,{status,nextRip:s.active.nextRip});
         status=s.last.status;
+        if(status===B.STEP.DIVIDE_ERROR)s.divideCompletion=Object.freeze({token:s.token,lease,sequence:seq,result:s.last});
         s.active=null;s.steps++;
         if(status===B.STEP.SYSCALL) {
           s.syscalls++;
@@ -1313,7 +1322,14 @@ class Kernel {
       } else if(phase===3) {
         if(s.active||s.parked||s.clonePending||s.waitPending||s.execPending)throw new Error('Sparse exit during an instruction or parked syscall');
         const status=Number(this.k64[b64+5]);
-        if(![0,1,2].includes(status))throw new Error('Invalid sparse terminal status');
+        const divide=s.divideCompletion;
+        if(status===B.STEP.DIVIDE_ERROR){
+          if(!divide||divide.token!==s.token||divide.lease!==lease||divide.sequence+1n!==seq||divide.result!==s.last||
+             s.last.status!==status||s.last.exception?.kind!=='divide-error'||s.last.exception.vector!==0||
+             s.last.rip!==s.last.exception.rip||view.getBigUint64(t.tb+this.cfg.ctx+this.cfg.ripOff,true)!==s.last.rip||
+             s.guestExitCode!==undefined)throw new Error('Unowned sparse DIVIDE_ERROR terminal status');
+          s.exception=s.last.exception;
+        }else if(![0,1,2].includes(status)||divide)throw new Error('Invalid sparse terminal status');
         s.terminalStatus=status;t.proc.exitStatus=status;
         this.sparseBroker.unregister(s.token);t.dead=true;t.proc.zombie=[...t.proc.threads.values()].every(th=>th.dead);
         if(t.proc.zombie&&s.guestExitCode!==undefined)t.proc.sparseGuestExit={lastThreadCode:s.guestExitCode};
@@ -1333,6 +1349,43 @@ class Kernel {
     const state=Atomics.load(this.k32,b*2);
     return Atomics.load(this.k32,b*2+W_OCCUPIED)!==0&&[S_BUSY,globalThis.BetterJITGuestMemoryBroker.ABI.parkedState].includes(state)&&
       BigInt.asUintN(64,this.k64[b+2])===lease&&this.k64[b+3]===seq;
+  }
+  // A typed CPU exception stops this bounded session; it is not a delivered
+  // Linux signal or a normal wait status. Drain every published/staged owner
+  // before unregistering checkpoints, closing guest storage or dropping IR.
+  stopSparseSession(t) {
+    const B=globalThis.BetterJITGuestMemoryBroker;
+    if(this.sparseSessionStop||this.host.sparseRetainInternalContexts!==true||!t.dead||
+       t.sparse.terminalStatus!==B.STEP.DIVIDE_ERROR||t.sparse.exception!==t.sparse.divideCompletion?.result.exception)
+      throw new Error('Owned sparse divide-error session stop required');
+    const contexts=new Set([...this.threads.values(),...(this.sparseRetiredContexts??[])]),images=new Set([...this.procs.values()].map(p=>p.mm));
+    for(const r of this.sparseClones?.values()??[]){contexts.add(r.made.thread);images.add(r.made.proc.mm);}
+    for(const r of this.sparseExecs?.values()??[]){contexts.add(r.old);contexts.add(r.made.thread);images.add(r.oldMM);images.add(r.mm);}
+    const record={origin:t,exception:t.sparse.exception,contexts:[...contexts],images:[...images],stopped:new Set()};
+    this.sparseSessionStop=record;
+    for(const other of record.contexts)if(other!==t&&!this.sparseExecutionEnded(other))this.host.stopSparseThread({slot:other.slot,lease:other.sparse.token.generation});
+  }
+  serviceSparseSessionStop() {
+    const r=this.sparseSessionStop;let did=false;
+    for(const t of r.contexts){
+      if(r.stopped.has(t))continue;
+      if(!this.sparseExecutionEnded(t)){
+        if(this.sparseWorkerActive(t))continue;
+        const failed=!t.dead;this.sparseBroker.unregister(t.sparse.token);t.sparse.active=null;t.sparse.parked=null;
+        this.markSparseExecutionEnded(t);t.dead=true;
+        if(this.slots[t.slot]===t)this.slots[t.slot]=null;
+        Atomics.store(this.k32,(SLOT_BASE+t.slot*SLOT_SIZE)>>2,S_IDLE);
+        this.host.sparseGuestQuiesced?.(t,{failed,sessionStopped:true});
+      }
+      r.stopped.add(t);did=true;
+    }
+    if(r.stopped.size!==r.contexts.length)return did;
+    for(const entry of this.sparseClones?.values()??[])entry.timer.dead=true;
+    for(const entry of this.sparseExecs?.values()??[])entry.timer.dead=true;
+    this.sparseClones?.clear();this.sparseExecs?.clear();this.sparseWaits?.clear();
+    for(const p of new Set(r.contexts.map(t=>t.proc))){this.closeSparseOutputs(p);p.zombie=true;}
+    for(const mm of r.images)this.closeSparseImage(mm);
+    this.done=true;return true;
   }
   sparseGuestQuiesced(t) {
     if(this.host.sparseRetainInternalContexts!==true)return false;

@@ -4,7 +4,7 @@
   'use strict';
   const storage=root.BetterJITGuestMemory;
   if(!storage||storage.STORAGE_VERSION!==1)throw new Error('Guest storage contract 1 required');
-  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:3,coverageVersion:21,stepHeaderBytes:96,
+  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:4,coverageVersion:22,stepHeaderBytes:96,
     magic:0x314d4a42,internalPages:33,threadBase:0x10000,threadBytes:0x200000,
     scratchOffset:0x1f0000,scratchBytes:128,memoryRequest:0x10003,instructionBoundary:0x10004,maximumThreads:8,parkedState:4,
     userCopyBytes:65536});
@@ -12,8 +12,8 @@
     address:32,rip:40,checkpoint:48,operand0:56,operand1:64,result0:72,result1:80,faultAddress:88,
     checkpointRip:96,nextRip:104,completedSequence:112,boundaryControl:116,lease:120});
   const STATUS=Object.freeze({OK:0,FAULT:1,UNSUPPORTED:2});
-  const OP=Object.freeze({READ:1,WRITE:2,CAS:3,FETCH_ADD:4,SYSCALL:5,FLAGS:6,BRANCH:7,READ_FLAGS:8,CALL:9,RETURN:10,ADD_MEMORY:11,JUMP_REGISTER:12,PUSH_REGISTER:13,POP_REGISTER:14,ADD_REGISTER_MEMORY:15,OR_MEMORY:16});
-  const STEP=Object.freeze({OK:0,FAULT:1,UNSUPPORTED:2,SYSCALL:3});
+  const OP=Object.freeze({READ:1,WRITE:2,CAS:3,FETCH_ADD:4,SYSCALL:5,FLAGS:6,BRANCH:7,READ_FLAGS:8,CALL:9,RETURN:10,ADD_MEMORY:11,JUMP_REGISTER:12,PUSH_REGISTER:13,POP_REGISTER:14,ADD_REGISTER_MEMORY:15,OR_MEMORY:16,DIV_REGISTER:17});
+  const STEP=Object.freeze({OK:0,FAULT:1,UNSUPPORTED:2,SYSCALL:3,DIVIDE_ERROR:5});
   // Host startup gate / spilled syscall completion, separate from native step exits.
   const LIFECYCLE=Object.freeze({version:1,PENDING:0,READY:1,RUN:2,CANCEL:3,FAILED:4,syscallExit:4});
   const REASON=Object.freeze({NONE:0,RANGE:1,UNMAPPED:2,PROTECTION:3,ALIGNMENT:4,ALLOCATION:5,
@@ -37,6 +37,7 @@
     if(p.operation===OP.PUSH_REGISTER||p.operation===OP.POP_REGISTER){stackRegister(p);return Object.freeze([p.nextRip]);}
     if(p.operation===OP.ADD_REGISTER_MEMORY){addMemoryOperand(p);return Object.freeze([p.nextRip]);}
     if(p.operation===OP.OR_MEMORY){orMemoryOperand(p);return Object.freeze([p.nextRip]);}
+    if(p.operation===OP.DIV_REGISTER){divisionOperand(p);return Object.freeze([p.nextRip]);}
     if(p.operation===OP.CALL) {
       const b=p.instruction;
       if(b.length!==5||b[0]!==0xe8||kind!==3||p.width!==8)throw new TypeError('Invalid direct call metadata');
@@ -60,6 +61,13 @@
     else throw new TypeError('Uncovered branch instruction');
     if(kind!==flow||typeof target!=='bigint'||target!==BigInt.asUintN(64,p.nextRip+offset))throw new TypeError('Invalid branch continuation');
     return Object.freeze(kind===1?[target]:[p.nextRip,target]);
+  }
+  function divisionOperand(p) {
+    const b=p.instruction,i=b?.length===3&&b[0]>=0x40&&b[0]<=0x4f?1:0,rex=i?b[0]:0;
+    if(!(b instanceof Uint8Array)||b.length!==i+2||b[i]!==0xf7||(b[i+1]&0xf8)!==0xf0||
+       p.operation!==OP.DIV_REGISTER||p.width!==((rex&8)?8:4)||p.continuationKind!==0||p.branchTarget!==0n||
+       !canonical(p.rip)||p.nextRip!==p.rip+BigInt(b.length)||!canonical(p.nextRip))throw new TypeError('Invalid register DIV metadata');
+    return Object.freeze({register:(b[i+1]&7)+((rex&1)?8:0),length:b.length});
   }
   function addMemoryOperand(p) {
     return memoryArithmeticOperand(p,OP.ADD_REGISTER_MEMORY,0x03,'register memory ADD');
@@ -105,13 +113,13 @@
     if(![0,2].includes(status)||
        (status===2&&(size||length))||(status===0&&(!size||length<1||length>15||nextRip!==rip+BigInt(length)||
          !(([0,5,6,7,12].includes(operation)&&width===0)||([1,2,8].includes(operation)&&[1,2,4,8].includes(width))||
-           ([3,4,11,15,16].includes(operation)&&[4,8].includes(width))||([9,10,13,14].includes(operation)&&width===8)))))
+           ([3,4,11,15,16,17].includes(operation)&&[4,8].includes(width))||([9,10,13,14].includes(operation)&&width===8)))))
       throw new Error('Invalid broker step metadata');
     if(v.getUint32(92,true)!==0)throw new Error('Invalid broker step reserved field');
     const result={status,operation,width,rip,nextRip,length,hash:v.getBigUint64(48,true),
       continuationKind:v.getUint32(88,true),branchTarget:v.getBigUint64(80,true),
       instruction:bytes.slice(64,64+length),codeBytes:size};
-    if(status===0)try{result.continuations=instructionContinuations(result);if(operation===OP.JUMP_REGISTER)result.sourceRegister=jumpSourceRegister(result);if([OP.PUSH_REGISTER,OP.POP_REGISTER].includes(operation))result.stackRegister=stackRegister(result);if(operation===OP.ADD_REGISTER_MEMORY)result.addMemoryOperand=addMemoryOperand(result);if(operation===OP.OR_MEMORY)result.orMemoryOperand=orMemoryOperand(result);}catch(error){throw new Error('Invalid broker continuation metadata: '+error.message);}
+    if(status===0)try{result.continuations=instructionContinuations(result);if(operation===OP.JUMP_REGISTER)result.sourceRegister=jumpSourceRegister(result);if([OP.PUSH_REGISTER,OP.POP_REGISTER].includes(operation))result.stackRegister=stackRegister(result);if(operation===OP.ADD_REGISTER_MEMORY)result.addMemoryOperand=addMemoryOperand(result);if(operation===OP.OR_MEMORY)result.orMemoryOperand=orMemoryOperand(result);if(operation===OP.DIV_REGISTER)result.divisionOperand=divisionOperand(result);}catch(error){throw new Error('Invalid broker continuation metadata: '+error.message);}
     return result;
   }
 
@@ -240,19 +248,23 @@
     }
     // Called at a safe boundary after native code has spilled the full CPU state.
     // operation/width must come from compile-time admission, never guest input.
-    beginInstruction(token,{rip,operation=0,width=0,continuations,nextRip,sourceRegister,stackRegister,addMemoryOperand,orMemoryOperand}) {
+    beginInstruction(token,{rip,operation=0,width=0,continuations,nextRip,sourceRegister,stackRegister,addMemoryOperand,orMemoryOperand,divisionOperand}) {
       const s=requireOwner(this,token);rip=u64(rip);
       if(s.preparedCopies.size)throw new BrokerInvariantError('Prepared copyout must complete before BEGIN');
       if(s.active||s.waits.size)invariant(s,'Instruction already active or parked');
       s.spilledSyscall=false;s.syscallCheckpoint=null;
       if(!(([0,OP.SYSCALL,OP.FLAGS,OP.BRANCH,OP.JUMP_REGISTER].includes(operation)&&width===0)||([OP.READ,OP.WRITE,OP.READ_FLAGS].includes(operation)&&[1,2,4,8].includes(width))||
-           ([OP.CAS,OP.FETCH_ADD,OP.ADD_MEMORY,OP.ADD_REGISTER_MEMORY,OP.OR_MEMORY].includes(operation)&&[4,8].includes(width))||([OP.CALL,OP.RETURN,OP.PUSH_REGISTER,OP.POP_REGISTER].includes(operation)&&width===8)))
+           ([OP.CAS,OP.FETCH_ADD,OP.ADD_MEMORY,OP.ADD_REGISTER_MEMORY,OP.OR_MEMORY,OP.DIV_REGISTER].includes(operation)&&[4,8].includes(width))||([OP.CALL,OP.RETURN,OP.PUSH_REGISTER,OP.POP_REGISTER].includes(operation)&&width===8)))
         throw new TypeError('Unsupported instruction admission');
       if(operation===OP.BRANCH||operation===OP.CALL) {
         if(!Array.isArray(continuations)||continuations.length<1||continuations.length>2)throw new TypeError('Finite branch continuations required');
         continuations=Object.freeze(continuations.map(u64));
       }
       let stackBefore,stackAfter;
+      if(operation===OP.DIV_REGISTER&&(s.layout.generalRegistersOffset===undefined||!divisionOperand||
+         !Number.isInteger(divisionOperand.register)||divisionOperand.register<0||divisionOperand.register>=16||
+         ![2,3].includes(divisionOperand.length)||!canonical(rip)||!canonical(nextRip)||nextRip!==rip+BigInt(divisionOperand.length)||
+         !Array.isArray(continuations)||continuations.length!==1||continuations[0]!==nextRip))throw new TypeError('Checked register DIV metadata required');
       const readAdd=operation===OP.ADD_REGISTER_MEMORY,memoryOr=operation===OP.OR_MEMORY,o=readAdd?addMemoryOperand:orMemoryOperand;
       if((readAdd||memoryOr)&&(s.layout.generalRegistersOffset===undefined||!s.layout.arithmeticFlags||!o||
          !['register','base','index'].every(n=>Number.isInteger(o[n])&&o[n]>=(n==='register'?0:-1)&&o[n]<16)||
@@ -291,7 +303,10 @@
       let stackValue;
       if(registerStack){const cpu=new DataView(snapshot[0].bytes.buffer);stackBefore=cpu.getBigUint64(s.layout.generalRegistersOffset+32,true);
         stackAfter=stackBefore+(operation===OP.PUSH_REGISTER?-8n:8n);stackValue=cpu.getBigUint64(s.layout.generalRegistersOffset+stackRegister*8,true);}
-      s.active={rip,generation:++s.checkpoint,operation,width,continuations,snapshot,result:null,nextRip,stackBefore,stackAfter,jumpTarget,stackRegister,stackValue,memoryAdd,memoryOR};return s.checkpoint;
+      let division;
+      if(operation===OP.DIV_REGISTER){const cpu=new DataView(snapshot[0].bytes.buffer),reg=n=>BigInt.asUintN(width*8,cpu.getBigUint64(s.layout.generalRegistersOffset+n*8,true)),low=reg(0),high=reg(2),divisor=reg(divisionOperand.register);
+        division=Object.freeze({low,high,divisor,reason:divisor===0n?'zero-divisor':high>=divisor?'quotient-overflow':null});}
+      s.active={rip,generation:++s.checkpoint,operation,width,continuations,snapshot,result:null,nextRip,stackBefore,stackAfter,jumpTarget,stackRegister,stackValue,memoryAdd,memoryOR,division};return s.checkpoint;
     }
     // The caller uses its authenticated thread record's token, not a request PID.
     // This synchronous route has no syscall, signal, redirect or await callbacks.
@@ -402,16 +417,29 @@
     finishInstruction(token,{status,nextRip}) {
       const s=requireOwner(this,token),a=s.active;
       if(!a)invariant(s,'No instruction checkpoint');
+      let exception=null;
       if(status===STEP.OK) {
+        if(a.division?.reason)invariant(s,'DIV succeeded despite an architectural divide error');
         const control=[OP.BRANCH,OP.CALL,OP.RETURN,OP.JUMP_REGISTER].includes(a.operation);
         nextRip=control?cpuRip(s):u64(nextRip);
         if(([OP.BRANCH,OP.CALL].includes(a.operation)&&!a.continuations.includes(nextRip))||
            ([OP.RETURN,OP.JUMP_REGISTER].includes(a.operation)&&nextRip!==a.result?.data)||
            ([OP.CALL,OP.RETURN].includes(a.operation)&&s.view.getBigUint64(s.layout.stackAddress,true)!==a.stackAfter)||
            ([OP.READ,OP.WRITE,OP.CAS,OP.FETCH_ADD,OP.READ_FLAGS,OP.CALL,OP.RETURN,OP.ADD_MEMORY,OP.JUMP_REGISTER,OP.PUSH_REGISTER,OP.POP_REGISTER,OP.ADD_REGISTER_MEMORY,OP.OR_MEMORY].includes(a.operation)&&a.result?.status!==STATUS.OK)||
-           ([0,OP.FLAGS,OP.BRANCH].includes(a.operation)&&a.result)||
+           ([0,OP.FLAGS,OP.BRANCH,OP.DIV_REGISTER].includes(a.operation)&&a.result)||
            a.operation===OP.SYSCALL||cpuRip(s)!==nextRip)
           invariant(s,'Full successful post-state was not spilled');
+        if(a.operation===OP.DIV_REGISTER){
+          if(nextRip!==a.nextRip)invariant(s,'Register DIV fallthrough changed');
+          const dividend=(a.division.high<<BigInt(a.width*8))|a.division.low;
+          for(const p of a.snapshot){const expected=p.bytes.slice();
+            if(p.offset===s.layout.spans[0].offset){const cpu=new DataView(expected.buffer);
+              cpu.setBigUint64(s.layout.ripAddress-ABI.threadBase-p.offset,a.nextRip,true);
+              cpu.setBigUint64(s.layout.generalRegistersOffset,dividend/a.division.divisor,true);
+              cpu.setBigUint64(s.layout.generalRegistersOffset+16,dividend%a.division.divisor,true);}
+            if(!new Uint8Array(s.memory.buffer,ABI.threadBase+p.offset,expected.length).every((v,i)=>v===expected[i]))invariant(s,'Register DIV changed unexpected checkpoint state');
+          }
+        }
         if(a.operation===OP.OR_MEMORY) {
           if(nextRip!==a.nextRip)invariant(s,'OR memory fallthrough changed');
           const result=BigInt.asUintN(a.width*8,a.result.data|a.memoryOR.sourceValue),flags=s.layout.arithmeticFlags;
@@ -476,6 +504,13 @@
       } else if(status===STEP.SYSCALL) {
         nextRip=u64(nextRip);
         if(a.operation!==OP.SYSCALL||a.result||cpuRip(s)!==nextRip)invariant(s,'Invalid spilled syscall boundary');
+      } else if(status===STEP.DIVIDE_ERROR) {
+        if(a.operation!==OP.DIV_REGISTER||!a.division?.reason||a.result)invariant(s,'DIVIDE_ERROR without an owned failing DIV');
+        // Check before restoration: a trap or partial result cannot masquerade
+        // as the emitter's write-free typed exit.
+        for(const p of a.snapshot)if(!new Uint8Array(s.memory.buffer,ABI.threadBase+p.offset,p.bytes.length).every((v,i)=>v===p.bytes[i]))invariant(s,'DIVIDE_ERROR changed checkpoint state');
+        restore(s);nextRip=a.rip;
+        exception=Object.freeze({kind:'divide-error',vector:0,reason:a.division.reason,rip:a.rip});
       } else if(status===STEP.FAULT) {
         if(a.result?.status!==STATUS.FAULT)invariant(s,'STEP_FAULT without a typed memory fault');
         restore(s);nextRip=a.rip;
@@ -483,7 +518,7 @@
         if(a.result&&a.result.status!==STATUS.UNSUPPORTED)invariant(s,'Unsupported instruction after a memory effect');
         restore(s);nextRip=a.rip;
       } else invariant(s,'Unknown step result');
-      const result=Object.freeze({status,rip:nextRip,memory:a.result});
+      const result=Object.freeze({status,rip:nextRip,memory:a.result,...(exception?{exception}:{})});
       s.active=null;s.spilledSyscall=status===STEP.SYSCALL;s.syscallCheckpoint=s.spilledSyscall?a:null;return result;
     }
     // Refuse a prepared-but-unsupported exec before any irreversible effect.
@@ -574,6 +609,6 @@
         faults:b.faults,unsupported:b.unsupported,rejected:b.rejected});
     }
   }
-  root.BetterJITGuestMemoryBroker=Object.freeze({ABI,FIELD,STATUS,REASON,OP,STEP,LIFECYCLE,jumpSourceRegister,stackRegister,addMemoryOperand,orMemoryOperand,instructionContinuations,parseStepHeader,createInternalMemory,
+  root.BetterJITGuestMemoryBroker=Object.freeze({ABI,FIELD,STATUS,REASON,OP,STEP,LIFECYCLE,jumpSourceRegister,stackRegister,addMemoryOperand,orMemoryOperand,divisionOperand,instructionContinuations,parseStepHeader,createInternalMemory,
     BrokerInvariantError,UserCopyUnsupported,GuestMemoryBroker});
 })(typeof globalThis!=='undefined'?globalThis:self);

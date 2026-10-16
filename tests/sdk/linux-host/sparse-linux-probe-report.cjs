@@ -46,14 +46,15 @@ function resourceTelemetryInfo(context) {
   return out;
 }
 function validateCompletion(result,minimumSteps,budget) {
-  assert.equal(result.status,'unsupported-instruction');assert.equal(result.guestExitCode,null);
+  assert(['unsupported-instruction','divide-error'].includes(result.status));assert.equal(result.guestExitCode,null);
+  if(result.status==='divide-error'){assert.equal(result.exception?.kind,'divide-error');assert.equal(result.exception.vector,0);assert(['zero-divisor','quotient-overflow'].includes(result.exception.reason));assert.equal(typeof result.exception.rip,'bigint');assert.equal(result.exception.rip,result.stoppedRip);}
   assert(Number.isSafeInteger(result.executedWasmSteps)&&result.executedWasmSteps>=minimumSteps&&result.executedWasmSteps>0);
   assert(result.executedWasmSteps<=budget.maximumSteps,'Probe completion exceeded its execution budget');
 }
-function validateNative(native,executedWasmSteps) {
+function validateNative(native,executedWasmSteps,status='unsupported-instruction') {
   // Successful single-instruction translations may execute repeatedly from the host cache.
   assert(Number.isSafeInteger(native.units)&&native.units>=1&&native.units<=executedWasmSteps);
-  assert.equal(native.guestInsts,native.units);assert.equal(native.failed,1);
+  assert.equal(native.guestInsts,native.units);assert.equal(native.failed,status==='divide-error'?0:1);
 }
 function codeBytes(codes,rip,maximum) {
   const code=codes.find(c=>rip>=c.address&&rip-c.address<BigInt(c.bytes.length));
@@ -120,7 +121,8 @@ function progressInfo(value) {
   const out={stage:clean(value.stage,64)};
   for(const key of ['entry','rip','stackPointer','rsp','rdi','rax','rdx','stackPointerAfter','rdiAfter','raxAfter','rdxAfter','executedWasmSteps','terminalStatus','guestAccessQuiescenceAcknowledged','workerRetirementAcknowledged','internalContextsRetained','internalBytesRetained'])
     if(['bigint','number','boolean'].includes(typeof value[key]))out[key]=value[key];
-  if(value.status==='unsupported-instruction')out.status=value.status;
+  if(['unsupported-instruction','divide-error'].includes(value.status))out.status=value.status;
+  if(value.exception?.kind==='divide-error'&&value.exception.vector===0&&['zero-divisor','quotient-overflow'].includes(value.exception.reason)&&typeof value.exception.rip==='bigint')out.exception={kind:'divide-error',vector:0,reason:value.exception.reason,rip:value.exception.rip};
   if(value.guestExitCode===null||Number.isInteger(value.guestExitCode))out.guestExitCode=value.guestExitCode;
   const check=value.entryStackValidation;
   if(check){out.entryStackValidation={applicable:check.applicable===true,verified:check.verified===true,reason:clean(check.reason,64)};

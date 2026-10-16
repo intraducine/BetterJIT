@@ -7,6 +7,7 @@ const resources=path.resolve(__dirname,'../../../Sources/BetterJITLinux/Resource
 for(const n of ['guest_memory','guest_memory_broker','thread_core'])vm.runInThisContext(fs.readFileSync(path.join(resources,'linux',n+'.js'),'utf8'));
 vm.runInThisContext(fs.readFileSync(path.join(resources,'linux/web/sparse_process_host.js'),'utf8'));
 function inputs(location) {
+ if(location==='--synthetic-divide-error'){const F=require('./sparse-linux-image-fixture.cjs'),interpreter=F.image({interpreter:true});interpreter.set([0x48,0x89,0xe7,0xb8,7,0,0,0,0xba,0,0,0,0,0xb9,0,0,0,0,0xf7,0xf1],0x1000);return{path:'/test/synthetic-divide-error',elf:F.image(),interpreterPath:F.INTERP,interpreter,evidence:'Synthetic ELF interpreter ending at a precise typed divide error; no Linux SIGFPE delivery, normal guest exit or Wine claim.',minimumSteps:5};}
  if(location==='--synthetic-nops') {const F=require('./sparse-linux-image-fixture.cjs');return {path:'/test/synthetic-nops',elf:F.image(),interpreterPath:F.INTERP,interpreter:F.image({interpreter:true,calls:true,extensions:true,nops:true}),evidence:'Synthetic ELF interpreter with six architectural NOPs, accumulator extensions and nested direct calls; not Wine or a real libc.',minimumSteps:19,expectedSteps:19,expectedRax:'0xffffffffffffff80',expectedRdx:'0xffffffffffffffff'};}
  if(location==='--synthetic-extensions') {const F=require('./sparse-linux-image-fixture.cjs');return {path:'/test/synthetic-extensions',elf:F.image(),interpreterPath:F.INTERP,interpreter:F.image({interpreter:true,calls:true,extensions:true}),evidence:'Synthetic ELF interpreter with all six accumulator extensions and nested direct calls; not Wine or a real libc.',minimumSteps:13,expectedSteps:13,expectedRax:'0xffffffffffffff80',expectedRdx:'0xffffffffffffffff'};}
  if(location==='--synthetic-calls') {const F=require('./sparse-linux-image-fixture.cjs');return {path:'/test/synthetic-calls',elf:F.image(),interpreterPath:F.INTERP,interpreter:F.image({interpreter:true,calls:true}),evidence:'Synthetic ELF interpreter with nested direct calls and checked returns; not Wine or a real libc.',minimumSteps:6,expectedSteps:6};}
@@ -80,7 +81,7 @@ async function probe(selectInput,output,connect=serve) {
     context.stage='native-configuration';const cfg=context.cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());
     context.stage='execute';const result=await execute(get,cfg,state,input,context);
     context.stage='native-validation';const native=context.native=await(await get('/xlat/totals')).json();
-    P.validateNative(native,result.executedWasmSteps);
+    P.validateNative(native,result.executedWasmSteps,result.status);
     return {evidence:input.evidence,provenance:input.provenance,input:P.inputIdentity(input),cfg,native,result};
    } catch(error) {
     try{context.native=await(await get('/xlat/totals')).json();}catch(nativeError){context.nativeError=nativeError;}

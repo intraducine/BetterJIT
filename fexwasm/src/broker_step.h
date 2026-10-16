@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 21;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 4, Coverage = 22;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
@@ -132,6 +132,8 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
     if (ImmediateBytes > Size - I) return {};
     return {true, 6, 0, 0, false, uint32_t(I + ImmediateBytes), 0};
   }
+  if (!Word && !Segment && !Lock && Op == 0xf7 && I < Size && (Bytes[I] & 0xf8) == 0xf0)
+    return {true, 17, Width, 0, false, uint32_t(I + 1), uint32_t((Bytes[I] & 7) + ((Rex & 1) ? 8 : 0))};
   if (!Segment && !Lock && (Op == 0xa8 || Op == 0xa9 || Op == 0xf6 || Op == 0xf7)) {
     // Immediate TEST never writes its register operand. F6/F7 admit /0 and
     // register ModRM only; the vendor's /1 alias and all memory forms stay out.

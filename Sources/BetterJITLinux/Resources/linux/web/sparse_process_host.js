@@ -106,7 +106,7 @@
        // Before RUN, the authority can cancel this exact staged image and
        // return errno/UNSUPPORTED after its receipt. Never fabricate status.
        if(d.startGate&&Atomics.load(new Int32Array(d.startGate),0)!==2){Atomics.store(new Int32Array(d.startGate),0,4);this.notify(d);}
-       else this.onFailure(Error(m.message));
+       else {r.uncertain=true;this.onFailure(Error(m.message));}
       }
       this.ack(r);
      }

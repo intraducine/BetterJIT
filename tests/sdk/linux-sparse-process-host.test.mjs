@@ -28,6 +28,13 @@ test('cooperative stop waits for every owned translation promise after the worke
 test('a certified pre-RUN worker failure is owned by kernel rollback, never a fake guest exit',async()=>{
  const f=fixture(),d={...spec(),startGate:new SharedArrayBuffer(16)};f.host.spawn(d);await tick();f.workers[0].onmessage({data:{op:'failure',message:'startup unavailable',lease:d.lease,slot:d.slot,tid:d.tid,pendingRequests:0}});assert.equal(new Int32Array(d.startGate)[0],4);assert.equal(new Int32Array(d.quiescence)[0],3);assert.equal(f.errors.length,0);f.host.close();
 });
+test('an unexpected post-RUN Wasm failure cannot publish quiescence or release its native catalogue',async()=>{
+ const f=fixture(),d=spec();f.host.spawn(d);await tick();f.workers[0].onmessage({data:{op:'failure',message:'RuntimeError: integer divide by zero',lease:d.lease,slot:d.slot,tid:d.tid,pendingRequests:0}});
+ assert.equal(f.errors.length,1);assert.equal(new Int32Array(d.quiescence)[0],0);assert.equal(f.host.history[0].uncertain,true);assert.equal(f.host.history[0].acked,false);assert.throws(()=>f.host.drop({space:1}),/before guest\/native drain/);f.host.close();
+});
+test('owned typed divide-error run-loop return can drain without becoming a guest exit code',async()=>{
+ const results=[],f=fixture(undefined,{onResult:m=>results.push(m.result)}),d=spec();f.host.spawn(d);await tick();result(f.workers[0],d,{result:{status:5,executed:1,rip:4096n}});assert.equal(results[0].status,5);assert.equal(results[0].guestExitCode,undefined);assert.equal(new Int32Array(d.quiescence)[0],1);assert.equal(f.errors.length,0);f.host.drop({space:1});await Promise.all(f.host.drops);f.host.close();
+});
 
 test('rollback before spawn never sends a drop for an unowned namespace',()=>{let requests=0;const f=fixture(async()=>{requests++;return{ok:true};});f.host.drop({space:42});assert.equal(requests,0);f.host.close();});
 

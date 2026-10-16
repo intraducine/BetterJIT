@@ -12,7 +12,7 @@ onmessage=({data:d})=>{onmessage=null;
   let terminal;
   ownedKernel=new Kernel({state:d.state,vfs:{},log:()=>{},sparseLifecycleVersion:5,sparseProcessLifecycle:false,
    writeSparseOutput:({fd,bytes})=>{postMessage({op:'output',fd,bytes});return bytes.length;},
-   sparseExit:t=>{terminal={status:t.sparse.terminalStatus,guestExitCode:t.sparse.guestExitCode,unsupported:t.sparse.unsupported};ownedKernel.done=true;}
+   sparseExit:t=>{terminal={status:t.sparse.terminalStatus,guestExitCode:t.sparse.exception?null:t.sparse.guestExitCode,unsupported:t.sparse.unsupported,exception:t.sparse.exception};ownedKernel.done=true;}
   },d.cfg);
   const a=ownedKernel.createSparseProcess({space:ownedImage.space,entryRip:ownedImage.entry,dynamic:true,standardIO:true,standardInput:d.input});
   const inputFile=a.proc.fds.get(0).file;

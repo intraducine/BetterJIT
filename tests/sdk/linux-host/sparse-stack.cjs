@@ -9,7 +9,7 @@ function oracle(){if(process.platform!=='linux'||process.arch!=='x64')return{sup
 async function main(){const nativeOracle=oracle(),records=[],failures=[],refusals=[];let checks=0,executedWasmSteps=0;
  for(const row of golden){assert.equal(row.flagsBefore,row.flagsAfter);for(const k of ['otherGPRsPreserved','stackPointerCorrect','dataCorrect','memoryCorrect'])assert.equal(row[k],true);}
  await serve('guestmem=broker1',async(get,log)=>{
- const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.coverageVersion,21);let pos=0n;
+ const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.coverageVersion,22);let pos=0n;
  async function request(bytes,rip=CODE+(pos+=32n)){await get('/xlat/code?addr='+rip.toString(16),{method:'POST',body:Uint8Array.from(bytes)});return FexLinuxThread.parseBrokerStep(new Uint8Array(await(await get('/xlat/step?rip='+rip)).arrayBuffer()));}
  async function compile(bytes,rip){const u=await request(bytes,rip);assert.equal(u.status,0,[...bytes]+': '+log());u.module=await WebAssembly.compile(u.code);assert(WebAssembly.Module.imports(u.module).every(i=>i.module==='e'&&['mem','tb','memory'].includes(i.name)));return u;}
  const add=await compile([0x83,0xc0,1]),syscall=await compile([0x0f,0x05]),units=[];

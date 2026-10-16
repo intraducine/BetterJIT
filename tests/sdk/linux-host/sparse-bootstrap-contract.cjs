@@ -19,6 +19,10 @@ async function main(){try{
   records.push({mode,steps:report.result.executedWasmSteps,entryStackValidation:report.result.entryStackValidation,rdiAfter:report.result.rdiAfter});
  }
  const cli=path.join(__dirname,'sparse-linux-bootstrap.cjs');
+ for(const reason of ['zero-divisor','quotient-overflow']){
+  phase='typed-divide-error-'+reason;const input=inputs('--synthetic-divide-error');if(reason==='quotient-overflow'){input.interpreter[0x1009]=3;input.interpreter[0x100e]=3;}
+  const report=await probe(()=>input,path.join(directory,phase+'.json'));assert.equal(report.result.status,'divide-error');assert.equal(report.result.executedWasmSteps,5);assert.equal(report.result.guestExitCode,null);assert.equal(report.result.exception.reason,reason);assert.equal(report.result.exception.rip,report.result.stoppedRip);assert.equal(report.result.broker.requests,0);assert.equal(report.result.guestBacking.ownedPayloadBytes,0);assert.equal(report.native.failed,0);assert.equal(report.resourceTelemetry.cleanup.allExecutionWorkersExited,true);records.push({mode:phase,steps:5,status:report.result.status,exception:report.result.exception});
+ }
  phase='native-start-failed';
  const missingOutput=path.join(directory,'missing-native.json'),missing=spawnSync(process.execPath,[cli,path.join(directory,'absent-native'),missingOutput,'--synthetic-calls'],{encoding:'utf8',timeout:15000});
  subprocess=P.subprocessInfo(missing,{reportExists:fs.existsSync(missingOutput)});

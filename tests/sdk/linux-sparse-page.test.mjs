@@ -10,21 +10,21 @@ async function page({paused=false}={}) {
   get textContent(){return this.nodes.join('');},
   set textContent(value){this.replacements++;this.removedCharacters+=this.nodes.join('').length;this.nodes=[value];},
   appendChild(node){this.nodes.push(node.textContent);}};
- const abi={version:1,stepVersion:3,coverageVersion:21};
+ const abi={version:1,stepVersion:4,coverageVersion:22};
  const context=vm.createContext({URLSearchParams,AbortController,WebAssembly,Uint8Array,TextDecoder,TextEncoder,Map,Promise,
   SharedArrayBuffer,crossOriginIsolated:true,location:{origin:'http://fixture',search:'?argv=%5B%22%2Ftest%2Fcat%22%5D&stdin=1'},
-  BetterJITGuestMemoryBroker:{ABI:abi},FexLinuxThread:{},
+  BetterJITGuestMemoryBroker:{ABI:abi,STEP:{DIVIDE_ERROR:5}},FexLinuxThread:{},
   document:{getElementById:id=>views[id],createTextNode:textContent=>({textContent})},
   addEventListener:(name,fn)=>listeners.set(name,fn),removeEventListener:(name,fn)=>{if(listeners.get(name)===fn)listeners.delete(name);},
   fetch:async(url,options={})=>{
    if(url.endsWith('/events')){events.push(JSON.parse(options.body));return {ok:true};}
-   return {ok:true,json:async()=>{await configuration;return {guestMemory:'broker1',memoryABI:1,stepABI:3,coverageVersion:21};},arrayBuffer:async()=>new ArrayBuffer(0)};
+   return {ok:true,json:async()=>{await configuration;return {guestMemory:'broker1',memoryABI:1,stepABI:4,coverageVersion:22};},arrayBuffer:async()=>new ArrayBuffer(0)};
   },Worker:class {constructor(name){this.name=name;this.messages=[];this.terminated=0;workers.push(this);}postMessage(m){this.messages.push(m);}terminate(){this.terminated++;}}
  });vm.runInContext(source,context);await tick();
  const stop=context.betterjitClose;
  async function spawn(){const kernel=workers[0];await kernel.onmessage({data:{op:'spawn',spec:{space:1},codes:[]}});await tick();return workers[1];}
  function write(fd,bytes){workers[0].onmessage({data:{op:'output',fd,bytes:Uint8Array.from(bytes)}});}
- async function finish(){await spawn();workers[0].onmessage({data:{op:'kernel-result',terminal:{status:0,guestExitCode:0},steps:1,internalBytes:33*65536,broker:{threads:0},backing:{},stdin:{providedBytes:0,consumedBytes:0,positiveReads:0},workerRetirementAcknowledged:false,retainedUntilSessionTeardown:true}});workers[1].onmessage({data:{op:'thread-result',result:{status:0,guestExitCode:0}}});await tick();await tick();}
+ async function finish({terminal={status:0,guestExitCode:0},result={status:0,guestExitCode:0}}={}){await spawn();workers[0].onmessage({data:{op:'kernel-result',terminal,steps:1,internalBytes:33*65536,broker:{threads:0},backing:{},stdin:{providedBytes:0,consumedBytes:0,positiveReads:0},workerRetirementAcknowledged:false,retainedUntilSessionTeardown:true}});workers[1].onmessage({data:{op:'thread-result',result}});await tick();await tick();}
  return {context,workers,events,views,listeners,release,stop,write,finish,text:kind=>events.flatMap(x=>x.events).filter(x=>x.kind===kind).map(x=>x.text).join('')};
 }
 test('sparse page preserves BOM scalars at stream start, write boundaries and split UTF-8',async()=>{
@@ -41,4 +41,7 @@ test('close rejects late startup replies before creating a sparse worker',async(
 });
 test('sparse close clears callbacks and page ownership once without inventing retirement acknowledgement',async()=>{
  const p=await page();await p.finish();assert.equal(p.workers[0].terminated,0);assert.equal(p.workers[1].terminated,0);p.stop();p.stop();assert(p.workers.every(w=>w.terminated===1&&w.onmessage===null&&w.onerror===null));assert.equal(p.listeners.size,0);assert.equal(p.context.betterjitClose,undefined);
+});
+test('typed divide-error page completion reports the owned exception without a normal exit event',async()=>{
+ for(const forged of [false,true]){const p=await page();try{await p.finish({terminal:{status:5,guestExitCode:null,exception:{kind:'divide-error',vector:0,reason:'zero-divisor',rip:4096n}},result:{status:5,rip:forged?4097n:4096n}});const events=p.events.flatMap(x=>x.events);assert(!events.some(e=>e.kind==='exit'||e.kind==='unsupported'));assert.match(events.at(-1).text,forged?/Incomplete sparse divide-error/:/Guest divide error.*zero-divisor/);assert.equal(p.workers[1].terminated,0);}finally{p.stop();}}
 });

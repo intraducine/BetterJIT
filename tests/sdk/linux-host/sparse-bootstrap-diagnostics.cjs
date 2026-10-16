@@ -12,7 +12,8 @@ try {
  const child=spawnSync(process.execPath,['--require',inject,path.join(__dirname,'sparse-bootstrap-contract.cjs'),path.resolve(process.argv[2]),output],{encoding:'utf8',timeout:20000});
  assert.equal(child.status,1,P.stringify(P.subprocessInfo(child)));
  assert(fs.existsSync(output),'The failed contract must retain its report');const report=JSON.parse(fs.readFileSync(output));
- assert.equal(report.status,'contract-failed');assert.equal(report.phase,'native-child-died');assert.equal(report.completedCases.length,7);
+ assert.equal(report.status,'contract-failed');assert.equal(report.phase,'native-child-died');
+ assert.deepEqual(report.completedCases.map(r=>r.mode),['calls','extensions','nops','clobber','different-entry','typed-divide-error-zero-divisor','typed-divide-error-quotient-overflow','native-start-failed','wrong-initial-transfer']);
  assert.equal(report.subprocess.status,1);assert.equal(report.subprocess.reportExists,false);assert.equal(report.subprocess.fault.killSent,false);
  assert.equal(report.subprocess.classification,'before-native-wrapper');assert.match(report.subprocess.stderr,/EARLY_CHILD_STARTUP/);
  const text=P.stringify(report);assert(!/TOPSECRET|OTHERSECRET|hidden\.invalid|secret\/file|\n\s*at\s/.test(text));assert(text.length<8000);
