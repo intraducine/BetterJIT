@@ -22,7 +22,7 @@ try {
  assert(t.sparse.steps>0);assert.equal(quiesced.length,1);assert.equal(Atomics.load(kernel.k32,((SLOT_BASE+t.slot*SLOT_SIZE)>>2)+W_OCCUPIED),1);
  const rip=t.sparse.view.getBigUint64(t.tb+d.cfg.ctx+d.cfg.ripOff,true),instruction=image.space.executableSnapshot(rip,15),rdi=t.sparse.view.getBigUint64(g+56,true);
  assert.equal(rdi,image.stackPointer,'The actual interpreter entry must receive the guest initial stack');
- const result={entry:image.entry,imageEntry:image.imageEntry,loadBias:image.loadBias,interpreter:image.interpreter,stackPointer:image.stackPointer,phdr:image.phdr,
+ const result={entry:image.entry,imageEntry:image.imageEntry,loadBias:image.loadBias,interpreter:image.interpreter,stackPointer:image.stackPointer,stackPointerAfter:t.sparse.view.getBigUint64(g+32,true),phdr:image.phdr,
   status:'unsupported-instruction',guestExitCode:null,stoppedRip:rip,instruction:[...instruction],executedWasmSteps:t.sparse.steps,steps,peakGuestBackingBytes:peak,
   relocationsApplied:image.relocationsApplied,tlsInitialized:image.tlsInitialized,relroSealed:image.relroSealed,
   guestAccessQuiescenceAcknowledged:true,workerRetirementAcknowledged:false,internalContextsRetained:kernel.sparseContexts,internalBytesRetained:kernel.sparseContexts*33*65536};

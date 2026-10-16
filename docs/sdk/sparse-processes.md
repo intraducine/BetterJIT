@@ -87,7 +87,7 @@ The syscall contract remains narrow: finite read/write, one leader per
 process, at most one unreaped child, checked static exec, specific-child wait
 and normal exit under default signal policies. Thread clone, futex, general
 signals, filesystem/open/socket descriptors and dynamic ELF loading are not
-enabled. Native memory/checkpoint/step/header/coverage are now 1/1/3/96/7;
+enabled. Native memory/checkpoint/step/header/coverage are now 1/1/3/96/8;
 existing raw-byte, IR-effect and full-pointer checks still precede execution.
 This is not a Wine, libc, game, DXMT or general Linux compatibility profile.
 

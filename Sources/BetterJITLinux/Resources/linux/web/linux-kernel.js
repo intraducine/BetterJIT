@@ -1218,7 +1218,8 @@ class Kernel {
        this.cfg.memMaxPages!==B.ABI.internalPages||this.cfg.threadBase!==B.ABI.threadBase||
        this.cfg.regArgs!==0||this.cfg.callsViaDispatcher!==false||this.cfg.maxInstructions!==1||this.cfg.shared!==true||
        this.cfg.checkpoint?.cpu?.offset!==this.cfg.ctx||this.cfg.checkpoint?.cpu?.size!==this.cfg.stateSize||
-       this.cfg.checkpoint?.cpu?.ripOffset!==this.cfg.ripOff)
+       this.cfg.checkpoint?.cpu?.ripOffset!==this.cfg.ripOff||
+       this.cfg.checkpoint?.cpu?.stackPointerOffset!==this.cfg.gregsOff+4*8)
       throw new Error('Incompatible broker step configuration');
     if(this.freezing)throw new Error('Sparse snapshots are unsupported');
     if((this.sparseContexts||0)>=B.ABI.maximumThreads)throw new Error('Sparse internal thread capacity exhausted');
@@ -1230,7 +1231,7 @@ class Kernel {
          !Number.isInteger(p.length)||p.length<1||p.length>15||p.nextRip!==p.rip+BigInt(p.length)||
          !(p.instruction instanceof Uint8Array)||p.instruction.length!==p.length||approved.has(p.rip)||
          !(([0,5,6,7].includes(p.operation)&&p.width===0)||([1,2,8].includes(p.operation)&&[1,2,4,8].includes(p.width))||
-           ([3,4].includes(p.operation)&&[4,8].includes(p.width))))
+           ([3,4].includes(p.operation)&&[4,8].includes(p.width))||([9,10].includes(p.operation)&&p.width===8)))
         throw new Error('Invalid admitted instruction metadata');
       const actual=space.executableSnapshot(p.rip,p.length);
       if(!actual.every((x,i)=>x===p.instruction[i]))throw new Error('Executable bytes differ from the compiled step');
@@ -1280,7 +1281,7 @@ class Kernel {
         // Refuse at this safe boundary; never deliver while Wasm locals live.
         if(this.freezing||t.pending||t.proc.pending)throw new Error('Sparse signals/snapshots are unsupported');
         const plan=this.sparsePlan(t),rip=plan.rip;
-        const generation=this.sparseBroker.beginInstruction(s.token,{rip,operation:plan.operation,width:plan.width,continuations:plan.continuations});
+        const generation=this.sparseBroker.beginInstruction(s.token,{rip,operation:plan.operation,width:plan.width,continuations:plan.continuations,nextRip:plan.nextRip});
         s.active=plan;
         view.setBigUint64(scratch+B.FIELD.checkpoint,generation,true);
         view.setBigUint64(scratch+B.FIELD.checkpointRip,rip,true);

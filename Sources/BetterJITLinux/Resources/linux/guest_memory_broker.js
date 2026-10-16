@@ -4,7 +4,7 @@
   'use strict';
   const storage=root.BetterJITGuestMemory;
   if(!storage||storage.STORAGE_VERSION!==1)throw new Error('Guest storage contract 1 required');
-  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:3,coverageVersion:7,stepHeaderBytes:96,
+  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:3,coverageVersion:8,stepHeaderBytes:96,
     magic:0x314d4a42,internalPages:33,threadBase:0x10000,threadBytes:0x200000,
     scratchOffset:0x1f0000,scratchBytes:128,memoryRequest:0x10003,instructionBoundary:0x10004,maximumThreads:8,parkedState:4,
     userCopyBytes:65536});
@@ -12,12 +12,12 @@
     address:32,rip:40,checkpoint:48,operand0:56,operand1:64,result0:72,result1:80,faultAddress:88,
     checkpointRip:96,nextRip:104,completedSequence:112,boundaryControl:116,lease:120});
   const STATUS=Object.freeze({OK:0,FAULT:1,UNSUPPORTED:2});
-  const OP=Object.freeze({READ:1,WRITE:2,CAS:3,FETCH_ADD:4,SYSCALL:5,FLAGS:6,BRANCH:7,READ_FLAGS:8});
+  const OP=Object.freeze({READ:1,WRITE:2,CAS:3,FETCH_ADD:4,SYSCALL:5,FLAGS:6,BRANCH:7,READ_FLAGS:8,CALL:9,RETURN:10});
   const STEP=Object.freeze({OK:0,FAULT:1,UNSUPPORTED:2,SYSCALL:3});
   // Host startup gate / spilled syscall completion, separate from native step exits.
   const LIFECYCLE=Object.freeze({version:1,PENDING:0,READY:1,RUN:2,CANCEL:3,FAILED:4,syscallExit:4});
   const REASON=Object.freeze({NONE:0,RANGE:1,UNMAPPED:2,PROTECTION:3,ALIGNMENT:4,ALLOCATION:5,
-    OPCODE:16,WIDTH:17,PROTOCOL:18,CHECKPOINT:19,STALE_LEASE:20,SEQUENCE:21,ACCESS:22,ADDRESS_DOMAIN:23});
+    OPCODE:16,WIDTH:17,PROTOCOL:18,CHECKPOINT:19,STALE_LEASE:20,SEQUENCE:21,ACCESS:22,ADDRESS_DOMAIN:23,CONTROL_TARGET:24});
   const memories=new WeakSet(),registeredMemories=new WeakSet(),owners=new WeakMap(),brokers=new WeakMap(),waits=new WeakMap();
   const U64=1n<<64n;
   function u64(value) {
@@ -26,6 +26,18 @@
   }
   function instructionContinuations(p) {
     const kind=p.continuationKind??0,target=p.branchTarget??0n;
+    if(p.operation===OP.CALL) {
+      const b=p.instruction;
+      if(b.length!==5||b[0]!==0xe8||kind!==3||p.width!==8)throw new TypeError('Invalid direct call metadata');
+      const next=p.rip+5n,expected=next+BigInt(new DataView(b.buffer,b.byteOffset,b.byteLength).getInt32(1,true));
+      if(!canonical(p.rip)||p.nextRip!==next||!canonical(next)||!canonical(expected)||target!==expected)throw new TypeError('Invalid direct call target');
+      return Object.freeze([target]);
+    }
+    if(p.operation===OP.RETURN) {
+      if(p.instruction.length!==1||p.instruction[0]!==0xc3||kind!==4||target!==0n||p.width!==8||
+         !canonical(p.rip)||p.nextRip!==p.rip+1n||!canonical(p.nextRip))throw new TypeError('Invalid checked return metadata');
+      return Object.freeze([]); // resolved only from the broker-owned checked stack read
+    }
     if(p.operation!==OP.BRANCH) {
       if(kind!==0||target!==0n)throw new TypeError('Unexpected branch metadata');
       return Object.freeze([p.nextRip]);
@@ -49,7 +61,7 @@
     if(![0,2].includes(status)||
        (status===2&&(size||length))||(status===0&&(!size||length<1||length>15||nextRip!==rip+BigInt(length)||
          !(([0,5,6,7].includes(operation)&&width===0)||([1,2,8].includes(operation)&&[1,2,4,8].includes(width))||
-           ([3,4].includes(operation)&&[4,8].includes(width))))))
+           ([3,4].includes(operation)&&[4,8].includes(width))||([9,10].includes(operation)&&width===8)))))
       throw new Error('Invalid broker step metadata');
     if(v.getUint32(92,true)!==0)throw new Error('Invalid broker step reserved field');
     const result={status,operation,width,rip,nextRip,length,hash:v.getBigUint64(48,true),
@@ -63,6 +75,7 @@
     const memory=new WebAssembly.Memory({initial:ABI.internalPages,maximum:ABI.internalPages,shared:true});
     memories.add(memory);return memory;
   }
+  function canonical(value){return typeof value==='bigint'&&value>=0n&&value<(1n<<47n);}
   class BrokerInvariantError extends Error {
     constructor(message){super(message);this.name='BrokerInvariantError';}
   }
@@ -108,7 +121,11 @@
     const all=[...spans,{offset:ABI.scratchOffset,size:ABI.scratchBytes}].sort((a,b)=>a.offset-b.offset);
     for(let i=1;i<all.length;i++)if(all[i-1].offset+all[i-1].size>all[i].offset)
       throw new TypeError('Checkpoint and scratch spans must be disjoint');
-    return {spans,ripAddress:ABI.threadBase+spans[0].offset+layout.cpu.ripOffset};
+    const sp=layout.cpu.stackPointerOffset;
+    if(sp!==undefined&&(!Number.isSafeInteger(sp)||sp<0||sp%8||sp+8>layout.cpu.size||
+       (sp<layout.cpu.ripOffset+8&&sp+8>layout.cpu.ripOffset)))throw new TypeError('Invalid stack pointer checkpoint offset');
+    return {spans,ripAddress:ABI.threadBase+spans[0].offset+layout.cpu.ripOffset,
+      stackAddress:sp===undefined?undefined:ABI.threadBase+spans[0].offset+sp};
   }
   function cpuRip(s){return s.view.getBigUint64(s.layout.ripAddress,true);}
   function restore(s,snapshot=s.active.snapshot) {
@@ -168,23 +185,31 @@
     }
     // Called at a safe boundary after native code has spilled the full CPU state.
     // operation/width must come from compile-time admission, never guest input.
-    beginInstruction(token,{rip,operation=0,width=0,continuations}) {
+    beginInstruction(token,{rip,operation=0,width=0,continuations,nextRip}) {
       const s=requireOwner(this,token);rip=u64(rip);
       if(s.preparedCopies.size)throw new BrokerInvariantError('Prepared copyout must complete before BEGIN');
       if(s.active||s.waits.size)invariant(s,'Instruction already active or parked');
       s.spilledSyscall=false;s.syscallCheckpoint=null;
       if(!(([0,OP.SYSCALL,OP.FLAGS,OP.BRANCH].includes(operation)&&width===0)||([OP.READ,OP.WRITE,OP.READ_FLAGS].includes(operation)&&[1,2,4,8].includes(width))||
-           ([OP.CAS,OP.FETCH_ADD].includes(operation)&&[4,8].includes(width))))
+           ([OP.CAS,OP.FETCH_ADD].includes(operation)&&[4,8].includes(width))||([OP.CALL,OP.RETURN].includes(operation)&&width===8)))
         throw new TypeError('Unsupported instruction admission');
-      if(operation===OP.BRANCH) {
+      if(operation===OP.BRANCH||operation===OP.CALL) {
         if(!Array.isArray(continuations)||continuations.length<1||continuations.length>2)throw new TypeError('Finite branch continuations required');
         continuations=Object.freeze(continuations.map(u64));
+      }
+      let stackBefore,stackAfter;
+      if(operation===OP.CALL||operation===OP.RETURN) {
+        if(s.layout.stackAddress===undefined||!canonical(rip)||nextRip!==rip+(operation===OP.CALL?5n:1n)||!canonical(nextRip)||
+           (operation===OP.CALL&&(continuations.length!==1||!canonical(continuations[0])))||
+           (operation===OP.RETURN&&continuations!==undefined&&(!Array.isArray(continuations)||continuations.length)))throw new TypeError('Checked stack control metadata required');
+        stackBefore=s.view.getBigUint64(s.layout.stackAddress,true);
+        stackAfter=stackBefore+(operation===OP.CALL?-8n:8n);
       }
       if(cpuRip(s)!==rip)invariant(s,'Full pre-instruction RIP was not spilled');
       if(s.checkpoint===U64-1n)invariant(s,'Checkpoint generation exhausted');
       const snapshot=s.layout.spans.map(p=>({offset:p.offset,
         bytes:new Uint8Array(s.memory.buffer,ABI.threadBase+p.offset,p.size).slice()}));
-      s.active={rip,generation:++s.checkpoint,operation,width,continuations,snapshot,result:null};return s.checkpoint;
+      s.active={rip,generation:++s.checkpoint,operation,width,continuations,snapshot,result:null,nextRip,stackBefore,stackAfter};return s.checkpoint;
     }
     // The caller uses its authenticated thread record's token, not a request PID.
     // This synchronous route has no syscall, signal, redirect or await callbacks.
@@ -208,8 +233,16 @@
         return fail(REASON.ACCESS);
       const a=s.active;
       if(!a||q.getBigUint64(FIELD.rip,true)!==a.rip||q.getBigUint64(FIELD.checkpoint,true)!==a.generation||
-         operation!==(a.operation===OP.READ_FLAGS?OP.READ:a.operation)||width!==a.width)return fail(REASON.CHECKPOINT);
+         operation!==([OP.READ_FLAGS,OP.RETURN].includes(a.operation)?OP.READ:a.operation===OP.CALL?OP.WRITE:a.operation)||width!==a.width)return fail(REASON.CHECKPOINT);
       const address=q.getBigUint64(FIELD.address,true);
+      if(a.operation===OP.CALL||a.operation===OP.RETURN) {
+        if(!canonical(a.stackBefore)||!canonical(a.stackAfter))return fail(REASON.ADDRESS_DOMAIN);
+        if(address!==(a.operation===OP.CALL?a.stackAfter:a.stackBefore)||
+           (a.operation===OP.CALL&&q.getBigUint64(FIELD.operand0,true)!==a.nextRip))return fail(REASON.CHECKPOINT);
+        if(a.operation===OP.CALL)try{s.space.executableSnapshot(a.continuations[0],1);s.space.read(a.continuations[0],1);}catch(error){
+          if(error instanceof storage.MemoryFault)return fail(REASON.CONTROL_TARGET);throw error;
+        }
+      }
       if([OP.CAS,OP.FETCH_ADD].includes(operation)&&address%BigInt(width))return fail(REASON.ALIGNMENT);
       try {
         if(operation===OP.CAS||operation===OP.FETCH_ADD) {
@@ -220,11 +253,26 @@
         if(operation===OP.READ) {
           const bytes=s.space.read(address,width);let value=0n;
           for(let i=width-1;i>=0;i--)value=(value<<8n)|BigInt(bytes[i]);
+          if(a.operation===OP.RETURN) {
+            if(!canonical(value))return fail(REASON.CONTROL_TARGET);
+            try{s.space.executableSnapshot(value,1);s.space.read(value,1);}catch(error){
+              if(error instanceof storage.MemoryFault)return fail(REASON.CONTROL_TARGET);throw error;
+            }
+          }
           return response(s,sequence,STATUS.OK,REASON.NONE,value);
         }
         let value=q.getBigUint64(FIELD.operand0,true);const bytes=new Uint8Array(width);
         for(let i=0;i<width;i++){bytes[i]=Number(value&255n);value>>=8n;}
-        s.space.write(address,bytes);return response(s,sequence,STATUS.OK);
+        if(a.operation===OP.CALL) {
+          // COW preparation can call the trusted allocator. Recheck ownership
+          // after it returns, before publishing the return-address bytes.
+          const tx=s.space.prepareWrite(address,width);
+          try {
+            if(current(this,token)!==s||s.active!==a||s.poisoned)invariant(s,'Stack write owner changed during preparation');
+            tx.bytes.set(bytes);tx.commit();
+          }finally{tx.cancel();}
+        }else s.space.write(address,bytes);
+        return response(s,sequence,STATUS.OK);
       } catch(error) {
         if(error instanceof storage.AllocationFailure)return response(s,sequence,STATUS.FAULT,REASON.ALLOCATION,0n,address);
         if(error instanceof storage.MemoryFault) {
@@ -241,9 +289,12 @@
       const s=requireOwner(this,token),a=s.active;
       if(!a)invariant(s,'No instruction checkpoint');
       if(status===STEP.OK) {
-        nextRip=a.operation===OP.BRANCH?cpuRip(s):u64(nextRip);
-        if((a.operation===OP.BRANCH&&!a.continuations.includes(nextRip))||
-           ([OP.READ,OP.WRITE,OP.CAS,OP.FETCH_ADD,OP.READ_FLAGS].includes(a.operation)&&a.result?.status!==STATUS.OK)||
+        const control=[OP.BRANCH,OP.CALL,OP.RETURN].includes(a.operation);
+        nextRip=control?cpuRip(s):u64(nextRip);
+        if(([OP.BRANCH,OP.CALL].includes(a.operation)&&!a.continuations.includes(nextRip))||
+           (a.operation===OP.RETURN&&nextRip!==a.result?.data)||
+           ([OP.CALL,OP.RETURN].includes(a.operation)&&s.view.getBigUint64(s.layout.stackAddress,true)!==a.stackAfter)||
+           ([OP.READ,OP.WRITE,OP.CAS,OP.FETCH_ADD,OP.READ_FLAGS,OP.CALL,OP.RETURN].includes(a.operation)&&a.result?.status!==STATUS.OK)||
            ([0,OP.FLAGS,OP.BRANCH].includes(a.operation)&&a.result)||
            a.operation===OP.SYSCALL||cpuRip(s)!==nextRip)
           invariant(s,'Full successful post-state was not spilled');

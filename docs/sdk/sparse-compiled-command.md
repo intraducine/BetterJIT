@@ -25,12 +25,12 @@ zero-fill BSS case while retaining alignment restrictions for file-backed loads;
 readable distinct R/RW/RX pages, W+X refusal and rollback bounds still apply.
 
 Native memory/checkpoint versions remain 1/1, step remains 3 with a 96-byte header,
-and **coverage is now 7**, including the later finite-stdin/sign-branch and
-[immediate AND](sparse-linux-bootstrap.md) increments.
+and **coverage is now 8**, including the later finite-stdin/sign-branch,
+[immediate AND](sparse-linux-bootstrap.md) and [checked CALL/RET](sparse-call-return.md) increments.
 The added family `READ_FLAGS=8` accepts exactly one
 READ RPC and flag updates; it cannot write, perform RMW, branch or call a syscall.
 The complete IR effect checks still precede emission. Arithmetic remains
-register-only; stack PUSH/POP, CALL/RET, indirect control flow, signed relational/parity/
+register-only; standalone stack PUSH/POP, indirect control flow, signed relational/parity/
 overflow branches, SIMD, 16-bit flag arithmetic and general ISA coverage remain
 unsupported. New register arithmetic/byte flags/memory comparisons and all six
 unsigned/equality branch conditions, plus short/near JS/JNS sign branches, are

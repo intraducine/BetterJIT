@@ -81,6 +81,10 @@ fexwasm_bytes fexwasm_unit(fexwasm_translator* T, uint32_t rip32);
 // Coverage4 adds bounded register arithmetic/byte flags/unsigned branches and
 // operation8: one checked read plus flags, never a direct or RMW memory path.
 // Coverage7 adds register-only 32/64-bit immediate AND (81/83 group-1 /4).
+// Coverage8 adds unprefixed E8 rel32 CALL (operation9/width8/flow3) and C3 RET
+// (operation10/width8/flow4). CALL declares its checked direct target; RET's
+// header target is zero and its PC is resolved by the broker-owned stack read.
+// Checkpoint cpu.stackPointerOffset identifies the full 64-bit RSP slot.
 // Unsupported results have status 2, no module and no executable fallback.
 fexwasm_bytes fexwasm_step(fexwasm_translator* T, uint64_t rip);
 

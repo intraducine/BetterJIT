@@ -229,6 +229,7 @@ jobs:
           node tests/sdk/linux-host/sparse-exec.cjs .build/host-fex/fexserve .build/sparse-exec-results.json
           node tests/sdk/linux-host/sparse-alu.cjs .build/host-fex/fexserve .build/sparse-alu-results.json
           node tests/sdk/linux-host/sparse-and.cjs .build/host-fex/fexserve .build/sparse-and-results.json
+          node tests/sdk/linux-host/sparse-call.cjs .build/host-fex/fexserve .build/sparse-call-results.json
           node tests/sdk/linux-host/sparse-compiled.cjs .build/host-fex/fexserve .build/sparse-compiled-results.json
           node tests/sdk/linux-host/sparse-compiled.cjs .build/host-fex/fexserve .build/sparse-compiled-fresh-results.json .build/sparse-compiled-input/sparse-rot13-fresh.json
           node tests/sdk/linux-host/sparse-cat.cjs .build/host-fex/fexserve .build/sparse-cat-results.json
@@ -238,6 +239,7 @@ jobs:
       - name: Probe the actual adapted Wine interpreter through sparse FEX/Wasm
         if: github.ref == 'refs/heads/experimental/sparse-guest-backing'
         run: |
+          node tests/sdk/linux-host/sparse-linux-bootstrap.cjs .build/host-fex/fexserve .build/sparse-call-bootstrap-results.json --synthetic-calls
           node tests/sdk/linux-host/sparse-linux-bootstrap.cjs .build/host-fex/fexserve .build/sparse-wine-bootstrap-results.json .build/device-linuxroot
       - name: Execute the compiled command in real macOS WebKit
         if: github.ref == 'refs/heads/experimental/sparse-guest-backing'
@@ -259,6 +261,8 @@ jobs:
             .build/sparse-exec-results.json
             .build/sparse-alu-results.json
             .build/sparse-and-results.json
+            .build/sparse-call-results.json
+            .build/sparse-call-bootstrap-results.json
             .build/sparse-compiled-results.json
             .build/sparse-compiled-fresh-results.json
             .build/sparse-cat-results.json

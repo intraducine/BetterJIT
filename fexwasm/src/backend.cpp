@@ -4810,6 +4810,14 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
   case OP_PUSH: {
     auto Op = IROp->C<IROp_Push>();
     const uint32_t VS = uint32_t(Op->ValueSize);
+    if (Cfg.BrokerMemory) {
+      GPR(Op->Addr); B.i64c(8); B.u8(op::i64_sub); B.set(T0);
+      SysBase(); B.get(T0); B.mem(op::i64_store, 3, broker::Scratch + 32);
+      SysBase(); GPR(Op->Value); B.mem(op::i64_store, 3, broker::Scratch + 56);
+      BrokerRequest(2, 8);
+      B.get(T0); SetNode(Node);
+      break;
+    }
     GPR(Op->Addr);
     B.i64c(VS);
     B.u8(op::i64_sub);
@@ -4826,6 +4834,13 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
     auto Op = IROp->C<IROp_Pop>();
     const uint32_t Addr = LocalFor(ID(Op->InoutAddr)), Val = LocalFor(ID(Op->OutValue));
     const uint32_t S = uint32_t(Op->Size);
+    if (Cfg.BrokerMemory) {
+      SysBase(); B.get(Addr); B.mem(op::i64_store, 3, broker::Scratch + 32);
+      BrokerRequest(1, 8);
+      SysBase(); B.mem(op::i64_load, 3, broker::Scratch + 72); B.set(Val);
+      B.get(Addr); B.i64c(8); B.u8(op::i64_add); B.set(Addr);
+      break;
+    }
     B.get(Addr);
     Wrap();
     LoadGPRSized(S);
@@ -11100,6 +11115,18 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
     // can reach a legacy direct-access emitter.
     uint32_t Reads = 0, Writes = 0, Atomics = 0, Syscalls = 0, Exits = 0, Blocks = 0, Branches = 0;
     bool SawFallthrough = false, SawTarget = false;
+    OrderedNodeWrapper ReturnValue {};
+    auto ConstantPC = [&](OrderedNodeWrapper W, uint64_t& Value) {
+      if (W.IsInvalid()) return false;
+      const auto* H = IR.GetOp<IROp_Header>(W);
+      switch (H->Op) {
+      case OP_INLINEENTRYPOINTOFFSET: Value = EntryRIP + H->C<IROp_InlineEntrypointOffset>()->Offset; return true;
+      case OP_ENTRYPOINTOFFSET: Value = EntryRIP + H->C<IROp_EntrypointOffset>()->Offset; return true;
+      case OP_INLINECONSTANT: Value = H->C<IROp_InlineConstant>()->Constant; return true;
+      case OP_CONSTANT: Value = H->C<IROp_Constant>()->Constant; return true;
+      default: return false;
+      }
+    };
     auto Reject = [](const IROp_Header* H) {
       CompileResult R; R.Error = "broker unsupported IR " + std::string(GetName(H->Op)); return R;
     };
@@ -11111,10 +11138,24 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
       case OP_ADD: case OP_SUB: case OP_AND: case OP_OR: case OP_XOR: case OP_NOT:
       case OP_LSHL: case OP_LSHR: case OP_ASHR: case OP_ADDSHIFT:
       case OP_BFE: case OP_SBFE: case OP_BFI: case OP_ORLSHL: break;
+      case OP_ALLOCATEGPR: case OP_RMWHANDLE:
+        if (Cfg.BrokerOperation != 10 || uint32_t(H->Size) != 8) return Reject(H);
+        break;
+      case OP_PUSH: {
+        const auto* O = H->C<IROp_Push>(); uint64_t Value;
+        if (Cfg.BrokerOperation != 9 || uint32_t(H->Size) != 8 || uint32_t(O->ValueSize) != 8 ||
+            !ConstantPC(O->Value, Value) || Value != Cfg.BrokerNextRIP) return Reject(H);
+        Writes++; break;
+      }
+      case OP_POP: {
+        const auto* O = H->C<IROp_Pop>();
+        if (Cfg.BrokerOperation != 10 || uint32_t(H->Size) != 8) return Reject(H);
+        ReturnValue = O->OutValue; Reads++; break;
+      }
       case OP_LOADPF: case OP_LOADAF: case OP_STOREPF: case OP_STOREAF:
       case OP_LOADNZCV: case OP_STORENZCV: case OP_SUBWITHFLAGS: case OP_ADDWITHFLAGS:
       case OP_NZCVSELECT: case OP_LOADDF:
-        if (Cfg.BrokerOperation < 3) return Reject(H);
+        if (Cfg.BrokerOperation < 3 || Cfg.BrokerOperation >= 9) return Reject(H);
         break;
       case OP_INVALIDATEFLAGS:
         if ((Cfg.BrokerOperation != 6 && Cfg.BrokerOperation != 8) || H->C<IROp_InvalidateFlags>()->Flags != (1u << FEXCore::X86State::RFLAG_AF_RAW_LOC)) return Reject(H);
@@ -11123,16 +11164,18 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
         if ((Cfg.BrokerOperation != 6 && Cfg.BrokerOperation != 8) || (uint32_t(H->Size) != 1 && uint32_t(H->Size) != 2 && uint32_t(H->Size) != 4 && uint32_t(H->Size) != 8)) return Reject(H);
         break;
       case OP_PARITY: case OP_ORNROR: case OP_ORLSHR: case OP_ANDSHIFT: case OP_ROR: case OP_EXTR:
-        if (Cfg.BrokerOperation < 5) return Reject(H);
+        if (Cfg.BrokerOperation < 5 || Cfg.BrokerOperation >= 9) return Reject(H);
         break;
       case OP_LOADREGISTER: {
         auto O = H->C<IROp_LoadRegister>();
-        if (O->Class != RegClass::GPR || O->Reg >= (Cfg.BrokerOperation >= 3 ? NUM_STATIC : 16)) return Reject(H);
+        if (O->Class != RegClass::GPR || O->Reg >= (Cfg.BrokerOperation >= 3 ? NUM_STATIC : 16) ||
+            (Cfg.BrokerOperation >= 9 && (O->Reg != 4 || uint32_t(H->Size) != 8))) return Reject(H);
         break;
       }
       case OP_STOREREGISTER: {
         auto R = PhysicalRegister(Node);
-        if (R.AsRegClass() != RegClass::GPRFixed || R.Reg >= (Cfg.BrokerOperation >= 3 ? NUM_STATIC : 16)) return Reject(H);
+        if (R.AsRegClass() != RegClass::GPRFixed || R.Reg >= (Cfg.BrokerOperation >= 3 ? NUM_STATIC : 16) ||
+            (Cfg.BrokerOperation >= 9 && (R.Reg != 4 || uint32_t(H->Size) != 8))) return Reject(H);
         break;
       }
       case OP_LOADCONTEXT: {
@@ -11177,7 +11220,15 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
         Writes++; break;
       case OP_EXITFUNCTION: {
         auto O = H->C<IROp_ExitFunction>();
-        if (O->Hint == BranchHint::Call || O->Hint == BranchHint::Return) return Reject(H);
+        if (Cfg.BrokerOperation == 10) {
+          if (Cfg.BrokerFlow != 4 || O->Hint != BranchHint::Return || ReturnValue.IsInvalid() || O->NewRIP != ReturnValue)
+            return Reject(H);
+          SawTarget = true; Exits++; break;
+        }
+        if (Cfg.BrokerOperation == 9) {
+          if (Cfg.BrokerFlow != 3 || (O->Hint != BranchHint::Call &&
+              !(Cfg.BrokerTarget == Cfg.BrokerNextRIP && O->Hint == BranchHint::None))) return Reject(H);
+        } else if (O->Hint == BranchHint::Call || O->Hint == BranchHint::Return) return Reject(H);
         const auto* Target = IR.GetOp<IROp_Header>(O->NewRIP);
         if (Cfg.BrokerOperation == 5 && Target->Op == OP_LOADCONTEXT &&
             Target->C<IROp_LoadContext>()->Offset == offsetof(CPUState, rip)) { Exits++; break; }
@@ -11189,7 +11240,7 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
         case OP_CONSTANT: Next = Target->C<IROp_Constant>()->Constant; break;
         default: return Reject(H);
         }
-        const bool Fallthrough = Next == Cfg.BrokerNextRIP && Cfg.BrokerFlow != 1;
+        const bool Fallthrough = Next == Cfg.BrokerNextRIP && Cfg.BrokerFlow != 1 && Cfg.BrokerFlow != 3;
         const bool TargetMatch = Cfg.BrokerFlow && Next == Cfg.BrokerTarget;
         if (!Fallthrough && !TargetMatch) return Reject(H);
         SawFallthrough |= Fallthrough; SawTarget |= TargetMatch;
@@ -11200,7 +11251,7 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
     }}
     if (Blocks != (Cfg.BrokerFlow == 2 ? 3u : 1u) || Exits != (Cfg.BrokerFlow == 2 ? 2u : 1u) ||
         Branches != (Cfg.BrokerFlow == 2) || (Cfg.BrokerFlow && !SawTarget) ||
-        (Cfg.BrokerFlow == 2 && !SawFallthrough) || Reads != (Cfg.BrokerOperation == 1 || Cfg.BrokerOperation == 8) || Writes != (Cfg.BrokerOperation == 2) ||
+        (Cfg.BrokerFlow == 2 && !SawFallthrough) || Reads != (Cfg.BrokerOperation == 1 || Cfg.BrokerOperation == 8 || Cfg.BrokerOperation == 10) || Writes != (Cfg.BrokerOperation == 2 || Cfg.BrokerOperation == 9) ||
         Atomics != (Cfg.BrokerOperation == 3 || Cfg.BrokerOperation == 4) || Syscalls != (Cfg.BrokerOperation == 5)) {
       CompileResult R; R.Error = "broker instruction effect count mismatch"; return R;
     }

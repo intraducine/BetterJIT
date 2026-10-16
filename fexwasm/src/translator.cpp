@@ -404,7 +404,7 @@ const char* fexwasm_config_json(fexwasm_translator* T) {
            "\"fsOff\":%zu,\"gsOff\":%zu,\"mxcsrOff\":%zu,\"nzcvAddr\":%u,\"memoryTraceAddr\":%u,\"memoryTraceVersion\":2,"
            "\"guestMemory\":\"%s\",\"maxInstructions\":%u,\"debugGuestInstructions\":%s,"
            "\"regArgs\":%u,\"callsViaDispatcher\":%s,"
-           "\"checkpoint\":{\"version\":1,\"cpu\":{\"offset\":%u,\"size\":%zu,\"ripOffset\":%zu},"
+           "\"checkpoint\":{\"version\":1,\"cpu\":{\"offset\":%u,\"size\":%zu,\"ripOffset\":%zu,\"stackPointerOffset\":%zu},"
            "\"lazyFlags\":{\"offset\":%u,\"size\":24},\"roundMode\":{\"offset\":%u,\"size\":4}},"
            "\"memoryABI\":%u,\"stepABI\":%u,\"coverageVersion\":%u,\"stepHeaderBytes\":%u,\"buildID\":\"%s\"}",
            Cfg.MemPages, CTX, sizeof(CPUState), T->ImageLow, STACK_TOP, HALT, uint32_t(T->Window >> 32), offsetof(CPUState, gregs),
@@ -416,7 +416,7 @@ const char* fexwasm_config_json(fexwasm_translator* T) {
            Cfg.NZCVAddr, Cfg.MemoryTraceAddr, Cfg.BrokerMemory ? "broker1" : "direct",
            T->SingleInstruction ? 1u : 0u, T->DebugGuestInstructions ? "true" : "false",
            Cfg.RegArgs, Cfg.CallsViaDispatcher ? "true" : "false",
-           Cfg.CtxAddr, sizeof(CPUState), offsetof(CPUState, rip), Cfg.FlagSpillAddr, Cfg.RoundModeAddr,
+           Cfg.CtxAddr, sizeof(CPUState), offsetof(CPUState, rip), offsetof(CPUState, gregs) + 4 * 8, Cfg.FlagSpillAddr, Cfg.RoundModeAddr,
            Cfg.BrokerMemory ? fexwasm::broker::MemoryABI : 0, Cfg.BrokerMemory ? fexwasm::broker::StepABI : 0,
            Cfg.BrokerMemory ? fexwasm::broker::Coverage : 0, fexwasm::broker::HeaderBytes, FEXWASM_BUILD_ID);
   T->Json = B;
@@ -580,13 +580,22 @@ fexwasm_bytes fexwasm_step(fexwasm_translator* T, uint64_t RIP) {
   auto Cfg = T->Cfg;
   Cfg.BrokerOperation = Plan.Operation; Cfg.BrokerWidth = Plan.Width; Cfg.BrokerNextRIP = RIP + Length;
   Cfg.BrokerFlow = Plan.Flow;
-  if (Plan.Flow) {
+  if (Plan.Flow == 4) {
+    if (Length != 1 || Code[0] != 0xc3 || RIP + Length >= (1ull << 47)) {
+      T->Host->Release(); return Reject("return instruction address/length");
+    }
+  } else if (Plan.Flow) {
     int64_t Displacement;
     if (Length == 2) Displacement = int8_t(Code[1]);
-    else if ((Code[0] == 0xe9 && Length == 5) || (Code[0] == 0x0f && Length == 6)) {
+    else if (((Code[0] == 0xe9 || Code[0] == 0xe8) && Length == 5) || (Code[0] == 0x0f && Length == 6)) {
       int32_t Relative; memcpy(&Relative, Code + Length - 4, 4); Displacement = Relative;
     } else { T->Host->Release(); return Reject("branch instruction length"); }
     Cfg.BrokerTarget = Cfg.BrokerNextRIP + uint64_t(Displacement);
+    if (Plan.Flow == 3 && (Cfg.BrokerNextRIP >= (1ull << 47) ||
+        (Displacement < 0 && Cfg.BrokerNextRIP < uint64_t(-Displacement)) ||
+        Cfg.BrokerTarget >= (1ull << 47))) {
+      T->Host->Release(); return Reject("call target address domain");
+    }
   }
   const double BeforeEmit = NowMs();
   auto R = fexwasm::Compile(*IR, RIP, Cfg);

@@ -1,5 +1,9 @@
 # Experimental finite guest continuations
 
+[Checked direct CALL and plain RET](sparse-call-return.md) add a separately
+validated stack-memory/control-flow slice in coverage 8. The version-3 branch
+milestone below remains historical evidence for the earlier finite branches.
+
 The [compiled C command profile](sparse-compiled-command.md) now extends this
 work with coverage4, bounded stdout/stderr and a separate single-process phone
 route. Its browser route still refuses fork/exec/retirement; host evidence is

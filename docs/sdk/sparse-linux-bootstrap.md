@@ -72,6 +72,10 @@ for unsupported/truncated forms. AF is undefined and excluded. These scalar
 results do not establish a later Wine bootstrap boundary; that requires the
 separately labeled exact prepared-input probe above.
 
+The subsequent [coverage-8 CALL/RET slice](sparse-call-return.md) handles the
+direct CALL proven at `0x7f000006a986` by the coverage-7 prepared-input probe.
+Its synthetic nested-call control is separate from that exact Wine input.
+
 `--synthetic` instead selects explicit synthetic layout controls; `--system-elf`
 selects the local Linux `true` and glibc interpreter. Those runs are labeled
 separately and cannot stand in for the prepared adapted Wine result. None of
