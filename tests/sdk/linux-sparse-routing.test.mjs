@@ -9,7 +9,7 @@ for(const file of ['guest_memory.js','guest_memory_broker.js','thread_core.js','
  vm.runInThisContext(fs.readFileSync(new URL('../../Sources/BetterJITLinux/Resources/linux/'+file,import.meta.url),'utf8'));
 const {Kernel,SLOT_BASE,SLOT_SIZE,S_REQ,S_DONE}=LinuxBundle.require('./kernel.js');
 const M=BetterJITGuestMemory,B=BetterJITGuestMemoryBroker,RIP=0x123400004000n,AT=0x123456780000n;
-const cfg={guestMemory:'broker1',memoryABI:1,stepABI:3,coverageVersion:19,stepHeaderBytes:96,memPages:33,memMaxPages:33,threadBase:65536,
+const cfg={guestMemory:'broker1',memoryABI:1,stepABI:3,coverageVersion:20,stepHeaderBytes:96,memPages:33,memMaxPages:33,threadBase:65536,
  regArgs:0,callsViaDispatcher:false,maxInstructions:1,shared:true,
  ctx:256,stateSize:1024,ripOff:24,gregsOff:32,checkpoint:{version:1,cpu:{offset:256,size:1024,ripOffset:24,stackPointerOffset:64,generalRegistersOffset:32},
  lazyFlags:{offset:64,size:24},roundMode:{offset:112,size:4}}};

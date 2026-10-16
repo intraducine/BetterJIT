@@ -70,4 +70,5 @@ for the exact retained input identities and the coverage 10 milestone.
 [non-LOCK memory OR](sparse-memory-or.md) documents coverage 16;
 [immediate register TEST](sparse-test-immediate.md) documents coverage 17;
 [register SETcc](sparse-setcc.md) documents coverage 18;
-[accumulator logical immediates](sparse-linux-bootstrap.md#accumulator-logical-immediates) document current coverage 19.
+[accumulator logical immediates](sparse-linux-bootstrap.md#accumulator-logical-immediates) document coverage 19;
+[byte/word register shifts](sparse-register-shifts.md#byte-and-word-register-shifts) document current coverage 20.

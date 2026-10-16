@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 19;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 20;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
@@ -100,6 +100,17 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
   if (I == 1 && ((Op >= 0x72 && Op <= 0x79) ||
       (Op == 0x0f && I < Size && (Bytes[I] >= 0x82 && Bytes[I] <= 0x89)))) return {true, 7, 0, 2};
   const uint32_t Width = Rex & 8 ? 8 : Word ? 2 : 4;
+  if (!Segment && !Lock && (Op == 0xd0 || Op == 0xd1 || Op == 0xd2 || Op == 0xd3 || Op == 0xc0 || Op == 0xc1)) {
+    // Register SHL/SHR/SAR at all scalar widths, count one/CL/imm8 only.
+    // Byte opcodes ignore operand size; any REX replaces AH..BH with low
+    // bytes, and REX.B extends that low-byte register. /6 remains excluded.
+    if (I >= Size || (Bytes[I] & 0xc0) != 0xc0) return {};
+    const uint32_t Group = Bytes[I] >> 3 & 7, Low = Bytes[I] & 7;
+    if (Group != 4 && Group != 5 && Group != 7) return {};
+    const size_t End = I + 1 + (Op == 0xc0 || Op == 0xc1);
+    if (End > Size) return {};
+    return {true, 6, 0, 0, false, uint32_t(End), !(Op & 1) && !Rex && Low >= 4 ? Low - 4 : Low + ((Rex & 1) ? 8 : 0)};
+  }
   if (!Segment && !Lock && (Op == 0x24 || Op == 0x25 || Op == 0x0c || Op == 0x0d || Op == 0x34 || Op == 0x35)) {
     // Implicit AL/AX/EAX/RAX logical immediate forms reuse the register-only
     // FLAGS contract of group-1 AND. REX.B/R/X do not select another GPR;
@@ -134,14 +145,9 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
     if (Op == 0x3c || Op == 0x3d) return {true, 6, 0};
     if (I < Size) {
       const bool Register = (Bytes[I] & 0xc0) == 0xc0;
-      // Register-only SHL, SHR and SAR, 32/64 bits, count 1/imm8/CL.
-      // FEX validates the complete encoding and masks the count; the complete
-      // IR effect gate still refuses memory, other shifts and unknown effects.
       const uint8_t Group = Bytes[I] >> 3 & 7;
       if (Register && Op == 0xff && Group == 4)
         return {true, 12, 0, 5, false, uint32_t(I + 1), uint32_t((Bytes[I] & 7) + ((Rex & 1) ? 8 : 0))};
-      if (Register && (Op == 0xd1 || Op == 0xc1 || Op == 0xd3) && (Group == 4 || Group == 5 || Group == 7))
-        return {true, 6, 0};
       // Non-LOCK ADD r/m32,r32 and r/m64,r64 only. A dedicated broker
       // transaction links the complete FEX load/add/store and preserves flags.
       if (!Register && Op == 0x01) return {true, 11, Width};

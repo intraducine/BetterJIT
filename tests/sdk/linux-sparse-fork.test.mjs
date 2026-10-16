@@ -4,7 +4,7 @@ import test from 'node:test';import assert from 'node:assert/strict';import fs f
 globalThis.self=globalThis;for(const n of ['guest_memory.js','guest_memory_broker.js','web/linux-kernel.js'])vm.runInThisContext(fs.readFileSync(new URL('../../Sources/BetterJITLinux/Resources/linux/'+n,import.meta.url),'utf8'));
 const M=BetterJITGuestMemory,B=BetterJITGuestMemoryBroker,L=B.LIFECYCLE,{Kernel,SLOT_BASE,SLOT_SIZE,S_REQ,S_DONE,W_OCCUPIED}=LinuxBundle.require('./kernel.js');
 const RIP=0x123400004000n,STACK=0x123456781000n,P=4096n;
-const cfg={guestMemory:'broker1',memoryABI:1,stepABI:3,coverageVersion:19,stepHeaderBytes:96,memPages:33,memMaxPages:33,threadBase:65536,regArgs:0,callsViaDispatcher:false,maxInstructions:1,shared:true,ctx:256,stateSize:1024,ripOff:24,gregsOff:32,checkpoint:{version:1,cpu:{offset:256,size:1024,ripOffset:24,stackPointerOffset:64,generalRegistersOffset:32},lazyFlags:{offset:64,size:24},roundMode:{offset:112,size:4}}};
+const cfg={guestMemory:'broker1',memoryABI:1,stepABI:3,coverageVersion:20,stepHeaderBytes:96,memPages:33,memMaxPages:33,threadBase:65536,regArgs:0,callsViaDispatcher:false,maxInstructions:1,shared:true,ctx:256,stateSize:1024,ripOff:24,gregsOff:32,checkpoint:{version:1,cpu:{offset:256,size:1024,ripOffset:24,stackPointerOffset:64,generalRegistersOffset:32},lazyFlags:{offset:64,size:24},roundMode:{offset:112,size:4}}};
 function fixture(t,{limitBytes=32*M.PAGE}={}){
  const budget=new M.BackingBudget({limitBytes}),space=new M.GuestAddressSpace(budget,{virtualLimit:1n<<47n}),spawned=[],stopped=[];
  space.mapAnonymous(RIP,P,3);space.write(RIP,Uint8Array.of(15,5,144));space.protect(RIP,P,5);space.mapAnonymous(STACK-P,P,3);

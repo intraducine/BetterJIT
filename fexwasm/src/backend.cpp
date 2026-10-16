@@ -11739,7 +11739,7 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
         break;
       case OP_SHIFTFLAGS: {
         const auto* O = H->C<IROp_ShiftFlags>();
-        if (Cfg.BrokerOperation != 6 || uint32_t(H->Size) != 8 || (uint32_t(O->Size) != 4 && uint32_t(O->Size) != 8) ||
+        if (Cfg.BrokerOperation != 6 || uint32_t(H->Size) != 8 || (uint32_t(O->Size) != 1 && uint32_t(O->Size) != 2 && uint32_t(O->Size) != 4 && uint32_t(O->Size) != 8) ||
             (O->Shift != ShiftType::LSL && O->Shift != ShiftType::LSR && O->Shift != ShiftType::ASR)) return Reject(H);
         break;
       }

@@ -21,7 +21,7 @@ async function main(){
  assert.equal(golden.rows.length,16*128*7);assert.equal(rows.size,golden.rows.length);
  for(const row of golden.rows){assert.equal(row[3],row[1]);const normal=rows.get([row[0],row[1],row[2]===1||row[2]===6?1:0].join(':'));assert.deepEqual(row[4],normal[4]);nativeAliasChecks++;}
  await serve('guestmem=broker1',async(get,log)=>{
-  const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.coverageVersion,19);
+  const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.coverageVersion,20);
   const budget=new M.BackingBudget(),space=new M.GuestAddressSpace(budget),memory=B.createInternalMemory(),broker=new B.GuestMemoryBroker(),token=broker.register(0,{space,memory,checkpointLayout:cfg.checkpoint}),v=new DataView(memory.buffer),tb=B.ABI.threadBase,g=tb+cfg.ctx+cfg.gregsOff,c=cfg.checkpoint.cpu;
   let executedWasmSteps=0,checkedSETccs=0,lazyChecks=0;const records=[];
   async function request(bytes,rip=CODE){await get('/xlat/code?addr='+rip.toString(16),{method:'POST',body:Uint8Array.from(bytes)});return FexLinuxThread.parseBrokerStep(new Uint8Array(await(await get('/xlat/step?rip='+rip)).arrayBuffer()));}

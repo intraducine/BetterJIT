@@ -36,7 +36,7 @@ async function main() {
   const nativeOracle = oracle();
   await serve('guestmem=broker1', async (get, log) => {
     const cfg = await (await get('/xlat/config')).json();
-    assert.equal(cfg.coverageVersion,19);
+    assert.equal(cfg.coverageVersion,20);
     const state = new Uint8Array(await (await get('/xlat/state')).arrayBuffer());
     async function request(code, rip = CODE) {
       await get('/xlat/code?addr=' + rip.toString(16), {method: 'POST', body: Uint8Array.from(code)});
