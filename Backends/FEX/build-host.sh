@@ -37,13 +37,14 @@ cmake -S "$FEX" -B "$B" -G Ninja -DCMAKE_C_COMPILER="$(command -v clang)" -DCMAK
 cmake --build "$B" --parallel "${BETTERJIT_BUILD_JOBS:-4}" --target FEXCore FEXCore_Base JemallocLibs fmt xxhash cephes_128bit softfloat_3e
 mkdir -p .build/host-fex
 BUILD_ID=$(bash fexwasm/build_id.sh "$FEX")
-for HOST_TARGET in fexserve sparse-memory-add-ir sparse-scalar-shift-ir sparse-register-jump-ir sparse-register-stack-ir sparse-register-memory-add-ir; do
+for HOST_TARGET in fexserve sparse-memory-add-ir sparse-scalar-shift-ir sparse-register-jump-ir sparse-register-stack-ir sparse-register-memory-add-ir sparse-memory-or-ir; do
 HOST_MAIN=fexwasm/tools/fexserve.cpp
 if [[ "$HOST_TARGET" == sparse-memory-add-ir ]]; then HOST_MAIN=fexwasm/src/testing/memory-add-ir.cpp; fi
 if [[ "$HOST_TARGET" == sparse-scalar-shift-ir ]]; then HOST_MAIN=fexwasm/src/testing/scalar-shift-ir.cpp; fi
 if [[ "$HOST_TARGET" == sparse-register-jump-ir ]]; then HOST_MAIN=fexwasm/src/testing/register-jump-ir.cpp; fi
 if [[ "$HOST_TARGET" == sparse-register-stack-ir ]]; then HOST_MAIN=fexwasm/src/testing/register-stack-ir.cpp; fi
 if [[ "$HOST_TARGET" == sparse-register-memory-add-ir ]]; then HOST_MAIN=fexwasm/src/testing/register-memory-add-ir.cpp; fi
+if [[ "$HOST_TARGET" == sparse-memory-or-ir ]]; then HOST_MAIN=fexwasm/src/testing/memory-or-ir.cpp; fi
 clang++ -std=gnu++20 -O2 -gline-tables-only -fno-exceptions -fno-strict-aliasing -fwrapv -Wno-unused-function \
   "-DFEXWASM_BUILD_ID=\"$BUILD_ID\"" "${HOST_FLAGS[@]}" -DJIT_ARM64 -D_LARGEFILE64_SOURCE \
   -I"$B/FEXCore/Source" -I"$FEX/FEXCore/Source" -I"$FEX/FEXCore/Source/IncludePrivate" -I"$FEX/FEXCore/include" \

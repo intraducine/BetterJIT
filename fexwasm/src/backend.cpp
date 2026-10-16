@@ -500,7 +500,7 @@ public:
     , Owner(S.NextOwner++) {}
 
   CompileResult Run();
-  OrderedNodeWrapper BrokerAddend {}; // proven source of one non-LOCK ADD memory transaction
+  OrderedNodeWrapper BrokerAddend {}; // proven register source of a non-LOCK memory transaction
   CompileResult RunRegion(std::vector<std::unique_ptr<Emitter>>& Units);
   // A region as structured code over its units' CFG (single entry: the
   // first unit). False, with nothing emitted, if that CFG is irreducible.
@@ -4605,10 +4605,10 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
     if (Cfg.BrokerMemory) {
       SysBase(); Address(Op->Addr, Op->Offset, Op->OffsetType, Op->OffsetScale);
       B.mem(op::i64_store, 3, broker::Scratch + 32);
-      if (Cfg.BrokerOperation == 11) {
+      if (Cfg.BrokerOperation == 11 || Cfg.BrokerOperation == 16) {
         SysBase(); GPR(BrokerAddend); B.mem(op::i64_store, 3, broker::Scratch + 56);
       }
-      BrokerRequest(Cfg.BrokerOperation == 11 ? 11 : 1, uint32_t(Size));
+      BrokerRequest(Cfg.BrokerOperation == 11 || Cfg.BrokerOperation == 16 ? Cfg.BrokerOperation : 1, uint32_t(Size));
       SysBase(); B.mem(op::i64_load, 3, broker::Scratch + 72);
       SetNode(Node);
       break;
@@ -4657,9 +4657,9 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
   case OP_STOREMEMTSO: {
     auto Op = IROp->C<IROp_StoreMem>();
     if (Cfg.BrokerMemory) {
-      // The linked ADD store has already committed in the single broker RPC.
+      // The proven linked store has committed in the single broker RPC.
       // Its FEX arithmetic and flag nodes still execute using returned old data.
-      if (Cfg.BrokerOperation == 11) break;
+      if (Cfg.BrokerOperation == 11 || Cfg.BrokerOperation == 16) break;
       SysBase(); Address(Op->Addr, Op->Offset, Op->OffsetType, Op->OffsetScale);
       B.mem(op::i64_store, 3, broker::Scratch + 32);
       SysBase(); GPR(Op->Value); B.mem(op::i64_store, 3, broker::Scratch + 56);
@@ -11281,6 +11281,94 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
           L->OffsetType != MemOffsetType::SXTX || (L->OffsetScale != 1 && L->OffsetScale != 2 && L->OffsetScale != 4 && L->OffsetScale != 8) ||
           L->Addr.IsInvalid() || !ReadyAddress(L->Addr, 0) || !ReadyAddress(L->Offset, 0)) return Reject(&L->Header);
     }
+    if (Cfg.BrokerOperation == 16) {
+      if ((Cfg.BrokerWidth != 4 && Cfg.BrokerWidth != 8) || Cfg.BrokerFlow || Cfg.BrokerTarget || Cfg.BrokerTargetRegister >= 16) {
+        CompileResult R; R.Error = "invalid broker OR memory contract"; return R;
+      }
+      // Logical flags are a separate proof: OR(old,source), invalidate AF,
+      // SUB-with-flags(result,0), StorePF(result). No arithmetic AF/carry
+      // normalization or other flag producer belongs to this family.
+      OrderedNodeWrapper Load {}, Result {}, Flags {}, Invalidate {}, Store {}, PF {}, Exit {};
+      std::unordered_map<uint32_t, uint32_t> Order; uint32_t Position = 0;
+      for (auto [Block, Header] : IR.GetBlocks()) for (auto [Node, H] : IR.GetCode(Block)) {
+        const auto W = IR.WrapNode(Node); Order.emplace(IR.GetID(Node).Value, ++Position);
+        if (!Exit.IsInvalid() && H->Op != OP_ENDBLOCK) return Reject(H);
+        if (H->Op == OP_LOADMEM || H->Op == OP_LOADMEMTSO) {
+          if (!Load.IsInvalid()) return Reject(H); Load = W;
+        } else if (H->Op == OP_OR) {
+          if (!Result.IsInvalid() || Load.IsInvalid() || H->Args[0] != Load) return Reject(H);
+          Result = W; BrokerAddend = H->Args[1];
+        } else if (H->Op == OP_SUBWITHFLAGS) {
+          if (!Flags.IsInvalid() || Result.IsInvalid() || H->Args[0] != Result) return Reject(H); Flags = W;
+        } else if (H->Op == OP_INVALIDATEFLAGS) {
+          if (!Invalidate.IsInvalid() || uint32_t(H->Size) || H->C<IROp_InvalidateFlags>()->Flags != (1u << FEXCore::X86State::RFLAG_AF_RAW_LOC)) return Reject(H);
+          Invalidate = W;
+        } else if (H->Op == OP_STOREMEM || H->Op == OP_STOREMEMTSO) {
+          if (!Store.IsInvalid() || Result.IsInvalid() || H->C<IROp_StoreMem>()->Value != Result) return Reject(H); Store = W;
+        } else if (H->Op == OP_STOREPF) {
+          if (!PF.IsInvalid() || Flags.IsInvalid() || uint32_t(H->Size) != 8 || H->Args[0] != Flags) return Reject(H); PF = W;
+        } else if (H->Op == OP_EXITFUNCTION) {
+          const auto* O = H->C<IROp_ExitFunction>(); uint64_t Next;
+          if (O->Hint != BranchHint::None || !O->CallReturnAddress.IsInvalid() || !O->CallReturnBlock.IsInvalid() ||
+              !ConstantPC(O->NewRIP, Next) || Next != Cfg.BrokerNextRIP) return Reject(H); Exit = W;
+        }
+      }
+      auto Before = [&](OrderedNodeWrapper A, OrderedNodeWrapper B) {
+        if (A.IsInvalid() || B.IsInvalid()) return false;
+        const auto X = Order.find(IR.GetID(IR.GetNode(A)).Value), Y = Order.find(IR.GetID(IR.GetNode(B)).Value);
+        return X != Order.end() && Y != Order.end() && X->second < Y->second;
+      };
+      uint64_t Zero;
+      if (Load.IsInvalid() || Result.IsInvalid() || Flags.IsInvalid() || Invalidate.IsInvalid() || Store.IsInvalid() || PF.IsInvalid() || Exit.IsInvalid() || BrokerAddend.IsInvalid() ||
+          !Before(BrokerAddend, Load) || !Before(Load, Result) || !Before(Result, Invalidate) || !Before(Invalidate, Flags) ||
+          !Before(Flags, Store) || !Before(Flags, PF) || !Before(Store, Exit) || !Before(PF, Exit) ||
+          uint32_t(IR.GetOp<IROp_Header>(Result)->Size) != Cfg.BrokerWidth || uint32_t(IR.GetOp<IROp_Header>(Flags)->Size) != Cfg.BrokerWidth ||
+          !Before(IR.GetOp<IROp_Header>(Flags)->Args[1], Flags) || !ConstantPC(IR.GetOp<IROp_Header>(Flags)->Args[1], Zero) || Zero) {
+        CompileResult R; R.Error = "broker OR logical flag dataflow required"; return R;
+      }
+      const auto* Source = IR.GetOp<IROp_Header>(BrokerAddend);
+      if (Source->Op != OP_LOADREGISTER || Source->C<IROp_LoadRegister>()->Class != RegClass::GPR ||
+          Source->C<IROp_LoadRegister>()->Reg != Cfg.BrokerTargetRegister || uint32_t(Source->Size) != 8) return Reject(Source);
+      std::function<bool(OrderedNodeWrapper, OrderedNodeWrapper, unsigned)> SameAddress = [&](OrderedNodeWrapper A, OrderedNodeWrapper B, unsigned Depth) {
+        if (A == B) return true;
+        if (A.IsInvalid() || B.IsInvalid() || Depth > 4) return false;
+        const auto* X = IR.GetOp<IROp_Header>(A); const auto* Y = IR.GetOp<IROp_Header>(B);
+        if (X->Op != Y->Op || X->Size != Y->Size) return false;
+        switch (X->Op) {
+        case OP_LOADREGISTER: return X->C<IROp_LoadRegister>()->Class == Y->C<IROp_LoadRegister>()->Class && X->C<IROp_LoadRegister>()->Reg == Y->C<IROp_LoadRegister>()->Reg;
+        case OP_INLINECONSTANT: return X->C<IROp_InlineConstant>()->Constant == Y->C<IROp_InlineConstant>()->Constant;
+        case OP_CONSTANT: return X->C<IROp_Constant>()->Constant == Y->C<IROp_Constant>()->Constant;
+        case OP_ENTRYPOINTOFFSET: return X->C<IROp_EntrypointOffset>()->Offset == Y->C<IROp_EntrypointOffset>()->Offset;
+        case OP_INLINEENTRYPOINTOFFSET: return X->C<IROp_InlineEntrypointOffset>()->Offset == Y->C<IROp_InlineEntrypointOffset>()->Offset;
+        case OP_ADDSHIFT:
+          if (X->C<IROp_AddShift>()->Shift != Y->C<IROp_AddShift>()->Shift || X->C<IROp_AddShift>()->ShiftAmount != Y->C<IROp_AddShift>()->ShiftAmount) return false;
+          [[fallthrough]];
+        case OP_ADD: return SameAddress(X->Args[0], Y->Args[0], Depth + 1) && SameAddress(X->Args[1], Y->Args[1], Depth + 1);
+        default: return false;
+        }
+      };
+      std::function<bool(OrderedNodeWrapper, OrderedNodeWrapper, unsigned)> ReadyAddress = [&](OrderedNodeWrapper A, OrderedNodeWrapper Effect, unsigned Depth) {
+        if (A.IsInvalid()) return true;
+        if (Depth > 4 || !Before(A, Effect)) return false;
+        const auto* H = IR.GetOp<IROp_Header>(A); if (uint32_t(H->Size) != 8) return false;
+        switch (H->Op) {
+        case OP_LOADREGISTER: return H->C<IROp_LoadRegister>()->Class == RegClass::GPR && H->C<IROp_LoadRegister>()->Reg < 16;
+        case OP_CONSTANT: case OP_INLINECONSTANT: case OP_ENTRYPOINTOFFSET: case OP_INLINEENTRYPOINTOFFSET: return true;
+        case OP_ADDSHIFT:
+          if (H->C<IROp_AddShift>()->Shift != ShiftType::LSL || H->C<IROp_AddShift>()->ShiftAmount > 3) return false;
+          [[fallthrough]];
+        case OP_ADD: return Before(H->Args[0], A) && Before(H->Args[1], A) && ReadyAddress(H->Args[0], Effect, Depth + 1) && ReadyAddress(H->Args[1], Effect, Depth + 1);
+        default: return false;
+        }
+      };
+      const auto* L = IR.GetOp<IROp_LoadMem>(Load); const auto* W = IR.GetOp<IROp_StoreMem>(Store);
+      if (L->Class != RegClass::GPR || W->Class != RegClass::GPR || uint32_t(L->Header.Size) != Cfg.BrokerWidth || uint32_t(W->Header.Size) != Cfg.BrokerWidth ||
+          uint32_t(L->Align) != Cfg.BrokerWidth || W->Align != L->Align || L->OffsetType != MemOffsetType::SXTX || W->OffsetType != L->OffsetType ||
+          (L->OffsetScale != 1 && L->OffsetScale != 2 && L->OffsetScale != 4 && L->OffsetScale != 8) || W->OffsetScale != L->OffsetScale ||
+          L->Addr.IsInvalid() || !ReadyAddress(L->Addr, Load, 0) || !ReadyAddress(L->Offset, Load, 0) ||
+          !ReadyAddress(W->Addr, Store, 0) || !ReadyAddress(W->Offset, Store, 0) ||
+          !SameAddress(L->Addr, W->Addr, 0) || !SameAddress(L->Offset, W->Offset, 0)) return Reject(&W->Header);
+    }
     if (Cfg.BrokerOperation == 11) {
       // Fuse only a proven single load + ADD-with-flags + same-address store.
       // FEX may regenerate equivalent SIB/RIP-relative address SSA nodes.
@@ -11402,6 +11490,18 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
         default: return Reject(H);
         }
       }
+      if (Cfg.BrokerOperation == 16) {
+        switch (H->Op) {
+        case OP_IRHEADER: case OP_CODEBLOCK: case OP_BEGINBLOCK: case OP_ENDBLOCK:
+        case OP_GUESTOPCODE: case OP_INLINECONSTANT: case OP_INLINEENTRYPOINTOFFSET:
+        case OP_CONSTANT: case OP_ENTRYPOINTOFFSET: case OP_LOADREGISTER:
+        case OP_ADD: case OP_ADDSHIFT: case OP_OR: case OP_SUBWITHFLAGS:
+        case OP_INVALIDATEFLAGS: case OP_STOREPF:
+        case OP_LOADMEM: case OP_LOADMEMTSO: case OP_STOREMEM: case OP_STOREMEMTSO:
+        case OP_EXITFUNCTION: break;
+        default: return Reject(H);
+        }
+      }
       if (Cfg.BrokerOperation == 11) {
         switch (H->Op) {
         case OP_IRHEADER: case OP_CODEBLOCK: case OP_BEGINBLOCK: case OP_ENDBLOCK:
@@ -11438,11 +11538,12 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
       case OP_LOADPF: case OP_LOADAF: case OP_STOREPF: case OP_STOREAF:
       case OP_LOADNZCV: case OP_STORENZCV: case OP_SUBWITHFLAGS: case OP_ADDWITHFLAGS:
       case OP_NZCVSELECT: case OP_LOADDF:
+        if (Cfg.BrokerOperation == 16 && (H->Op == OP_STOREPF || H->Op == OP_SUBWITHFLAGS)) break;
         if ((Cfg.BrokerOperation == 11 || Cfg.BrokerOperation == 15) && (H->Op == OP_STOREPF || H->Op == OP_STOREAF || H->Op == OP_LOADNZCV || H->Op == OP_STORENZCV || H->Op == OP_ADDWITHFLAGS)) break;
         if (Cfg.BrokerOperation < 3 || Cfg.BrokerOperation >= 9) return Reject(H);
         break;
       case OP_INVALIDATEFLAGS:
-        if ((Cfg.BrokerOperation != 6 && Cfg.BrokerOperation != 8) || H->C<IROp_InvalidateFlags>()->Flags != (1u << FEXCore::X86State::RFLAG_AF_RAW_LOC)) return Reject(H);
+        if ((Cfg.BrokerOperation != 6 && Cfg.BrokerOperation != 8 && Cfg.BrokerOperation != 16) || H->C<IROp_InvalidateFlags>()->Flags != (1u << FEXCore::X86State::RFLAG_AF_RAW_LOC)) return Reject(H);
         break;
       case OP_SHIFTFLAGS: {
         const auto* O = H->C<IROp_ShiftFlags>();
@@ -11464,12 +11565,12 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
         }
         if (O->Class != RegClass::GPR || O->Reg >= (Cfg.BrokerOperation >= 3 ? NUM_STATIC : 16) ||
             ((Cfg.BrokerOperation == 9 || Cfg.BrokerOperation == 10) && (O->Reg != 4 || uint32_t(H->Size) != 8)) ||
-            ((Cfg.BrokerOperation == 11 || Cfg.BrokerOperation == 15) && (O->Reg >= 16 || uint32_t(H->Size) != 8))) return Reject(H);
+            ((Cfg.BrokerOperation == 11 || Cfg.BrokerOperation == 15 || Cfg.BrokerOperation == 16) && (O->Reg >= 16 || uint32_t(H->Size) != 8))) return Reject(H);
         break;
       }
       case OP_STOREREGISTER: {
         auto R = PhysicalRegister(Node);
-        if (Cfg.BrokerOperation == 11 || R.AsRegClass() != RegClass::GPRFixed || R.Reg >= (Cfg.BrokerOperation >= 3 ? NUM_STATIC : 16) ||
+        if (Cfg.BrokerOperation == 11 || Cfg.BrokerOperation == 16 || R.AsRegClass() != RegClass::GPRFixed || R.Reg >= (Cfg.BrokerOperation >= 3 ? NUM_STATIC : 16) ||
             (Cfg.BrokerOperation >= 9 && Cfg.BrokerOperation != 13 && Cfg.BrokerOperation != 14 && Cfg.BrokerOperation != 15 && (R.Reg != 4 || uint32_t(H->Size) != 8))) return Reject(H);
         break;
       }
@@ -11506,11 +11607,11 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
         Branches++; break;
       }
       case OP_LOADMEM: case OP_LOADMEMTSO:
-        if (H->C<IROp_LoadMem>()->Class != RegClass::GPR || (Cfg.BrokerOperation != 1 && Cfg.BrokerOperation != 8 && Cfg.BrokerOperation != 11 && Cfg.BrokerOperation != 15) || uint32_t(H->Size) != Cfg.BrokerWidth)
+        if (H->C<IROp_LoadMem>()->Class != RegClass::GPR || (Cfg.BrokerOperation != 1 && Cfg.BrokerOperation != 8 && Cfg.BrokerOperation != 11 && Cfg.BrokerOperation != 15 && Cfg.BrokerOperation != 16) || uint32_t(H->Size) != Cfg.BrokerWidth)
           return Reject(H);
         Reads++; break;
       case OP_STOREMEM: case OP_STOREMEMTSO:
-        if (H->C<IROp_StoreMem>()->Class != RegClass::GPR || (Cfg.BrokerOperation != 2 && Cfg.BrokerOperation != 11) || uint32_t(H->Size) != Cfg.BrokerWidth)
+        if (H->C<IROp_StoreMem>()->Class != RegClass::GPR || (Cfg.BrokerOperation != 2 && Cfg.BrokerOperation != 11 && Cfg.BrokerOperation != 16) || uint32_t(H->Size) != Cfg.BrokerWidth)
           return Reject(H);
         Writes++; break;
       case OP_EXITFUNCTION: {
@@ -11551,7 +11652,7 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
     }}
     if (Blocks != (Cfg.BrokerFlow == 2 ? 3u : 1u) || Exits != (Cfg.BrokerFlow == 2 ? 2u : 1u) ||
         Branches != (Cfg.BrokerFlow == 2) || (Cfg.BrokerFlow && !SawTarget) ||
-        (Cfg.BrokerFlow == 2 && !SawFallthrough) || Reads != (Cfg.BrokerOperation == 1 || Cfg.BrokerOperation == 8 || Cfg.BrokerOperation == 10 || Cfg.BrokerOperation == 11 || Cfg.BrokerOperation == 14 || Cfg.BrokerOperation == 15) || Writes != (Cfg.BrokerOperation == 2 || Cfg.BrokerOperation == 9 || Cfg.BrokerOperation == 11 || Cfg.BrokerOperation == 13) ||
+        (Cfg.BrokerFlow == 2 && !SawFallthrough) || Reads != (Cfg.BrokerOperation == 1 || Cfg.BrokerOperation == 8 || Cfg.BrokerOperation == 10 || Cfg.BrokerOperation == 11 || Cfg.BrokerOperation == 14 || Cfg.BrokerOperation == 15 || Cfg.BrokerOperation == 16) || Writes != (Cfg.BrokerOperation == 2 || Cfg.BrokerOperation == 9 || Cfg.BrokerOperation == 11 || Cfg.BrokerOperation == 13 || Cfg.BrokerOperation == 16) ||
         Atomics != (Cfg.BrokerOperation == 3 || Cfg.BrokerOperation == 4) || Syscalls != (Cfg.BrokerOperation == 5)) {
       CompileResult R; R.Error = "broker instruction effect count mismatch"; return R;
     }

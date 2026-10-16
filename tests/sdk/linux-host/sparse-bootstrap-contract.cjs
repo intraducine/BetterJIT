@@ -155,6 +155,23 @@ async function main(){try{
   assert.equal(r.executedWasmSteps,6);assert.equal(r.broker.requests,3);assert.equal(r.broker.ok,3);assert.equal(r.raxAfter,F.BASE+0x3187n);assert.equal(r.rdxAfter,15n);assert.equal(r.stoppedRip,F.BASE+0x101fn);
   records.push({mode:phase,steps:r.executedWasmSteps,broker:r.broker,native:report.native,raxAfter:r.raxAfter,rdxAfter:r.rdxAfter});
  }
+ // Both OR widths traverse byte-derived dynamic plans and the real worker.
+ // The read-only PT_LOAD variant faults before its first memory OR commit.
+ for(const readOnly of [false,true]){
+  phase='memory-or'+(readOnly?'-readonly':'');const input=inputs('--synthetic'),F=require('./sparse-linux-image-fixture.cjs'),pointer=new Uint8Array(8);new DataView(pointer.buffer).setBigUint64(0,F.BASE+0x3180n,true);
+  input.minimumSteps=readOnly?4:7;new DataView(input.interpreter.buffer).setBigUint64(0x2180,6n,true);
+  if(readOnly)new DataView(input.interpreter.buffer).setUint32(64+2*56+4,4,true);
+  input.interpreter.set([0x48,0x89,0xe7,0x48,0xb8,...pointer,0x48,0xbe,1,0,0,0,0,0,0,0x80,0x48,9,0x30,0xbe,0x80,0,0,0,9,0x30,0x48,0x8b,0x10,0x0f,0x0b],0x1000);
+  input.evidence='Synthetic ELF non-LOCK memory OR of both widths with defined logical flags and typed write-permission refusal; not Wine.';
+  if(readOnly){const context={};const native=await require('./native-step-contract.cjs').serve('guestmem=broker1',async get=>{const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());
+    await assert.rejects(execute(get,cfg,state,input,context),error=>error.actual===1&&error.expected===2);return(await get('/xlat/totals')).json();});
+   assert.equal(context.progress.executedWasmSteps,4);assert.equal(context.progress.terminalStatus,1);assert.equal(context.progress.steps.at(-1).status,1);assert.equal(context.progress.rip,F.BASE+0x1017n);assert.equal(native.units,4);assert.equal(native.failed,0);
+   records.push({mode:phase,steps:4,typedFaultRejectedAsProbeSuccess:true,progress:context.progress,native});continue;
+  }
+  const report=await require('./native-step-contract.cjs').serve('guestmem=broker1',async get=>{const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer()),result=await execute(get,cfg,state,input),native=await(await get('/xlat/totals')).json();return{result,native};}),r=report.result;
+  assert.equal(r.executedWasmSteps,input.minimumSteps);assert.equal(r.broker.requests,readOnly?1:3);assert.equal(r.broker.faults,readOnly?1:0);assert.equal(r.broker.ok,readOnly?0:3);assert.equal(r.steps.at(-1).status,readOnly?1:0);assert.equal(r.stoppedRip,F.BASE+(readOnly?0x1017n:0x1024n));if(!readOnly)assert.equal(r.rdxAfter,0x8000000000000087n);
+  records.push({mode:phase,steps:r.executedWasmSteps,broker:r.broker,native:report.native,stoppedRip:r.stoppedRip,rdxAfter:r.rdxAfter});
+ }
  const result={evidence:'Actual FEX/Wasm probe-harness contracts, including deliberate initial-state corruption and native-child death. No Wine or physical-device evidence.',records};
  console.log(save(result));
  }finally{fs.rmSync(directory,{recursive:true,force:true});}}

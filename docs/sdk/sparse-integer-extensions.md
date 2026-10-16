@@ -66,4 +66,5 @@ for the exact retained input identities and the coverage 10 milestone.
 [register shifts](sparse-register-shifts.md) document coverage 12;
 [register jumps](sparse-register-jumps.md) document coverage 13;
 [register PUSH/POP](sparse-register-stack.md) document coverage 14;
-[register-destination memory ADD](sparse-register-memory-add.md) documents current coverage 15.
+[register-destination memory ADD](sparse-register-memory-add.md) documents coverage 15;
+[non-LOCK memory OR](sparse-memory-or.md) documents current coverage 16.

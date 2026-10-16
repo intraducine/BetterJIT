@@ -36,7 +36,7 @@ test('failure JSON is bounded, serializable and excludes paths, stacks and memor
  const error=Object.assign(Error('cannot open /workspace/private/secret.bin https://host.invalid/?token=PRIVATE '+ 'x'.repeat(100000)),{code:'ENOENT'});
  error.actual={};error.actual.self=error.actual;error.expected=1n<<100000n;error.stack='SECRET STACK';
  const progress={stage:'test',rip:entry,rdi:1n,instruction:Array(10000).fill(0x90),steps:Array.from({length:10000},()=>({rip:entry,status:0})),memory:new Uint8Array(1000000)};
- const report=P.failureReport({stage:'execute',input:{path:'/workspace/private',elf:Uint8Array.of(1),interpreter:Uint8Array.of(2)},progress,native:{units:3},cfg:{buildID:'test',coverageVersion:15}},error);
+ const report=P.failureReport({stage:'execute',input:{path:'/workspace/private',elf:Uint8Array.of(1),interpreter:Uint8Array.of(2)},progress,native:{units:3},cfg:{buildID:'test',coverageVersion:16}},error);
  const text=P.stringify(report);assert(text.length<12000);assert(!/secret\.bin|PRIVATE|SECRET STACK|1000000|workspace/.test(text));
  assert.equal(report.status,'probe-failed');assert.equal(report.error.expected,'[integer omitted]');assert.equal(report.progress.instruction.length,15);assert.equal(report.progress.steps.length,64);assert.equal(JSON.parse(text).progress.rdi,'0x1');
 });
