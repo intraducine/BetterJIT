@@ -87,6 +87,15 @@ async function main(){try{
  assert.equal(added.executedWasmSteps,4);assert.equal(added.broker.requests,1);assert.equal(added.broker.ok,1);assert.equal(added.raxAfter,dataAddress);assert.equal(added.rdxAfter,1n);
  assert.equal(added.nativeRequestsDrained,true);assert.equal(added.guestBacking.ownedPayloadBytes,0);assert.equal(added.guestAccessQuiescenceAcknowledged,true);
  records.push({mode:'memory-add',steps:added.executedWasmSteps,broker:added.broker,native:memoryAddReport.native});
+ // Run register-only shifts through the actual dynamic-kernel worker, including
+ // a masked-zero CL count and dword upper clearing. No memory shift is used.
+ phase='register-shifts';const shifts=inputs('--synthetic');shifts.minimumSteps=8;
+ shifts.interpreter.set([0x48,0x89,0xe7,0x48,0xb8,1,0,0,0,0,0,0,0x80,0x48,0xd1,0xe8,0xb9,0x40,0,0,0,0x48,0xd3,0xe8,0xc1,0xe0,0x20,0x48,0xba,0xf7,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0x48,0xc1,0xfa,2,0x0f,0x0b],0x1000);
+ shifts.evidence='Synthetic ELF interpreter with register SHL/SHR/SAR through the production sparse kernel; not Wine.';
+ const shiftReport=await probe(()=>shifts,path.join(directory,'register-shifts.json')),shifted=shiftReport.result;
+ assert.equal(shifted.executedWasmSteps,8);assert.equal(shifted.raxAfter,0n);assert.equal(shifted.rdxAfter,0xfffffffffffffffdn);assert.equal(shifted.broker.requests,0);
+ assert.equal(shifted.nativeRequestsDrained,true);assert.equal(shifted.guestBacking.ownedPayloadBytes,0);assert.equal(shifted.guestAccessQuiescenceAcknowledged,true);
+ records.push({mode:'register-shifts',steps:shifted.executedWasmSteps,broker:shifted.broker,native:shiftReport.native});
  const result={evidence:'Actual FEX/Wasm probe-harness contracts, including deliberate initial-state corruption and native-child death. No Wine or physical-device evidence.',records};
  console.log(save(result));
  }finally{fs.rmSync(directory,{recursive:true,force:true});}}

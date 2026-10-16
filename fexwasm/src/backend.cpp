@@ -11283,6 +11283,12 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
       case OP_INVALIDATEFLAGS:
         if ((Cfg.BrokerOperation != 6 && Cfg.BrokerOperation != 8) || H->C<IROp_InvalidateFlags>()->Flags != (1u << FEXCore::X86State::RFLAG_AF_RAW_LOC)) return Reject(H);
         break;
+      case OP_SHIFTFLAGS: {
+        const auto* O = H->C<IROp_ShiftFlags>();
+        if (Cfg.BrokerOperation != 6 || uint32_t(H->Size) != 8 || (uint32_t(O->Size) != 4 && uint32_t(O->Size) != 8) ||
+            (O->Shift != ShiftType::LSL && O->Shift != ShiftType::LSR && O->Shift != ShiftType::ASR)) return Reject(H);
+        break;
+      }
       case OP_ANDWITHFLAGS: case OP_SUBNZCV: case OP_TESTNZ:
         if ((Cfg.BrokerOperation != 6 && Cfg.BrokerOperation != 8) || (uint32_t(H->Size) != 1 && uint32_t(H->Size) != 2 && uint32_t(H->Size) != 4 && uint32_t(H->Size) != 8)) return Reject(H);
         break;

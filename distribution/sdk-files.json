@@ -292,6 +292,11 @@
     "tests/sdk/linux-host/sparse-memory-add.cjs": "tests/sdk/linux-host/sparse-memory-add.cjs",
     "tests/sdk/linux-host/sparse-memory-add-oracle.c": "tests/sdk/linux-host/sparse-memory-add-oracle.c",
     "tests/sdk/linux-host/sparse-memory-add-oracle.json": "tests/sdk/linux-host/sparse-memory-add-oracle.json",
-    "fexwasm/src/testing/memory-add-ir.cpp": "fexwasm/src/testing/memory-add-ir.cpp"
+    "fexwasm/src/testing/memory-add-ir.cpp": "fexwasm/src/testing/memory-add-ir.cpp",
+    "docs/sdk/sparse-register-shifts.md": "docs/sdk/sparse-register-shifts.md",
+    "fexwasm/src/testing/scalar-shift-ir.cpp": "fexwasm/src/testing/scalar-shift-ir.cpp",
+    "tests/sdk/linux-host/sparse-shift-oracle.c": "tests/sdk/linux-host/sparse-shift-oracle.c",
+    "tests/sdk/linux-host/sparse-shift-oracle.json": "tests/sdk/linux-host/sparse-shift-oracle.json",
+    "tests/sdk/linux-host/sparse-shift.cjs": "tests/sdk/linux-host/sparse-shift.cjs"
   }
 }

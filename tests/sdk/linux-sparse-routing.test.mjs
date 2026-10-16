@@ -9,7 +9,7 @@ for(const file of ['guest_memory.js','guest_memory_broker.js','thread_core.js','
  vm.runInThisContext(fs.readFileSync(new URL('../../Sources/BetterJITLinux/Resources/linux/'+file,import.meta.url),'utf8'));
 const {Kernel,SLOT_BASE,SLOT_SIZE,S_REQ,S_DONE}=LinuxBundle.require('./kernel.js');
 const M=BetterJITGuestMemory,B=BetterJITGuestMemoryBroker,RIP=0x123400004000n,AT=0x123456780000n;
-const cfg={guestMemory:'broker1',memoryABI:1,stepABI:3,coverageVersion:11,stepHeaderBytes:96,memPages:33,memMaxPages:33,threadBase:65536,
+const cfg={guestMemory:'broker1',memoryABI:1,stepABI:3,coverageVersion:12,stepHeaderBytes:96,memPages:33,memMaxPages:33,threadBase:65536,
  regArgs:0,callsViaDispatcher:false,maxInstructions:1,shared:true,
  ctx:256,stateSize:1024,ripOff:24,gregsOff:32,checkpoint:{version:1,cpu:{offset:256,size:1024,ripOffset:24,stackPointerOffset:64},
  lazyFlags:{offset:64,size:24},roundMode:{offset:112,size:4}}};
@@ -78,7 +78,7 @@ test('step parser rejects incompatible or malformed typed native headers',()=>{
  const bytes=new Uint8Array(96),v=new DataView(bytes.buffer);
  [0x31534a42,1,1,3,B.ABI.coverageVersion,2].forEach((x,i)=>v.setUint32(i*4,x,true));
  assert.equal(FexLinuxThread.parseBrokerStep(bytes).status,2);
- for(const old of [3,6,7,8,9,10]){v.setUint32(16,old,true);assert.throws(()=>FexLinuxThread.parseBrokerStep(bytes),/ABI/);}v.setUint32(16,B.ABI.coverageVersion,true);
+ for(const old of [3,6,7,8,9,10,11]){v.setUint32(16,old,true);assert.throws(()=>FexLinuxThread.parseBrokerStep(bytes),/ABI/);}v.setUint32(16,B.ABI.coverageVersion,true);
  v.setUint32(4,2,true);assert.throws(()=>FexLinuxThread.parseBrokerStep(bytes),/ABI/);
  v.setUint32(4,1,true);v.setUint32(20,0,true);assert.throws(()=>FexLinuxThread.parseBrokerStep(bytes),/metadata/);
 });
