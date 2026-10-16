@@ -24,13 +24,13 @@ write(1) and inherited stdout/stderr were absent. The changed loader admits the
 zero-fill BSS case while retaining alignment restrictions for file-backed loads;
 readable distinct R/RW/RX pages, W+X refusal and rollback bounds still apply.
 
-Native memory/checkpoint versions remain 1/1, step remains 3 with a 96-byte header,
-and **coverage is now 10**, including the later architectural NOP, finite-stdin/sign-branch,
+At the coverage 10 milestone, native memory/checkpoint versions were 1/1 and
+step was 3 with a 96-byte header, including architectural NOP, finite-stdin/sign-branch,
 [immediate AND](sparse-linux-bootstrap.md), [checked CALL/RET](sparse-call-return.md)
 and [integer extension](sparse-integer-extensions.md) increments.
 The added family `READ_FLAGS=8` accepts exactly one
 READ RPC and flag updates; it cannot write, perform RMW, branch or call a syscall.
-The complete IR effect checks still precede emission. Arithmetic remains
+The complete IR effect checks preceded emission. At that milestone arithmetic was
 register-only; standalone stack PUSH/POP, indirect control flow, signed relational/parity/
 overflow branches, SIMD, 16-bit flag arithmetic and general ISA coverage remain
 unsupported. New register arithmetic/byte flags/memory comparisons and all six
@@ -39,6 +39,11 @@ checked against 104 independently executed native x86 rows, producing 1,040
 FEX/Wasm branch/flag comparisons.
 The previous 64 branch comparisons, memory faults and lifecycle fixtures remain
 separate regressions.
+
+Later bounded profiles add [memory ADD](sparse-memory-add.md),
+[register shifts](sparse-register-shifts.md), [register JMP](sparse-register-jumps.md)
+and [register PUSH/POP](sparse-register-stack.md). Current coverage is 14; the
+counts and compiler/phone receipts on this page describe their original milestones.
 
 The fresh Ubuntu GCC 13 output also contains GNU property metadata and `ENDBR64`
 at its C entry. The first Apple CI run refused the metadata before target startup;
@@ -54,7 +59,7 @@ distinguishes this compatibility marker from explicit userspace enablement;
 the sparse profile never enables CET and refuses its enabling syscalls.
 The instruction profile now admits only the
 exact `f3 0f 1e fa` marker with legacy no-op semantics; CET is not enabled or
-advertised, and indirect branches remain unsupported. FEX still decodes it and
+advertised; indirect branches were unsupported at this milestone. FEX still decodes it and
 checks the complete IR effects. A live step verifies full CPU, lazy flags and
 rounding state preservation, no guest-memory RPC and RIP+4; ENDBR32, truncated,
 wrong-prefix and extra-prefix forms still refuse. This follows
