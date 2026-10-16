@@ -43,6 +43,7 @@ test('retired numeric namespaces cannot restart native work or reuse a cached un
 
 test('translation budgets preserve defaults and reject malformed or excessive configuration',()=>{
  const f=fixture();assert.deepEqual(f.host.translationBudget,{maximumUnits:256,maximumBytes:2097152});f.host.close();
+ assert.equal(f.host.maximumResidentBytes,2097152);assert.throws(()=>{f.host.maximumResidentBytes=1;},TypeError);
  const valid={maximumUnits:512,maximumBytes:2097152},g=fixture(undefined,{translationBudget:valid});valid.maximumUnits=1;
  assert.equal(g.host.translationBudget.maximumUnits,512);assert(Object.isFrozen(g.host.translationBudget));
  assert.throws(()=>{g.host.translationBudget.maximumUnits=513;},TypeError);assert.throws(()=>{g.host.translationBudget=valid;},TypeError);g.host.close();
@@ -59,7 +60,7 @@ test('default and explicit entry caps reject before fetching, count pending prom
  try{for(const maximumUnits of [256,512]){
   let requests=0,release;const held=new Promise(resolve=>{release=resolve;});
   const f=fixture(async()=>{requests++;return{arrayBuffer:()=>held};},maximumUnits===256?{}:{translationBudget:{maximumUnits,maximumBytes:2097152}}),d=spec();f.host.spawn(d);await tick();const w=f.workers[0];
-  for(let i=0;i<maximumUnits;i++)w.onmessage({data:{op:'unit-request',id:i+1,space:1,rip:4096n+BigInt(i)}});
+  for(let i=0;i<maximumUnits;i++)w.onmessage({data:{op:'unit-request',id:i+1,space:1,rip:4096n+BigInt(i)}});await tick();
   assert.equal(f.host.cache.size,maximumUnits);assert.equal(requests,maximumUnits);
   // A hit at the cap shares its pending promise; it must not consume a slot.
   w.onmessage({data:{op:'unit-request',id:maximumUnits+1,space:1,rip:4096n}});assert.equal(requests,maximumUnits);
@@ -78,4 +79,89 @@ test('both count profiles enforce the same cumulative byte boundary before parse
   assert.equal(parses,lengths.length-(over?1:0));assert.equal(f.host.cacheBytes,lengths.reduce((n,x)=>n+x,0));
   assert.equal(f.host.history[0].acked,false);f.host.close();assert.equal(f.host.cache.size,0);assert.equal(w.terminated,1);
  }}finally{globalThis.FexLinuxThread=old;}
+});
+
+test('settled LRU entries evict across multiple capacities; hits refresh order and live clones survive',async()=>{
+ const old=globalThis.FexLinuxThread,wasm=Uint8Array.of(0,97,115,109,1,0,0,0);let fetches=0;
+ globalThis.FexLinuxThread={parseBrokerStep:bytes=>({status:0,header:bytes.slice(0,96),code:wasm.slice()})};
+ const f=fixture(async()=>{fetches++;return{arrayBuffer:async()=>new Uint8Array(104).fill(7).buffer};},{translationBudget:{maximumUnits:2,maximumBytes:2097152}}),d=spec();
+ try{f.host.spawn(d);await tick();const w=f.workers[0];w.postMessage=m=>w.messages.push(structuredClone(m));let id=0;
+  const ask=async rip=>{const request=++id;w.onmessage({data:{op:'unit-request',id:request,space:1,rip}});for(let n=0;n<100&&!w.messages.some(m=>m.id===request);n++)await tick();assert.equal(f.errors.length,0);return w.messages.find(m=>m.id===request).unit;};
+  const first=await ask(4096n),entry=f.host.cache.get('1:4096');await ask(4097n);await ask(4096n);await ask(4098n);
+  assert(f.host.cache.has('1:4096'));assert(!f.host.cache.has('1:4097'));assert.equal(fetches,3);
+  for(let i=0;i<12;i++){await ask(8192n+BigInt(i));assert.equal(f.host.cache.size,2);assert.equal(f.host.retainedBytes,208);}
+  const original=await entry.promise;original.header.fill(0);original.code.fill(0);assert.equal(first.header[0],7);assert.equal(first.code[0],0);assert.equal(first.code[1],97);assert(first.module instanceof WebAssembly.Module);assert.deepEqual(WebAssembly.Module.exports(first.module),[]);
+  const again=await ask(4096n);assert.notEqual(again.module,first.module);assert.deepEqual(again.header,new Uint8Array(104).fill(7).slice(0,96));
+  const s=f.host.cacheStats();assert.equal(s.hits,1);assert.equal(s.fetches,16);assert.equal(s.compiled,16);assert.equal(s.evictions,14);assert.equal(s.peakEntries,2);assert.equal(s.peakRetainedBytes,208);assert.equal(s.pendingEntries,0);assert.equal(s.pinnedRequests,0);
+  result(w,d);f.host.drop({space:1});await Promise.all(f.host.drops);assert.equal(f.host.retainedBytes,0);
+ }finally{f.host.close();globalThis.FexLinuxThread=old;}
+});
+
+test('shared pending entries remain pinned through synchronous delivery and count pressure never evicts them',async()=>{
+ const old=globalThis.FexLinuxThread;globalThis.FexLinuxThread={parseBrokerStep:()=>({status:2,code:new Uint8Array(0)})};let release,fetches=0;const held=new Promise(r=>{release=r;});
+ const f=fixture(async()=>{fetches++;return{arrayBuffer:()=>held};},{translationBudget:{maximumUnits:1,maximumBytes:2097152}}),a=spec(),b=spec(1);
+ try{f.host.spawn(a);f.host.spawn(b);await tick();for(let n=0;n<2;n++)f.workers[n].onmessage({data:{op:'unit-request',id:1,space:1,rip:4096n}});await tick();
+  assert.equal(fetches,1);assert.equal(f.host.cacheStats().pinnedRequests,2);assert.equal(f.host.cacheStats().pinnedEntries,1);assert.equal(f.host.cacheStats().pendingEntries,1);
+  f.workers[0].onmessage({data:{op:'unit-request',id:2,space:1,rip:4097n}});await tick();assert.equal(fetches,1);assert.equal(f.host.cacheStats().evictions,0);assert.match(f.errors[0].message,/all entries pending or pinned/);
+  let pins=[];for(const w of f.workers)w.postMessage=m=>{if(m.op==='unit-reply')pins.push(f.host.cacheStats().pinnedRequests);w.messages.push(m);};release(new ArrayBuffer(96));await tick();assert.deepEqual(pins,[2,1]);assert.equal(f.host.cacheStats().pinnedRequests,0);assert.equal(f.host.cacheStats().pendingEntries,0);assert.equal(f.host.retainedBytes,96);
+ }finally{f.host.close();globalThis.FexLinuxThread=old;}
+});
+
+test('resident byte eviction is independent from the unchanged cumulative receive gate',async()=>{
+ const old=globalThis.FexLinuxThread;let parses=0;globalThis.FexLinuxThread={parseBrokerStep:()=>{parses++;return{status:2,code:new Uint8Array(0)};}};
+ const f=fixture(async()=>({arrayBuffer:async()=>new ArrayBuffer(96)}),{translationBudget:{maximumUnits:3,maximumBytes:288},maximumResidentBytes:96}),d=spec();
+ try{f.host.spawn(d);await tick();const w=f.workers[0];for(let n=0;n<4;n++){w.onmessage({data:{op:'unit-request',id:n+1,space:1,rip:4096n+BigInt(n)}});await tick();}
+  assert.equal(parses,3);assert.equal(f.host.cacheBytes,384);assert.equal(f.host.retainedBytes,96);assert.equal(f.host.cacheStats().evictions,2);assert.equal(f.host.cacheStats().failedRemovals,1);assert.equal(f.host.cacheStats().peakRetainedBytes,96);assert.equal(f.errors.length,1);assert.match(f.errors[0].message,/translation byte limit reached/);
+ }finally{f.host.close();globalThis.FexLinuxThread=old;}
+ for(const resident of [null,0,-1,289,NaN,Infinity,1.5,'96'])assert.throws(()=>fixture(undefined,{translationBudget:{maximumUnits:3,maximumBytes:288},maximumResidentBytes:resident}),/resident translation budget/);
+});
+
+test('an individually oversized resident response fails before parse and releases its reservation',async()=>{
+ const old=globalThis.FexLinuxThread;let parses=0;globalThis.FexLinuxThread={parseBrokerStep:()=>{parses++;throw Error('must not parse');}};
+ const f=fixture(async()=>({arrayBuffer:async()=>new ArrayBuffer(97)}),{maximumResidentBytes:96}),d=spec();try{f.host.spawn(d);await tick();f.workers[0].onmessage({data:{op:'unit-request',id:1,space:1,rip:4096n}});await tick();assert.equal(parses,0);assert.equal(f.host.cache.size,0);assert.equal(f.host.retainedBytes,0);assert.equal(f.host.cacheStats().pendingEntries,0);assert.equal(f.host.cacheStats().pinnedRequests,0);assert.match(f.errors[0].message,/resident translation byte limit/);}finally{f.host.close();globalThis.FexLinuxThread=old;}
+});
+
+test('shared failed fetches release the entry only after every waiter and cannot acknowledge uncertain ownership',async()=>{
+ const old=globalThis.FexLinuxThread;globalThis.FexLinuxThread={parseBrokerStep:()=>({status:2,code:new Uint8Array(0)})};let reject,fetches=0;const held=new Promise((_r,j)=>{reject=j;});
+ const f=fixture(async()=>{fetches++;return{arrayBuffer:()=>held};}),a=spec(),b=spec(1);try{f.host.spawn(a);f.host.spawn(b);await tick();for(const w of f.workers)w.onmessage({data:{op:'unit-request',id:1,space:1,rip:4096n}});await tick();assert.equal(fetches,1);reject(Error('fetch failed'));await tick();assert.equal(f.errors.length,2);assert.equal(f.host.cache.size,0);assert.equal(f.host.retainedBytes,0);assert.equal(f.host.cacheStats().failedRemovals,1);assert.equal(f.host.cacheStats().failures,1);assert.equal(f.host.cacheStats().pendingEntries,0);assert.equal(f.host.cacheStats().pinnedRequests,0);for(const r of f.host.history){assert.equal(r.requests.size,0);assert.equal(r.acked,false);}assert.throws(()=>f.host.drop({space:1}),/before guest\/native drain/);}finally{f.host.close();globalThis.FexLinuxThread=old;}
+});
+
+test('parse and compile failures remove charged entries and retain the cumulative byte debit',async()=>{
+ const old=globalThis.FexLinuxThread;try{for(const mode of ['parse','compile']){globalThis.FexLinuxThread={parseBrokerStep:()=>{if(mode==='parse')throw Error('parse failed');return{status:0,code:Uint8Array.of(255)};}};const f=fixture(async()=>({arrayBuffer:async()=>new ArrayBuffer(96)})),d=spec();try{f.host.spawn(d);await tick();f.workers[0].onmessage({data:{op:'unit-request',id:1,space:1,rip:4096n}});for(let n=0;n<100&&!f.errors.length;n++)await tick();assert.equal(f.errors.length,1);assert.equal(f.host.cache.size,0);assert.equal(f.host.retainedBytes,0);assert.equal(f.host.cacheBytes,96);assert.equal(f.host.cacheStats().pendingEntries,0);assert.equal(f.host.cacheStats().pinnedRequests,0);assert.equal(f.host.cacheStats().failedRemovals,1);}finally{f.host.close();}}}finally{globalThis.FexLinuxThread=old;}
+});
+
+test('close leaves pending/pinned accounting visible and late fetches never parse, compile or reinsert',async()=>{
+ const old=globalThis.FexLinuxThread;let parses=0,release;globalThis.FexLinuxThread={parseBrokerStep:()=>{parses++;throw Error('late parse');}};const held=new Promise(r=>{release=r;}),f=fixture(async()=>({arrayBuffer:()=>held})),d=spec();
+ try{f.host.spawn(d);await tick();f.workers[0].onmessage({data:{op:'unit-request',id:1,space:1,rip:4096n}});await tick();f.host.close();assert.equal(f.host.cache.size,0);assert.equal(f.host.cacheStats().pendingEntries,1);assert.equal(f.host.cacheStats().pinnedRequests,1);release(new ArrayBuffer(96));await tick();assert.equal(parses,0);assert.equal(f.host.cache.size,0);assert.equal(f.host.cacheStats().pendingEntries,0);assert.equal(f.host.cacheStats().pinnedRequests,0);assert.equal(f.host.cacheBytes,96);assert.equal(f.errors.length,0);assert.equal(f.workers[0].messages.filter(m=>m.op==='unit-reply').length,0);}finally{f.host.close();globalThis.FexLinuxThread=old;}
+});
+
+test('synchronous get reentry shares the published promise and charges one response',async()=>{
+ const old=globalThis.FexLinuxThread;globalThis.FexLinuxThread={parseBrokerStep:()=>({status:2,code:new Uint8Array(0)})};let f,second,fetches=0;
+ f=fixture(()=>{fetches++;const shared=f.host.translation(1,4096n);assert(shared.promise instanceof Promise);assert.equal(f.host.cacheStats().pendingEntries,1);second=shared.promise.finally(()=>f.host.unpin(shared));return Promise.resolve({arrayBuffer:async()=>new ArrayBuffer(96)});});
+ try{const entry=f.host.translation(1,4096n);await entry.promise;f.host.unpin(entry);await second;const s=f.host.cacheStats();assert.equal(fetches,1);assert.equal(s.fetches,1);assert.equal(s.hits,1);assert.equal(s.pendingEntries,0);assert.equal(s.pinnedEntries,0);assert.equal(s.pinnedRequests,0);assert.equal(s.receivedBytes,96);assert.equal(s.retainedBytes,96);f.host.close();assert.equal(f.host.retainedBytes,0);}finally{f.host.close();globalThis.FexLinuxThread=old;}
+});
+
+test('closing before the fetch microtask cancels work and drains reservations without a response',async()=>{
+ let fetches=0;const f=fixture(()=>{fetches++;throw Error('must not fetch');}),d=spec();f.host.spawn(d);await tick();f.workers[0].onmessage({data:{op:'unit-request',id:1,space:1,rip:4096n}});f.host.close();assert.equal(f.host.cacheStats().pendingEntries,1);await tick();const s=f.host.cacheStats();assert.equal(fetches,0);assert.equal(s.fetches,0);assert.equal(s.receivedBytes,0);assert.equal(s.retainedBytes,0);assert.equal(s.pendingEntries,0);assert.equal(s.pinnedRequests,0);assert.equal(f.errors.length,0);
+});
+
+test('close during compile retains charged pinned bytes until the waiter drains',async()=>{
+ const old=globalThis.FexLinuxThread,compile=WebAssembly.compile;let release;const held=new Promise(r=>{release=r;});globalThis.FexLinuxThread={parseBrokerStep:()=>({status:0,code:new Uint8Array(8)})};WebAssembly.compile=()=>held;
+ const f=fixture(async()=>({arrayBuffer:async()=>new ArrayBuffer(104)})),d=spec();try{f.host.spawn(d);await tick();f.workers[0].onmessage({data:{op:'unit-request',id:1,space:1,rip:4096n}});await tick();assert.equal(f.host.retainedBytes,104);f.host.close();assert.equal(f.host.cache.size,0);assert.equal(f.host.retainedBytes,104);assert.equal(f.host.cacheStats().pendingEntries,1);assert.equal(f.host.cacheStats().pinnedRequests,1);release({compiled:true});await tick();assert.equal(f.host.retainedBytes,0);assert.equal(f.host.cacheStats().pendingEntries,0);assert.equal(f.host.cacheStats().pinnedRequests,0);assert.equal(f.host.cacheStats().compiled,1);assert.equal(f.errors.length,0);}finally{f.host.close();WebAssembly.compile=compile;globalThis.FexLinuxThread=old;}
+});
+
+test('delivery failure still unpins without fabricating a completion receipt',async()=>{
+ const old=globalThis.FexLinuxThread;globalThis.FexLinuxThread={parseBrokerStep:()=>({status:2,code:new Uint8Array(0)})};const f=fixture(async()=>({arrayBuffer:async()=>new ArrayBuffer(96)})),d=spec();try{f.host.spawn(d);await tick();f.workers[0].postMessage=()=>{throw Error('clone failed');};f.workers[0].onmessage({data:{op:'unit-request',id:1,space:1,rip:4096n}});await tick();assert.equal(f.host.cacheStats().pinnedRequests,0);assert.equal(f.host.cacheStats().pendingEntries,0);assert.equal(f.host.history[0].requests.size,0);assert.equal(f.host.history[0].acked,false);assert.match(f.errors[0].message,/clone failed/);}finally{f.host.close();globalThis.FexLinuxThread=old;}
+});
+
+test('namespace retirement frees only its own settled payload and cannot refetch retired keys',async()=>{
+ const old=globalThis.FexLinuxThread;globalThis.FexLinuxThread={parseBrokerStep:()=>({status:2,code:new Uint8Array(0)})};let fetches=0;const f=fixture(async()=>{fetches++;return{ok:true,arrayBuffer:async()=>new ArrayBuffer(96)};}),a=spec(),b={...spec(1),space:2};try{f.host.spawn(a);f.host.spawn(b);await tick();for(let n=0;n<2;n++){f.workers[n].onmessage({data:{op:'unit-request',id:1,space:n+1,rip:4096n}});await tick();}assert.equal(f.host.retainedBytes,192);result(f.workers[0],a);f.host.drop({space:1});await Promise.all(f.host.drops);assert.equal(f.host.retainedBytes,96);assert(f.host.cache.has('2:4096'));const before=fetches;assert.throws(()=>f.host.translation(1,4096n),/retired/);assert.equal(fetches,before);result(f.workers[1],b);f.host.drop({space:2});await Promise.all(f.host.drops);assert.equal(f.host.retainedBytes,0);}finally{f.host.close();globalThis.FexLinuxThread=old;}
+});
+
+test('resident pressure refuses to evict a pinned compile and failed old promises cannot erase replacement entries',async()=>{
+ const old=globalThis.FexLinuxThread,compile=WebAssembly.compile;let release;const held=new Promise(r=>{release=r;});globalThis.FexLinuxThread={parseBrokerStep:()=>({status:0,code:new Uint8Array(8)})};WebAssembly.compile=()=>held;
+ const f=fixture(async()=>({arrayBuffer:async()=>new ArrayBuffer(96)}),{maximumResidentBytes:96}),d=spec();try{f.host.spawn(d);await tick();const w=f.workers[0];w.onmessage({data:{op:'unit-request',id:1,space:1,rip:4096n}});await tick();w.onmessage({data:{op:'unit-request',id:2,space:1,rip:4097n}});await tick();assert.match(f.errors[0].message,/resident translation byte limit.*pending or pinned/);assert.equal(f.host.cacheStats().evictions,0);assert.equal(f.host.retainedBytes,96);assert(f.host.cache.has('1:4096'));release({compiled:true});await tick();assert.equal(f.host.cacheStats().pinnedRequests,0);assert.equal(f.host.cacheStats().pendingEntries,0);}finally{f.host.close();WebAssembly.compile=compile;globalThis.FexLinuxThread=old;}
+ const previous=globalThis.FexLinuxThread;let reject,requests=0;const failure=new Promise((_r,j)=>{reject=j;});globalThis.FexLinuxThread={parseBrokerStep:()=>({status:2,code:new Uint8Array(0)})};const g=fixture(async()=>({arrayBuffer:()=>++requests===1?failure:Promise.resolve(new ArrayBuffer(96))}));try{
+  const first=g.host.translation(1,4096n),observed=first.promise.catch(e=>e);await tick();g.host.forget(first,'close');const second=g.host.translation(1,4096n);await second.promise;g.host.unpin(second);reject(Error('old failed'));await observed;g.host.unpin(first);assert.equal(g.host.cache.get('1:4096'),second);assert.equal(g.host.cache.size,1);assert.equal(g.host.retainedBytes,96);assert.equal(g.host.cacheStats().pendingEntries,0);assert.equal(g.host.cacheStats().pinnedRequests,0);
+ }finally{g.host.close();globalThis.FexLinuxThread=previous;}
 });

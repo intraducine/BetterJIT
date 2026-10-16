@@ -80,13 +80,28 @@ All guest images share a 32 MiB backing budget. Internal contexts, input and
 executable snapshots, native code catalogues and module caches are separate
 bounded resources. Input stays limited to 1 MiB and each read/write to 64 KiB;
 captured output remains UTF-8 text with an aggregate 4 MiB retention limit.
-The process host defaults to 256 entries and 2 MiB of cumulative received
+The process host defaults to 256 retained entries and 2 MiB of cumulative received
 translation bytes. An explicit `translationBudget` object may select at most
 512 entries and 2 MiB; both own data properties, `maximumUnits` and
 `maximumBytes`, are required. The host validates and copies those values into
 an immutable budget. Invalid, excessive, accessor or extra-key configurations
-are refused. These ceilings bound entries and serialized responses, not total
-retained RAM: compiled modules, native IR, guest backing and internal contexts
+are refused. Settled entries with no delivery pins are evicted in least-recently
+used order. Pending entries and entries being cloned to a worker cannot be evicted;
+if all entries are pinned or pending, a new request fails before fetching.
+The separate immutable `maximumResidentBytes` option defaults to the cumulative
+byte limit and may only lower it. It bounds serialized payload retained by cache
+entries, including detached pinned entries until their waiters drain. Every
+received response still consumes the cumulative budget, including failures and
+retranslations after eviction. Close cancels unstarted fetches and prevents late
+responses from compiling or reentering the cache. A worker owns its structured
+clone after delivery, independently of the cache entry.
+
+Sparse native steps discard their owned IR after compilation and response copying,
+including rejected paths; the dense unit cache retains its existing lifetime.
+Reports count current native IR Data/List bytes and vector capacity, plus generation,
+hit and discard counts. These ceilings and measurements describe logical ownership,
+not total retained RAM or collection: JS metadata, transient copies, compiled engine
+allocation, native allocator/frontend overhead, guest backing and internal contexts
 remain separate. Each run loop defaults to at most 20,000 instructions.
 The [host Wine probe](sparse-linux-bootstrap.md) explicitly selects 512 entries;
 this changes neither the SDK default nor a phone memory policy.

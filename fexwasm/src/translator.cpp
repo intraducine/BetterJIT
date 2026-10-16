@@ -573,11 +573,17 @@ fexwasm_bytes fexwasm_step(fexwasm_translator* T, uint64_t RIP) {
   uint64_t Instructions = 0;
   const double BeforeIR = NowMs();
   const auto* IR = T->Host->GenerateIR(RIP, &Instructions);
+  // Broker mode has no FetchIR/inlining borrower. Keep the view and decoded
+  // length alive through emission, then discard even on a rejected/null IR.
+  struct StepIR {
+    fexwasm::FexHost* Host; uint64_t RIP;
+    ~StepIR() { Host->Release(); Host->DiscardIR(RIP); }
+  } IRLifetime {T->Host.get(), RIP};
   T->Stats.FexMs += NowMs() - BeforeIR;
   const uint32_t Length = T->Host->InstructionLength(RIP);
   if (!IR || Instructions != 1 || !Length || Length > 15 || Length > Available || RIP > UINT64_MAX - Length ||
       (Plan.NoEffects && Length != Plan.Length)) {
-    T->Host->Release(); return Reject("single-instruction decode");
+    return Reject("single-instruction decode");
   }
   auto Cfg = T->Cfg;
   Cfg.BrokerOperation = Plan.Operation; Cfg.BrokerWidth = Plan.Width; Cfg.BrokerNextRIP = RIP + Length;
@@ -589,49 +595,48 @@ fexwasm_bytes fexwasm_step(fexwasm_translator* T, uint64_t RIP) {
   Cfg.BrokerBitWidth = Plan.BitWidth; Cfg.BrokerBitRegister = Plan.BitRegister; Cfg.BrokerBitIndex = Plan.BitIndex;
   if (Plan.Operation == 6 && Plan.Length && !Plan.TestWidth && Plan.SetCondition == 16) {
     if (Length != Plan.Length || Plan.Register >= 16 || RIP + Length >= (1ull << 47)) {
-      T->Host->Release(); return Reject("register arithmetic instruction address/length");
+      return Reject("register arithmetic instruction address/length");
     }
   } else if (Plan.SetCondition != 16) {
     if (Length != Plan.Length || Plan.Register >= 16 || RIP + Length >= (1ull << 47)) {
-      T->Host->Release(); return Reject("register SETcc instruction address/length");
+      return Reject("register SETcc instruction address/length");
     }
   } else if (Plan.TestWidth) {
     if (Length != Plan.Length || Plan.Register >= 16 || RIP + Length >= (1ull << 47)) {
-      T->Host->Release(); return Reject("immediate TEST instruction address/length");
+      return Reject("immediate TEST instruction address/length");
     }
   } else if (Plan.Operation == 15 || Plan.Operation == 16) {
     if (Length != Plan.Length || Plan.Register >= 16 || RIP + Length >= (1ull << 47)) {
-      T->Host->Release(); return Reject("memory arithmetic instruction address/length");
+      return Reject("memory arithmetic instruction address/length");
     }
   } else if (Plan.Operation == 13 || Plan.Operation == 14) {
     if (Length != Plan.Length || Plan.Register >= 16 || RIP + Length >= (1ull << 47)) {
-      T->Host->Release(); return Reject("register stack instruction address/length");
+      return Reject("register stack instruction address/length");
     }
   } else if (Plan.Flow == 5) {
     if (Length != Plan.Length || Plan.Register >= 16 || RIP + Length >= (1ull << 47)) {
-      T->Host->Release(); return Reject("register jump instruction address/length");
+      return Reject("register jump instruction address/length");
     }
   } else if (Plan.Flow == 4) {
     if (Length != 1 || Code[0] != 0xc3 || RIP + Length >= (1ull << 47)) {
-      T->Host->Release(); return Reject("return instruction address/length");
+      return Reject("return instruction address/length");
     }
   } else if (Plan.Flow) {
     int64_t Displacement;
     if (Length == 2) Displacement = int8_t(Code[1]);
     else if (((Code[0] == 0xe9 || Code[0] == 0xe8) && Length == 5) || (Code[0] == 0x0f && Length == 6)) {
       int32_t Relative; memcpy(&Relative, Code + Length - 4, 4); Displacement = Relative;
-    } else { T->Host->Release(); return Reject("branch instruction length"); }
+    } else { return Reject("branch instruction length"); }
     Cfg.BrokerTarget = Cfg.BrokerNextRIP + uint64_t(Displacement);
     if (Plan.Flow == 3 && (Cfg.BrokerNextRIP >= (1ull << 47) ||
         (Displacement < 0 && Cfg.BrokerNextRIP < uint64_t(-Displacement)) ||
         Cfg.BrokerTarget >= (1ull << 47))) {
-      T->Host->Release(); return Reject("call target address domain");
+      return Reject("call target address domain");
     }
   }
   const double BeforeEmit = NowMs();
   auto R = fexwasm::Compile(*IR, RIP, Cfg);
   T->Stats.UnitMs += NowMs() - BeforeEmit;
-  T->Host->Release();
   if (!R.Error.empty()) return Reject(R.Error.c_str());
   U32(20, 0); U32(24, Plan.Operation); U32(28, Plan.Width); U64(40, RIP + Length);
   U64(48, XXH3_64bits(R.Module.data(), R.Module.size())); U32(56, uint32_t(R.Module.size())); U32(60, Length);
@@ -705,13 +710,21 @@ fexwasm_bytes fexwasm_region(fexwasm_translator* T, const uint8_t* Req, size_t S
 
 const char* fexwasm_stats_json(fexwasm_translator* T) {
   const auto& S = T->Stats;
-  char B[512];
+  const auto I = T->Host->RetainedIR();
+  char B[2048];
   snprintf(B, sizeof(B),
            "{\"units\":%llu,\"regions\":%llu,\"failed\":%llu,\"guestInsts\":%llu,\"unitBytes\":%llu,\"regionBytes\":%llu,"
-           "\"fexMs\":%.1f,\"unitMs\":%.1f,\"regionMs\":%.1f,\"codeBytes\":%llu,\"cacheHits\":%llu,\"diskHits\":%llu,\"relocated\":%llu}",
+           "\"fexMs\":%.1f,\"unitMs\":%.1f,\"regionMs\":%.1f,\"codeBytes\":%llu,\"cacheHits\":%llu,\"diskHits\":%llu,\"relocated\":%llu,"
+           "\"irCacheEntries\":%llu,\"irOwnedEntries\":%llu,\"irDataBytes\":%llu,\"irListBytes\":%llu,\"irBufferCapacityBytes\":%llu,"
+           "\"irCataloguePeakEntriesSum\":%llu,\"irCataloguePeakOwnedEntriesSum\":%llu,\"irCataloguePeakDataBytesSum\":%llu,"
+           "\"irCataloguePeakListBytesSum\":%llu,\"irCataloguePeakBufferCapacityBytesSum\":%llu,\"irGenerations\":%llu,\"irCacheHits\":%llu,\"irDiscards\":%llu}",
            (unsigned long long)S.Units, (unsigned long long)S.Regions, (unsigned long long)S.Failed, (unsigned long long)S.GuestInsts,
            (unsigned long long)S.UnitBytes, (unsigned long long)S.RegionBytes, S.FexMs, S.UnitMs, S.RegionMs, (unsigned long long)S.CodeBytes,
-           (unsigned long long)S.CacheHits, (unsigned long long)S.DiskHits, (unsigned long long)S.Relocated);
+           (unsigned long long)S.CacheHits, (unsigned long long)S.DiskHits, (unsigned long long)S.Relocated,
+           (unsigned long long)I.Entries, (unsigned long long)I.OwnedEntries, (unsigned long long)I.DataBytes,
+           (unsigned long long)I.ListBytes, (unsigned long long)I.BufferCapacityBytes, (unsigned long long)I.PeakEntries,
+           (unsigned long long)I.PeakOwnedEntries, (unsigned long long)I.PeakDataBytes, (unsigned long long)I.PeakListBytes,
+           (unsigned long long)I.PeakBufferCapacityBytes, (unsigned long long)I.Generations, (unsigned long long)I.CacheHits, (unsigned long long)I.Discards);
   T->Json = B;
   return T->Json.c_str();
 }

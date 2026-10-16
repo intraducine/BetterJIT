@@ -183,6 +183,30 @@ static int CheckBitTest(fexwasm::FexHost& Host){
  }
  printf("checked %u actual register-BT IR copies; valid %u; unexpected %u; raw truncations %u\n",Checked,Valid,Unexpected,Truncated);return Unexpected?1:0;
 }
+static int CheckIRLifetime(){
+ fexwasm::FexHost::Options O;O.MaxInstructions=1;O.DebugGuestInstructions=true;O.Multiblock=false;fexwasm::FexHost Host(O);
+ constexpr uint64_t RIP=0x123400008000;unsigned Checked=0;
+ for(const std::vector<unsigned char> Code:std::vector<std::vector<unsigned char>>{{0x90},{0x48,0xb8,1,2,3,4,5,6,7,8},{0x48,15,0xa3,0xc8},{0x66,15,0xba,0xe0,255}}){
+  if(!Host.MapGuest(RIP,Code.data(),Code.size()))return 40;const auto Plan=fexwasm::broker::Admit(Code.data(),Code.size());if(!Plan.Supported)return 41;std::vector<unsigned char> Expected;
+  for(unsigned Pass=0;Pass<3;Pass++){
+   uint64_t Instructions=0;const auto* IR=Host.GenerateIR(RIP,&Instructions);if(!IR||Instructions!=1||Host.InstructionLength(RIP)!=Code.size())return 42;
+   auto S=Host.RetainedIR();if(S.Entries!=1||S.OwnedEntries!=1||!S.DataBytes||!S.ListBytes||S.BufferCapacityBytes<S.DataBytes+S.ListBytes)return 43;
+   fexwasm::BackendConfig Cfg;Cfg.BrokerMemory=true;Cfg.BrokerOperation=Plan.Operation;Cfg.BrokerWidth=Plan.Width;Cfg.BrokerNoEffects=Plan.NoEffects;Cfg.BrokerTargetRegister=Plan.Register;Cfg.BrokerBitWidth=Plan.BitWidth;Cfg.BrokerBitRegister=Plan.BitRegister;Cfg.BrokerBitIndex=Plan.BitIndex;Cfg.BrokerNextRIP=RIP+Code.size();Cfg.SharedMemory=true;Cfg.ThreadBaseGlobal=true;Cfg.MemPages=Cfg.MemMaxPages=fexwasm::broker::Pages;Cfg.RegArgs=0;Cfg.CallsViaDispatcher=false;
+   const auto R=fexwasm::Compile(*IR,RIP,Cfg);if(!R.Error.empty()||R.Module.empty())return 44;
+   // CompileResult owns its bytes; the borrowed IR stays valid until the
+   // explicit sparse discard, and generic Release still retains the cache.
+   Host.Release();if(Host.RetainedIR().Entries!=1||Host.InstructionLength(RIP)!=Code.size())return 45;
+   if(Pass&&R.Module!=Expected)return 46;Expected=R.Module;Host.DiscardIR(RIP);S=Host.RetainedIR();
+   if(S.Entries||S.OwnedEntries||S.DataBytes||S.ListBytes||S.BufferCapacityBytes||Host.InstructionLength(RIP))return 47;
+   if(!Host.GuestCode(RIP)||memcmp(Host.GuestCode(RIP),Code.data(),Code.size()))return 48;Checked++;
+  }
+  uint64_t Instructions=0;Host.GenerateIR(RIP,&Instructions);Host.PatchGuest(RIP,Code.data(),Code.size());if(Host.RetainedIR().OwnedEntries||Host.RetainedIR().BufferCapacityBytes)return 49;
+  Host.GenerateIR(RIP,&Instructions);Host.UnmapGuest(RIP,Code.size());if(Host.RetainedIR().Entries||Host.RetainedIR().BufferCapacityBytes)return 50;
+ }
+ const unsigned char Invalid=6;Host.MapGuest(RIP,&Invalid,1);uint64_t Instructions=0;if(Host.GenerateIR(RIP,&Instructions))return 51;
+ auto S=Host.RetainedIR();if(S.Entries!=1||S.OwnedEntries||S.BufferCapacityBytes)return 52;Host.DiscardIR(RIP);S=Host.RetainedIR();if(S.Entries||S.OwnedEntries||S.BufferCapacityBytes)return 53;
+ printf("verified %u sparse IR lifetime/deterministic module checks; nullable cache discard and map/patch invalidation passed\n",Checked);return 0;
+}
 int main(){
  const Case Cases[]={
   {"valid",[](Shape&){}},
@@ -259,5 +283,5 @@ int main(){
    const auto R=fexwasm::Compile(IR,RIP,Cfg);const bool Expected=!std::strcmp(C.Name,"valid"),OK=Expected?(R.Error.empty()&&!R.Module.empty()):(!R.Error.empty()&&R.Module.empty());Checked++;Valid+=Expected;Unexpected+=!OK;printf("%s width%u mask%u: %s%s\n",C.Name,Width*8,MaskIndex,R.Error.empty()?"ACCEPTED":R.Error.c_str(),OK?"":" [UNEXPECTED]");
   }Host.Release();
  }
- printf("checked %u actual immediate-TEST IR copies; valid %u; unexpected %u\n",Checked,Valid,Unexpected);const int Logical=CheckAccumulatorLogical(Host),Bit=CheckBitTest(Host);return Unexpected||Logical||Bit?1:0;
+ printf("checked %u actual immediate-TEST IR copies; valid %u; unexpected %u\n",Checked,Valid,Unexpected);const int Logical=CheckAccumulatorLogical(Host),Bit=CheckBitTest(Host),Lifetime=CheckIRLifetime();return Unexpected||Logical||Bit||Lifetime?1:0;
 }

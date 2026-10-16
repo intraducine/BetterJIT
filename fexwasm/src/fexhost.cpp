@@ -169,6 +169,22 @@ struct FexHost::Impl {
   uint64_t MaxInstructions = 0;
   bool CrossUnitFlags = false;
   std::map<uint64_t, std::unique_ptr<OwnedIR>> Cache;
+  IRRetention Retention;
+  void RemoveIR(const OwnedIR* O) {
+    if (!O) return;
+    Retention.OwnedEntries--; Retention.DataBytes -= O->Data.size(); Retention.ListBytes -= O->List.size();
+    Retention.BufferCapacityBytes -= O->Data.capacity() + O->List.capacity();
+  }
+  void AddIR(const OwnedIR* O) {
+    Retention.PeakEntries = std::max<uint64_t>(Retention.PeakEntries, Cache.size());
+    if (!O) return;
+    Retention.OwnedEntries++; Retention.DataBytes += O->Data.size(); Retention.ListBytes += O->List.size();
+    Retention.BufferCapacityBytes += O->Data.capacity() + O->List.capacity();
+    Retention.PeakOwnedEntries = std::max(Retention.PeakOwnedEntries, Retention.OwnedEntries);
+    Retention.PeakDataBytes = std::max(Retention.PeakDataBytes, Retention.DataBytes);
+    Retention.PeakListBytes = std::max(Retention.PeakListBytes, Retention.ListBytes);
+    Retention.PeakBufferCapacityBytes = std::max(Retention.PeakBufferCapacityBytes, Retention.BufferCapacityBytes);
+  }
   NullSignalDelegator Signals;
   NullSyscallHandler Syscalls;
   fextl::unique_ptr<FEXCore::Context::Context> CTX;
@@ -345,6 +361,7 @@ void FexHost::UnmapGuest(uint64_t Address, uint64_t Size) {
   const uint64_t From = Address > 4096 ? Address - 4096 : 0;
   for (auto It = P->Cache.lower_bound(From); It != P->Cache.end() && It->first < End;) {
     EntryFlags.erase(It->first);
+    P->RemoveIR(It->second.get());
     It = P->Cache.erase(It);
   }
 }
@@ -361,6 +378,7 @@ void FexHost::PatchGuest(uint64_t Address, const void* Data, size_t Size) {
   const uint64_t From = Address > 4096 ? Address - 4096 : 0;
   for (auto It = P->Cache.lower_bound(From); It != P->Cache.end() && It->first < End;) {
     EntryFlags.erase(It->first);
+    P->RemoveIR(It->second.get());
     It = P->Cache.erase(It);
   }
 }
@@ -386,6 +404,7 @@ const FEXCore::IR::IRListView* FexHost::GenerateIR(uint64_t RIP, uint64_t* Guest
       return nullptr; // (not cached: the code may be mapped later)
     }
     Current = this;
+    P->Retention.Generations++;
     auto* CI = static_cast<FEXCore::Context::ContextImpl*>(P->CTX.get());
     // this IR's own dependencies (FEX may be inside a translation that records too)
     std::vector<CodeDep> Mine, *Outer = Recording;
@@ -421,7 +440,8 @@ const FEXCore::IR::IRListView* FexHost::GenerateIR(uint64_t RIP, uint64_t* Guest
     P->Thread->OpDispatcher->ReownOrClaimBuffer();
     P->Thread->OpDispatcher->DelayedDisownBuffer();
     It = P->Cache.emplace(RIP, std::move(O)).first;
-  }
+    P->AddIR(It->second.get());
+  } else P->Retention.CacheHits++;
   if (!It->second) {
     return nullptr;
   }
@@ -507,5 +527,16 @@ uint64_t FexHost::XCR0() const {
 }
 
 void FexHost::Release() {}
+
+void FexHost::DiscardIR(uint64_t RIP) {
+  const auto It = P->Cache.find(RIP);
+  if (It == P->Cache.end()) return;
+  P->RemoveIR(It->second.get()); P->Cache.erase(It); EntryFlags.erase(RIP);
+  P->Retention.Discards++;
+}
+
+FexHost::IRRetention FexHost::RetainedIR() const {
+  auto R = P->Retention; R.Entries = P->Cache.size(); return R;
+}
 
 } // namespace fexwasm

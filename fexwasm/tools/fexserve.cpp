@@ -108,11 +108,15 @@ int main(int argc, char** argv) {
   std::map<uint32_t, fexwasm_translator*> Spaces;
   std::map<std::string, double> Dropped; // stats of the spaces dropped
   // Adds a flat JSON object of numbers ({"k":1,...}) into Sum.
-  auto AddStats = [](std::map<std::string, double>& Sum, const char* J) {
+  auto AddStats = [](std::map<std::string, double>& Sum, const char* J, bool Live = true) {
     for (const char* P = J; (P = strchr(P, '"'));) {
       const char* E = strchr(P + 1, '"');
       if (!E || E[1] != ':') break;
-      Sum[std::string(P + 1, E)] += strtod(E + 2, nullptr);
+      const std::string Key(P + 1, E);
+      // Current gauges exclude destroyed catalogues. Historical counts and
+      // explicitly named sums of per-catalogue peaks remain cumulative.
+      if (Live || (Key != "irCacheEntries" && Key != "irOwnedEntries" && Key != "irDataBytes" &&
+                   Key != "irListBytes" && Key != "irBufferCapacityBytes")) Sum[Key] += strtod(E + 2, nullptr);
       P = E + 2;
     }
   };
@@ -194,6 +198,8 @@ int main(int argc, char** argv) {
         // every space's stats added up, the dropped ones' included
         std::map<std::string, double> Sum = Dropped;
         for (auto& [Id, T] : Spaces) AddStats(Sum, fexwasm_stats_json(T));
+        if (!Sum.empty()) for (const char* K : {"irCacheEntries", "irOwnedEntries", "irDataBytes", "irListBytes", "irBufferCapacityBytes"})
+          Sum.try_emplace(K, 0); // no live catalogue means zero current IR
         if (getenv("FEXWASM_COVERAGE")) fprintf(stderr, "[fexserve] coverage %s\n", fexwasm_coverage());
         std::string J = "{";
         for (auto& [K, V] : Sum) J += (J.size() > 1 ? ",\"" : "\"") + K + "\":" + std::to_string(V);
@@ -204,7 +210,7 @@ int main(int argc, char** argv) {
       if (Route == "/xlat/drop") {
         const uint32_t Id = uint32_t(strtoul(Param(Path, "space").c_str(), nullptr, 10));
         if (auto It = Spaces.find(Id); It != Spaces.end() && Linux) {
-          AddStats(Dropped, fexwasm_stats_json(It->second));
+          AddStats(Dropped, fexwasm_stats_json(It->second), false);
           fexwasm_destroy(It->second);
           Spaces.erase(It);
         }

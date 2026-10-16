@@ -34,6 +34,16 @@ test('unavailable host and native memory APIs retain null measurements',()=>{
   assert.equal(t.samples.baseline.system.freeBytes,null);assert.equal(t.samples.baseline.native.rssBytes,null);assert.equal(t.samples.baseline.native.source,'unavailable');assert(t.samples.baseline.node.rssBytes>0);
  }finally{os.freemem=free;}
 });
+test('retention telemetry accepts only measured numeric fields and leaves global recompiles unknown',()=>{
+ const cache={entries:2,retainedBytes:192,receivedBytes:480,pendingEntries:0,pinnedEntries:0,pinnedRequests:0,hits:3,misses:5,fetches:5,compileAttempts:4,compiled:4,failures:1,evictions:2,failedRemovals:1,
+  peakEntries:2,peakRetainedBytes:192,peakPendingEntries:1,peakPinnedEntries:1,peakPinnedRequests:2,maximumEntries:256,maximumReceivedBytes:2097152,maximumResidentBytes:1024,secret:'PRIVATE'};
+ const native={irCacheEntries:0,irOwnedEntries:0,irDataBytes:0,irListBytes:0,irBufferCapacityBytes:0,irCataloguePeakEntriesSum:2,irCataloguePeakOwnedEntriesSum:2,irCataloguePeakDataBytesSum:250,irCataloguePeakListBytesSum:400,irCataloguePeakBufferCapacityBytesSum:650,irGenerations:5,irCacheHits:0,irDiscards:5,secret:'PRIVATE'};
+ const t=P.resourceTelemetryInfo({resourceSamples:{beforeDrop:{host:{cache}}},native});assert.deepEqual(t.samples.beforeDrop.host.cache,Object.fromEntries(Object.entries(cache).filter(([k])=>k!=='secret')));
+ for(const [key,value]of Object.entries(native))if(key!=='secret')assert.equal(t.nativeIR[key],value);assert.equal(t.recompilations,null);assert.match(t.cacheAccounting,/transient fetch\/parse copies/);assert.match(t.nativeIR.scope,/not simultaneous process peaks/);assert(!JSON.stringify(t).includes('PRIVATE'));
+ for(const invalid of [-1,NaN,Infinity,1.5,'192',Number.MAX_SAFE_INTEGER+1]){const out=P.resourceTelemetryInfo({resourceSamples:{failure:{host:{cache:{retainedBytes:invalid}}}},native:{irDataBytes:invalid}});assert.equal(out.samples.failure.host.cache.retainedBytes,null);assert.equal(out.nativeIR.irDataBytes,null);}
+ const snapshot=P.resourceSnapshot({cache:new Map(),cacheBytes:0,history:[],cacheStats:()=>cache});assert.equal(snapshot.host.cache,cache);
+ assert.equal(P.resourceSnapshot({cache:new Map(),history:[]}).host.cache,undefined);
+});
 test('native translation counts allow reuse while preserving single-instruction and rejection invariants',()=>{
  const native={units:100,guestInsts:100,failed:1};P.validateNative(native,653);P.validateNative(native,100);
  for(const change of [{units:0,guestInsts:0},{units:654,guestInsts:654},{units:1.5,guestInsts:1.5},{guestInsts:99},{failed:0},{failed:2}])

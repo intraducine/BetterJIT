@@ -51,8 +51,8 @@ public:
   // and IR decoded from there goes.
   void PatchGuest(uint64_t Address, const void* Data, size_t Size);
 
-  // IR for the unit starting at RIP, generated once and cached (the view stays
-  // valid for the host's lifetime), or null if FEX can't translate it.
+  // IR for the unit starting at RIP, generated once and cached. The borrowed
+  // view stays valid until its code is changed/unmapped, DiscardIR, or teardown.
   const FEXCore::IR::IRListView* GenerateIR(uint64_t RIP, uint64_t* GuestInstructions = nullptr);
   // Exact decoded size when a single-instruction frontend result was retained.
   uint32_t InstructionLength(uint64_t RIP) const;
@@ -63,6 +63,15 @@ public:
     return It != EntryFlags.end() && It->second == 0;
   }
   void Release();
+  // Sparse callers discard only after Compile and all borrowed-view reads end.
+  // Code mappings and the generic Release/inlining contract remain unchanged.
+  void DiscardIR(uint64_t RIP);
+  struct IRRetention {
+    uint64_t Entries = 0, OwnedEntries = 0, DataBytes = 0, ListBytes = 0, BufferCapacityBytes = 0;
+    uint64_t PeakEntries = 0, PeakOwnedEntries = 0, PeakDataBytes = 0, PeakListBytes = 0, PeakBufferCapacityBytes = 0;
+    uint64_t Generations = 0, CacheHits = 0, Discards = 0;
+  };
+  IRRetention RetainedIR() const;
 
   // FEX's CPUID results for every function / leaf it defines, as
   // {u32 function, leaf, eax, ebx, ecx, edx} entries (BackendConfig::CPUIDAddr).

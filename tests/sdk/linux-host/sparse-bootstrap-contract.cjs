@@ -78,22 +78,35 @@ async function main(){try{
  const limited=JSON.parse(fs.readFileSync(limitedOutput));assert.equal(limited.status,'probe-failed');assert.equal(limited.result,null);
  assert.equal(limited.progress.executedWasmSteps,64);assert.equal(limited.executionBudget.maximumSteps,64);assert.equal(limited.native.units,4);assert.equal(limited.native.failed,0);
  records.push({mode:'step-budget-exhausted',report:limited});
- // Independent distinct-RIP count caps, using the unchanged production host,
- // kernel and execution worker. Explicit probe selection is test-only here.
- for(const [mode,nops,profile,cap]of [['default-near-cap',254,'default',256],['default-count-cap',256,'default',256],
-  ['probe-past-default',300,'host-wine-probe-v1',512],['probe-near-cap',510,'host-wine-probe-v1',512],['probe-count-cap',512,'host-wine-probe-v1',512]]){
+ // Real distinct-RIP execution crosses three full cache capacities while
+ // retained occupancy stays bounded. These inputs are explicitly synthetic.
+ for(const [mode,nops,profile,cap]of [['default-near-cap',254,'default',256],['default-multiple-capacities',768,'default',256],
+  ['probe-past-default',300,'host-wine-probe-v1',512],['probe-near-cap',510,'host-wine-probe-v1',512],['probe-multiple-capacities',1536,'host-wine-probe-v1',512]]){
   phase=mode;const input=inputs('--synthetic'),code=Uint8Array.from([0x48,0x89,0xe7,...Array(nops).fill(0x90),0x0f,0x0b]);
   input.interpreter.set(code,0x1000);new DataView(input.interpreter.buffer).setBigUint64(64+56+32,BigInt(code.length),true);input.translationProfile=profile;input.minimumSteps=1+nops;
-  input.evidence='Synthetic distinct-RIP translation count-cap control; explicitly selected host probe profile, not Wine.';
+  input.evidence='Synthetic distinct-RIP bounded retention control across multiple capacities; not Wine or engine-memory evidence.';
   const output=path.join(directory,mode+'.json');let report;
-  if(nops>=cap){await assert.rejects(probe(()=>input,output),/Sparse process translation limit reached/);report=JSON.parse(fs.readFileSync(output));assert.equal(report.result,null);assert.equal(report.progress.executedWasmSteps,cap);assert.equal(report.native.units,cap);assert.equal(report.native.failed,0);assert.equal(report.resourceTelemetry.cleanup.guestQuiescenceAcknowledged,false);assert.equal(report.resourceTelemetry.samples.failure.host.cacheEntries,cap);}
-  else{report=await probe(()=>input,output);assert.equal(report.result.executedWasmSteps,nops+1);assert.equal(report.native.units,nops+1);assert.equal(report.native.failed,1);assert.equal(report.resourceTelemetry.cleanup.guestQuiescenceAcknowledged,true);assert.equal(report.resourceTelemetry.samples.beforeDrop.host.cacheEntries,nops+2);}
+  report=await probe(()=>input,output);assert.equal(report.result.executedWasmSteps,nops+1);assert.equal(report.native.units,nops+1);assert.equal(report.native.failed,1);assert.equal(report.resourceTelemetry.cleanup.guestQuiescenceAcknowledged,true);
+  const cache=report.resourceTelemetry.samples.beforeDrop.host.cache;
+  assert.equal(cache.entries,Math.min(cap,nops+2));assert.equal(cache.peakEntries,Math.min(cap,nops+2));assert.equal(cache.evictions,Math.max(0,nops+2-cap));assert.equal(cache.pendingEntries,0);assert.equal(cache.pinnedRequests,0);assert(cache.peakRetainedBytes<=cache.maximumResidentBytes);assert(cache.receivedBytes<=2097152);
+  assert.equal(report.native.irCacheEntries,0);assert.equal(report.native.irOwnedEntries,0);assert.equal(report.native.irDataBytes,0);assert.equal(report.native.irListBytes,0);assert.equal(report.native.irBufferCapacityBytes,0);assert.equal(report.native.irCataloguePeakEntriesSum,1);assert.equal(report.native.irCataloguePeakOwnedEntriesSum,1);assert(report.native.irCataloguePeakBufferCapacityBytesSum>0);assert.equal(report.native.irGenerations,nops+1);assert.equal(report.native.irDiscards,nops+1);assert.equal(report.native.irCacheHits,0);
   const budget=report.executionBudget??report.result.executionBudget,telemetry=report.resourceTelemetry;
   assert.equal(budget.maximumTranslationUnits,cap);assert.equal(budget.maximumTranslationBytes,2097152);assert.equal(budget.maximumSteps,20000);assert.equal(budget.deadlineMs,30000);
   assert.equal(telemetry.cleanup.hostClosed,true);assert.equal(telemetry.cleanup.cacheEntries,0);assert.equal(telemetry.cleanup.allExecutionWorkersExited,true);assert.equal(telemetry.cleanup.executionTerminationRequestsSettled,true);assert.equal(telemetry.cleanup.kernelTerminationSettled,true);assert.equal(telemetry.cleanup.nativeChildClosed,true);
   assert(telemetry.samples.baseline.node.rssBytes>0);assert.equal(telemetry.samples.afterCleanup.native.retainedIRBytes,null);assert.equal(telemetry.samples.afterCleanup.node.compiledWebAssemblyBytes,null);
   records.push({mode,report});
  }
+ // The same finite program with a working set larger than256 but smaller
+ // than512 must recompile after eviction and produce the same guest result.
+ const deterministic=[];
+ for(const profile of ['default','host-wine-probe-v1']){
+  phase='deterministic-recompile-'+profile;const input=inputs('--synthetic'),nops=288,code=[0x48,0x89,0xe7,0xb9,3,0,0,0,0x31,0xc0,...Array(nops).fill(0x90),0x83,0xc0,1,0x83,0xe9,1,0x0f,0x85];
+  const displacement=10-(code.length+4);for(let n=0;n<4;n++)code.push(displacement>>(n*8)&255);code.push(15,11);
+  input.interpreter.set(code,0x1000);new DataView(input.interpreter.buffer).setBigUint64(64+56+32,BigInt(code.length),true);input.translationProfile=profile;input.minimumSteps=876;input.evidence='Synthetic three-iteration loop with288 NOPs, counters and finite carry-independent control; cache recompilation determinism only.';
+  const report=await probe(()=>input,path.join(directory,phase+'.json'));assert.equal(report.result.executedWasmSteps,876);assert.equal(report.result.raxAfter,3n);assert.equal(report.native.units,profile==='default'?876:294);assert.equal(report.native.irDiscards,report.native.units);assert.equal(report.native.irBufferCapacityBytes,0);assert.equal(report.resourceTelemetry.samples.beforeDrop.host.cache.compiled,report.native.units);
+  deterministic.push(report);records.push({mode:phase,report});
+ }
+ for(const key of ['entry','stackPointerAfter','raxAfter','rdxAfter','rdiAfter','stoppedRip','executedWasmSteps','status','guestExitCode'])assert.equal(deterministic[0].result[key],deterministic[1].result[key],'same finite guest result after actual eviction/recompilation: '+key);
  phase='telemetry-unavailable';const unavailableOutput=path.join(directory,phase+'.json'),sampler=P.resourceSnapshot;
  try{P.resourceSnapshot=()=>{throw Error('Unavailable sampler');};await assert.rejects(probe(()=>({...loop,maximumSteps:64}),unavailableOutput),/Sparse instruction limit exceeded/);}
  finally{P.resourceSnapshot=sampler;}

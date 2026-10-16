@@ -11,7 +11,7 @@ function resourceSnapshot(host,nativeProcess) {
   let memory={},heap={},native={},system={};try{memory=process.memoryUsage();heap=v8.getHeapStatistics();}catch{}
   try{native=nativeProcess?.readMemory()??{};}catch{}
   try{system={totalBytes:os.totalmem(),freeBytes:os.freemem()};}catch{}
-  return {host:{cacheEntries:host?.cache.size,receivedTranslationBytes:host?.cacheBytes,pendingTranslations:host?.history.reduce((n,r)=>n+r.pending.size,0),
+  return {host:{cacheEntries:host?.cache.size,receivedTranslationBytes:host?.cacheBytes,cache:host?.cacheStats?.(),pendingTranslations:host?.history.reduce((n,r)=>n+r.pending.size,0),
     outstandingRequests:host?.history.reduce((n,r)=>n+r.requests.size,0),retainedWorkerRecords:host?.history.length},
     node:{rssBytes:memory.rss,parentIsolateHeapUsedBytes:memory.heapUsed,parentIsolateHeapTotalBytes:memory.heapTotal,parentIsolateExternalBytes:memory.external,
       parentIsolateArrayBufferBytes:memory.arrayBuffers,parentIsolateMallocedBytes:heap.malloced_memory,parentIsolateHeapLimitBytes:heap.heap_size_limit},
@@ -21,7 +21,7 @@ function resourceTelemetryInfo(context) {
   const out={scope:'Host probe only: Node RSS includes its workers; V8 heap counters describe the parent isolate. Native RSS describes the separate owned translator process.',
     accounting:'These overlapping counters must not be summed as a retained-memory total. Received translation bytes are cumulative serialized data, not RAM or a pre-allocation bound.',
     samplingMoments:'beforeDrop precedes native catalogue destruction; failure precedes worker cleanup; afterCleanup follows Node worker teardown but precedes native-child shutdown. Native child lifecycle is finalized before report writing.',
-    unmeasured:['compiled WebAssembly engine allocation','native retained IR and allocator bytes','worker-isolate heap breakdown','physical-device memory headroom'],samples:{}};
+    unmeasured:['compiled WebAssembly engine allocation','native allocator overhead and frontend arenas','worker-isolate heap breakdown','physical-device memory headroom'],samples:{}};
   const fields={host:['cacheEntries','receivedTranslationBytes','pendingTranslations','outstandingRequests','retainedWorkerRecords'],
     node:['rssBytes','parentIsolateHeapUsedBytes','parentIsolateHeapTotalBytes','parentIsolateExternalBytes','parentIsolateArrayBufferBytes','parentIsolateMallocedBytes','parentIsolateHeapLimitBytes'],
     native:['rssBytes','peakRSSBytes'],system:['totalBytes','freeBytes']};
@@ -30,7 +30,14 @@ function resourceTelemetryInfo(context) {
     for(const [group,keys]of Object.entries(fields)){clean[group]={};for(const key of keys)clean[group][key]=nonnegative(sample[group]?.[key]);}
     clean.native.source=['linux-proc-status','darwin-ps-rss'].includes(sample.native?.source)?sample.native.source:'unavailable';
     clean.native.retainedIRBytes=null;clean.native.allocatorBytes=null;clean.node.compiledWebAssemblyBytes=null;out.samples[stage]=clean;
+    const cache=sample.host?.cache;clean.host.cache={};
+    for(const key of ['entries','retainedBytes','receivedBytes','pendingEntries','pinnedEntries','pinnedRequests','hits','misses','fetches','compileAttempts','compiled','failures','evictions','failedRemovals',
+      'peakEntries','peakRetainedBytes','peakPendingEntries','peakPinnedEntries','peakPinnedRequests','maximumEntries','maximumReceivedBytes','maximumResidentBytes'])clean.host.cache[key]=nonnegative(cache?.[key]);
   }
+  out.cacheAccounting='Retained bytes count serialized wire payload once per owned entry, including detached pinned entries until delivery drains. They exclude JS metadata, transient fetch/parse copies, worker clones and engine allocations. Exact hits/misses/fetch/compile/eviction counters include repeated translations; total unique RIPs/recompiles are unknown without retaining history.';
+  out.recompilations=null;
+  out.nativeIR={scope:'Native totals after execution/catalogue drops on success, or the latest reachable totals on failure. Current gauges exclude destroyed catalogues; catalogue-peak sums are not simultaneous process peaks. Data/List bytes and vector capacity exclude object/dependency/allocator/frontend overhead.'};
+  for(const key of ['irCacheEntries','irOwnedEntries','irDataBytes','irListBytes','irBufferCapacityBytes','irCataloguePeakEntriesSum','irCataloguePeakOwnedEntriesSum','irCataloguePeakDataBytesSum','irCataloguePeakListBytesSum','irCataloguePeakBufferCapacityBytesSum','irGenerations','irCacheHits','irDiscards'])out.nativeIR[key]=nonnegative(context.native?.[key]);
   const cleanup=context.cleanup??{},lifecycle=context.nativeProcess?.lifecycle;
   out.cleanup={};for(const key of ['hostClosed','allExecutionWorkersExited','executionTerminationRequestsSettled','kernelTerminationSettled','guestQuiescenceAcknowledged'])out.cleanup[key]=typeof cleanup[key]==='boolean'?cleanup[key]:null;
   for(const key of ['cacheEntries','executionWorkersCreated'])out.cleanup[key]=nonnegative(cleanup[key]);

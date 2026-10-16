@@ -69,15 +69,27 @@ The fixed internal worker memory and occupied slot remain retained until session
 teardown; this does not prove physical retirement or lower resident RAM.
 
 The prepared-root CI command explicitly passes `--host-wine-probe-v1` to select
-512 cached translations. Without that flag, this harness and the SDK retain
+512 retained translations. Without that flag, this harness and the SDK retain
 the 256-entry default. Both profiles retain the 2 MiB cumulative response-byte
 ceiling, 20,000 executions and 30-second deadline. Unknown or numeric profile
-arguments and excessive budget configurations are refused. Count exhaustion occurs
-before requesting another native translation and remains a failed probe, never
-an unsupported-instruction result. Tests cover the 256/512 boundaries, cached
-and pending entries, independent byte enforcement and failure cleanup.
+arguments and excessive budget configurations are refused. Settled, unpinned entries
+are evicted in least-recently used order; a miss refetches and recompiles an evicted
+unit. Pending or delivery-pinned entries remain protected, and an all-pinned count
+limit fails before fetching. Resident serialized payload has a separate immutable
+byte cap no larger than the cumulative limit. Eviction never refunds cumulative
+received bytes or raises step/deadline limits. These failures remain failed probes,
+never unsupported-instruction results.
 
-This host-only exploration follows run
+The real sparse bootstrap contracts cross three cache capacities at both 256 and
+512 entries, checking stable retained occupancy and native IR discard after each
+step. A finite loop executes 876 steps identically with either capacity: the
+256-entry cache compiles 876 units after eviction, while the 512-entry cache compiles
+294 units and serves 582 hits. These controlled fixtures establish deterministic
+recompilation; runtime telemetry does not retain an unbounded unique-RIP history.
+Other controls cover shared pending requests, failure/retirement cleanup, close
+during fetch/compile, structured-clone lifetime and stale executable bytes.
+
+The earlier host-only exploration followed run
 [38918290332](https://github.com/intraducine/BetterJIT/actions/runs/38918290332):
 the unchanged Wine/musl inputs executed 2,369 steps from 256 compiled units, then
 hit the translation count cap at `0x7f0000038014`, before requesting `74 0c`
@@ -89,9 +101,13 @@ Successful and failed reports include the selected budgets, host cache accountin
 parent Node process RSS/isolate heap counters, owned native-child RSS when the
 platform API is available, and teardown observations. Snapshots precede native
 catalogue destruction or failure cleanup; a later sample follows Node worker
-teardown. Reports are written after the native child closes. Native IR/allocator,
-compiled Wasm engine allocation and worker-isolate heap breakdown remain explicitly
-unmeasured. RSS, heap, external and serialized-byte counters overlap and must not
+teardown. Reports are written after the native child closes. Cache counters separate
+retained payload, cumulative received bytes, fetches, compiles, hits and evictions.
+Native current IR gauges exclude destroyed catalogues; catalogue-peak sums are not
+simultaneous process peaks. Data/List bytes and vector capacity measure those buffers
+only. Total native allocator/frontend overhead, compiled Wasm engine allocation and
+worker-isolate heap breakdown remain explicitly unmeasured. RSS, heap, external and
+serialized-byte counters overlap and must not
 be added into a retained-memory total. These host observations approve no physical
 device memory policy or SDK default expansion.
 
