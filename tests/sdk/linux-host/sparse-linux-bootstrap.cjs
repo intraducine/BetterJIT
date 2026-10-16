@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // A bounded interpreter-entry probe, never a successful Wine command result.
-const fs=require('fs'),path=require('path'),vm=require('vm'),assert=require('node:assert/strict'),crypto=require('crypto'),{Worker}=require('worker_threads'),{serve}=require('./native-step-contract.cjs');
+const fs=require('fs'),path=require('path'),vm=require('vm'),assert=require('node:assert/strict'),crypto=require('crypto'),{Worker}=require('worker_threads');
+const P=require('./sparse-linux-probe-report.cjs');
+const serve=(...args)=>require('./native-step-contract.cjs').serve(...args);
 const resources=path.resolve(__dirname,'../../../Sources/BetterJITLinux/Resources'),sha=b=>crypto.createHash('sha256').update(b).digest('hex');
 for(const n of ['guest_memory','guest_memory_broker','thread_core'])vm.runInThisContext(fs.readFileSync(path.join(resources,'linux',n+'.js'),'utf8'));
 vm.runInThisContext(fs.readFileSync(path.join(resources,'linux/web/sparse_process_host.js'),'utf8'));
@@ -27,7 +29,7 @@ function inputs(location) {
  assert.equal(sha(elf),provenance.filesSHA256.wine,'Must probe the exact adapted Wine binary recorded by preparation');
  return {path:'/opt/wine-flat/bin/wine',elf,interpreterPath,interpreter,evidence:'Exact prepared adapted Wine launcher and its staged musl interpreter, executed only to the first unsupported sparse instruction. Not a Wine command, nested CreateProcess, WebKit, phone, physical retirement or RAM result.',minimumSteps:2,provenance:{wineSourceCommit:provenance.wineSourceCommit,patchSHA256:provenance.patchSHA256}};
 }
-async function execute(get,cfg,state,input) {
+async function execute(get,cfg,state,input,context={}) {
  let kernel,host,timer;const workers=[],terminations=[];
  try {
   const result=await new Promise((resolve,reject)=>{
@@ -37,9 +39,13 @@ async function execute(get,cfg,state,input) {
     worker.on('message',data=>adapter.onmessage?.({data}));worker.on('error',e=>adapter.onerror?.({message:String(e)}));worker.on('exit',()=>{record.exited=true;});return adapter;
    }});
    kernel=new Worker(path.join(__dirname,'sparse-linux-bootstrap-kernel.cjs'),{workerData:{resources,cfg,state,...input}});kernel.on('error',reject);kernel.on('message',m=>{try{
-    if(m.op==='spawn')host.spawn(m.spec);else if(m.op==='stop')host.stop(m.spec);else if(m.op==='drop')host.drop(m.spec);else if(m.op==='fatal')reject(Error(m.message));else if(m.op==='kernel-result')resolve(m);
+    if(m.op==='spawn')host.spawn(m.spec);else if(m.op==='stop')host.stop(m.spec);else if(m.op==='drop')host.drop(m.spec);
+    else if(m.op==='probe-progress')context.progress=P.progressInfo(m.diagnostic);
+    else if(m.op==='fatal'){context.progress=P.progressInfo(m.diagnostic);reject(Object.assign(Error(m.error.message),m.error));}
+    else if(m.op==='kernel-result')resolve(m);
    }catch(error){reject(error);}});
   });
+  context.result={...result,stage:'terminal-result',rip:result.stoppedRip};
   await Promise.all(host.drops);assert(host.history.every(r=>r.acked&&!r.pending.size));assert(workers.every(w=>!w.exited));
   assert.equal(result.status,'unsupported-instruction');assert.equal(result.guestExitCode,null);assert(result.executedWasmSteps>=input.minimumSteps);assert(result.executedWasmSteps<64);
   if(input.expectedSteps!==undefined){assert.equal(result.executedWasmSteps,input.expectedSteps);assert.equal(result.stackPointerAfter,result.stackPointer);assert.equal(result.broker.requests,4);assert.equal(result.broker.ok,4);}
@@ -47,13 +53,25 @@ async function execute(get,cfg,state,input) {
   return {...result,actualWorkersStillAlive:workers.length,nativeRequestsDrained:true};
  }finally{clearTimeout(timer);host?.close();await Promise.allSettled(terminations);await kernel?.terminate();}
 }
-async function main() {
- const input=inputs(process.argv[4]);await serve('guestmem=broker1',async(get,log)=>{
-  const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());let result;
-  try{result=await execute(get,cfg,state,input);}catch(error){throw Error(error.message+'\nTranslator: '+log(),{cause:error});}
-  const native=await(await get('/xlat/totals')).json();assert.equal(native.units,result.executedWasmSteps);assert.equal(native.guestInsts,result.executedWasmSteps);assert.equal(native.failed,1);
-  const report={evidence:input.evidence,provenance:input.provenance,input:{path:input.path,elfSHA256:sha(input.elf),elfBytes:input.elf.length,interpreterPath:input.interpreterPath,interpreterSHA256:sha(input.interpreter),interpreterBytes:input.interpreter.length},cfg,native,result};
-  const text=JSON.stringify(report,(_k,v)=>typeof v==='bigint'?'0x'+v.toString(16):v,2);if(process.argv[3])fs.writeFileSync(process.argv[3],text+'\n');console.log(text);
- });
+function writeReport(output,report) {
+ const text=P.stringify(report);if(output){fs.writeFileSync(output+'.tmp',text);fs.renameSync(output+'.tmp',output);}return text;
 }
-module.exports={execute,inputs};if(require.main===module)main().catch(e=>{console.error(e);process.exitCode=1;});
+async function probe(selectInput,output,connect=serve) {
+ const context={stage:'inputs'};
+ try {
+  const input=context.input=selectInput();context.stage='native-start';
+  return await connect('guestmem=broker1',async get=>{
+   try {
+    context.stage='native-configuration';const cfg=context.cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());
+    context.stage='execute';const result=await execute(get,cfg,state,input,context);
+    context.stage='native-validation';const native=context.native=await(await get('/xlat/totals')).json();
+    assert.equal(native.units,result.executedWasmSteps);assert.equal(native.guestInsts,result.executedWasmSteps);assert.equal(native.failed,1);
+    const report={evidence:input.evidence,provenance:input.provenance,input:P.inputIdentity(input),cfg,native,result};writeReport(output,report);return report;
+   } catch(error) {
+    try{context.native=await(await get('/xlat/totals')).json();}catch(nativeError){context.nativeError=nativeError;}
+    throw error;
+   }
+  });
+ } catch(error) {writeReport(output,P.failureReport(context,error));throw error;}
+}
+module.exports={execute,inputs,probe};if(require.main===module)probe(()=>inputs(process.argv[4]),process.argv[3]).then(report=>console.log(P.stringify(report))).catch(e=>{console.error(P.stringify({status:'probe-failed',error:P.errorInfo(e)}));process.exitCode=1;});

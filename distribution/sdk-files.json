@@ -283,6 +283,9 @@
     "tests/sdk/linux-host/sparse-nop-oracle.c": "tests/sdk/linux-host/sparse-nop-oracle.c",
     "tests/sdk/linux-host/sparse-nop-oracle.S": "tests/sdk/linux-host/sparse-nop-oracle.S",
     "tests/sdk/linux-host/sparse-nop-oracle.json": "tests/sdk/linux-host/sparse-nop-oracle.json",
-    "docs/sdk/sparse-nops.md": "docs/sdk/sparse-nops.md"
+    "docs/sdk/sparse-nops.md": "docs/sdk/sparse-nops.md",
+    "tests/sdk/linux-host/sparse-linux-probe-report.cjs": "tests/sdk/linux-host/sparse-linux-probe-report.cjs",
+    "tests/sdk/linux-host/sparse-bootstrap-contract.cjs": "tests/sdk/linux-host/sparse-bootstrap-contract.cjs",
+    "tests/sdk/linux-probe-report.test.mjs": "tests/sdk/linux-probe-report.test.mjs"
   }
 }

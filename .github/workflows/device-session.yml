@@ -232,6 +232,7 @@ jobs:
           node tests/sdk/linux-host/sparse-call.cjs .build/host-fex/fexserve .build/sparse-call-results.json
           node tests/sdk/linux-host/sparse-extend.cjs .build/host-fex/fexserve .build/sparse-extend-results.json
           node tests/sdk/linux-host/sparse-nop.cjs .build/host-fex/fexserve .build/sparse-nop-results.json
+          node tests/sdk/linux-host/sparse-bootstrap-contract.cjs .build/host-fex/fexserve .build/sparse-bootstrap-contract-results.json
           node tests/sdk/linux-host/sparse-compiled.cjs .build/host-fex/fexserve .build/sparse-compiled-results.json
           node tests/sdk/linux-host/sparse-compiled.cjs .build/host-fex/fexserve .build/sparse-compiled-fresh-results.json .build/sparse-compiled-input/sparse-rot13-fresh.json
           node tests/sdk/linux-host/sparse-cat.cjs .build/host-fex/fexserve .build/sparse-cat-results.json
@@ -271,6 +272,7 @@ jobs:
             .build/sparse-extend-bootstrap-results.json
             .build/sparse-nop-results.json
             .build/sparse-nop-bootstrap-results.json
+            .build/sparse-bootstrap-contract-results.json
             .build/sparse-compiled-results.json
             .build/sparse-compiled-fresh-results.json
             .build/sparse-cat-results.json

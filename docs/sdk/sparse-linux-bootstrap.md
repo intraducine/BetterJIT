@@ -82,3 +82,25 @@ separately and cannot stand in for the prepared adapted Wine result. None of
 these host probes is WebKit or physical-device evidence. Full sparse adapted
 Wine, dynamic `execve`, the broader Linux syscall surface and the remaining
 instruction families are still unfinished.
+
+The probe checks the musl-shaped entry's `MOV RDI,RSP` immediately after that
+first instruction. Later code may change RDI. Applicability is determined from
+the owned executable input bytes, without reading beyond a short guest mapping.
+Other entry sequences report `applicable:false, verified:false`; they do not
+claim that this instruction-specific stack transfer was verified. Terminal
+status, null exit, quiescence, retained contexts, stack RPC and expected-register
+assertions still apply.
+
+Failures write `status:"probe-failed"` JSON to the requested report path and
+retain a nonzero CLI exit. The record includes input hashes, stage, the exact
+bounded error, available native counters, and the last received guest progress
+or completed result. Progress survives loss of the native child. Diagnostic
+code is limited to 15 bytes and trace history to 64 steps; full CPU/memory dumps,
+environment, host stacks and host paths are omitted. The existing CI sparse
+artifact retains this report even when the probe fails.
+
+`sparse-bootstrap-contract.cjs` exercises all three controls, a legal later
+RDI clobber, a different entry sequence, an incorrect initial stack transfer,
+native startup/death and a post-result assertion failure. Its synthetic results
+do not identify the exact failed assertion in run 38863139120, whose Wine
+command failed before producing a report.
