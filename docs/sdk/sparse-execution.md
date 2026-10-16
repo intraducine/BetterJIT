@@ -6,8 +6,9 @@ with aligned atomics, bounded futex syscalls and multiple internal thread contex
 The later opt-in [guest clone/exit profile](sparse-clone.md) creates a same-mm
 thread from an actual translated guest syscall; B2/B3's original process
 records remain host-created fixtures.
-The current step/coverage versions are 3/3; [bounded control flow](sparse-control-flow.md)
-adds TEST/CMP and direct finite continuations. Default execution
+The current step/coverage versions are 3/9; [integer extensions](sparse-integer-extensions.md)
+document the latest increment. [Bounded control flow](sparse-control-flow.md)
+added TEST/CMP and direct finite continuations. Default execution
 keeps its existing memory model. The fixture creates kernel Process/Thread
 records with independent address spaces and separate workers; it does not load
 ELF, implement Linux fork/exec or run Wine.
