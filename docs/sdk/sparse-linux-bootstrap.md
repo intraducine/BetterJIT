@@ -59,6 +59,19 @@ Native requests must drain before catalog removal and guest storage release.
 The fixed internal worker memory and occupied slot remain retained until session
 teardown; this does not prove physical retirement or lower resident RAM.
 
+Coverage 7 adds the register-only `81 /4` and `83 /4` immediate AND forms for
+32/64-bit operands, including the interpreter's `and rsp,-16` alignment step.
+FEX still performs the full decode and existing IR/effect validation. The
+immediate is sign-extended from 8 bits for `83`, or from 32 bits for a 64-bit
+`81` destination; 32-bit writes zero the upper register half. Memory, byte,
+16-bit and prefixed forms remain outside this increment. The host companion
+`sparse-and.cjs` executes 384 cases across RAX/RSP/R8 against 128 native x86
+oracle rows. It checks defined CF/PF/ZF/SF/OF, live flag replacement, finite
+branches, other GPR/rounding preservation and typed rejection with no module
+for unsupported/truncated forms. AF is undefined and excluded. These scalar
+results do not establish a later Wine bootstrap boundary; that requires the
+separately labeled exact prepared-input probe above.
+
 `--synthetic` instead selects explicit synthetic layout controls; `--system-elf`
 selects the local Linux `true` and glibc interpreter. Those runs are labeled
 separately and cannot stand in for the prepared adapted Wine result. None of

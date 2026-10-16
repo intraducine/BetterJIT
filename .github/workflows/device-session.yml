@@ -228,6 +228,7 @@ jobs:
           node tests/sdk/linux-host/sparse-fork.cjs .build/host-fex/fexserve .build/sparse-fork-results.json
           node tests/sdk/linux-host/sparse-exec.cjs .build/host-fex/fexserve .build/sparse-exec-results.json
           node tests/sdk/linux-host/sparse-alu.cjs .build/host-fex/fexserve .build/sparse-alu-results.json
+          node tests/sdk/linux-host/sparse-and.cjs .build/host-fex/fexserve .build/sparse-and-results.json
           node tests/sdk/linux-host/sparse-compiled.cjs .build/host-fex/fexserve .build/sparse-compiled-results.json
           node tests/sdk/linux-host/sparse-compiled.cjs .build/host-fex/fexserve .build/sparse-compiled-fresh-results.json .build/sparse-compiled-input/sparse-rot13-fresh.json
           node tests/sdk/linux-host/sparse-cat.cjs .build/host-fex/fexserve .build/sparse-cat-results.json
@@ -257,6 +258,7 @@ jobs:
             .build/sparse-fork-results.json
             .build/sparse-exec-results.json
             .build/sparse-alu-results.json
+            .build/sparse-and-results.json
             .build/sparse-compiled-results.json
             .build/sparse-compiled-fresh-results.json
             .build/sparse-cat-results.json

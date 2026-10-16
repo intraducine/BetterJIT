@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 6;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 7;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
@@ -56,6 +56,11 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
         return {true, Register ? 6u : 8u, Register ? 0u : ((Op & 1) ? Width : 1u)};
       if ((Op == 0x80 || Op == 0x81 || Op == 0x83) && (Bytes[I] & 0x38) == 0x38)
         return {true, Register ? 6u : 8u, Register ? 0u : (Op == 0x80 ? 1u : Width)};
+      // Group-1 /4 AND, 32/64-bit GPR destination only. FEX decodes the
+      // sign-extended imm8 (83) or imm32 (81); the existing flags/effect
+      // allowlist must still validate the complete single instruction.
+      if (Register && (Op == 0x81 || Op == 0x83) && (Bytes[I] & 0x38) == 0x20)
+        return {true, 6, 0};
       if (Register && ((Op == 0x01 || Op == 0x03 || Op == 0x29 || Op == 0x2b || Op == 0x31 || Op == 0x33 || Op == 0x21 || Op == 0x23 || Op == 0x09 || Op == 0x0b) ||
           ((Op == 0x81 || Op == 0x83) && ((Bytes[I] >> 3 & 7) == 0 || (Bytes[I] >> 3 & 7) == 5)))) return {true, 6, 0};
       if (Op == 0x0f && Bytes[I] >= 0x42 && Bytes[I] <= 0x47 && I + 1 < Size && (Bytes[I+1] & 0xc0) == 0xc0)
