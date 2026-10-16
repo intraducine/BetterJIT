@@ -287,6 +287,11 @@
     "tests/sdk/linux-host/sparse-linux-probe-report.cjs": "tests/sdk/linux-host/sparse-linux-probe-report.cjs",
     "tests/sdk/linux-host/sparse-bootstrap-contract.cjs": "tests/sdk/linux-host/sparse-bootstrap-contract.cjs",
     "tests/sdk/linux-probe-report.test.mjs": "tests/sdk/linux-probe-report.test.mjs",
-    "tests/sdk/linux-host/sparse-bootstrap-diagnostics.cjs": "tests/sdk/linux-host/sparse-bootstrap-diagnostics.cjs"
+    "tests/sdk/linux-host/sparse-bootstrap-diagnostics.cjs": "tests/sdk/linux-host/sparse-bootstrap-diagnostics.cjs",
+    "docs/sdk/sparse-memory-add.md": "docs/sdk/sparse-memory-add.md",
+    "tests/sdk/linux-host/sparse-memory-add.cjs": "tests/sdk/linux-host/sparse-memory-add.cjs",
+    "tests/sdk/linux-host/sparse-memory-add-oracle.c": "tests/sdk/linux-host/sparse-memory-add-oracle.c",
+    "tests/sdk/linux-host/sparse-memory-add-oracle.json": "tests/sdk/linux-host/sparse-memory-add-oracle.json",
+    "fexwasm/src/testing/memory-add-ir.cpp": "fexwasm/src/testing/memory-add-ir.cpp"
   }
 }

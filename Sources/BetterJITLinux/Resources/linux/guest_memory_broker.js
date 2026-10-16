@@ -4,7 +4,7 @@
   'use strict';
   const storage=root.BetterJITGuestMemory;
   if(!storage||storage.STORAGE_VERSION!==1)throw new Error('Guest storage contract 1 required');
-  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:3,coverageVersion:10,stepHeaderBytes:96,
+  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:3,coverageVersion:11,stepHeaderBytes:96,
     magic:0x314d4a42,internalPages:33,threadBase:0x10000,threadBytes:0x200000,
     scratchOffset:0x1f0000,scratchBytes:128,memoryRequest:0x10003,instructionBoundary:0x10004,maximumThreads:8,parkedState:4,
     userCopyBytes:65536});
@@ -12,7 +12,7 @@
     address:32,rip:40,checkpoint:48,operand0:56,operand1:64,result0:72,result1:80,faultAddress:88,
     checkpointRip:96,nextRip:104,completedSequence:112,boundaryControl:116,lease:120});
   const STATUS=Object.freeze({OK:0,FAULT:1,UNSUPPORTED:2});
-  const OP=Object.freeze({READ:1,WRITE:2,CAS:3,FETCH_ADD:4,SYSCALL:5,FLAGS:6,BRANCH:7,READ_FLAGS:8,CALL:9,RETURN:10});
+  const OP=Object.freeze({READ:1,WRITE:2,CAS:3,FETCH_ADD:4,SYSCALL:5,FLAGS:6,BRANCH:7,READ_FLAGS:8,CALL:9,RETURN:10,ADD_MEMORY:11});
   const STEP=Object.freeze({OK:0,FAULT:1,UNSUPPORTED:2,SYSCALL:3});
   // Host startup gate / spilled syscall completion, separate from native step exits.
   const LIFECYCLE=Object.freeze({version:1,PENDING:0,READY:1,RUN:2,CANCEL:3,FAILED:4,syscallExit:4});
@@ -61,7 +61,7 @@
     if(![0,2].includes(status)||
        (status===2&&(size||length))||(status===0&&(!size||length<1||length>15||nextRip!==rip+BigInt(length)||
          !(([0,5,6,7].includes(operation)&&width===0)||([1,2,8].includes(operation)&&[1,2,4,8].includes(width))||
-           ([3,4].includes(operation)&&[4,8].includes(width))||([9,10].includes(operation)&&width===8)))))
+           ([3,4,11].includes(operation)&&[4,8].includes(width))||([9,10].includes(operation)&&width===8)))))
       throw new Error('Invalid broker step metadata');
     if(v.getUint32(92,true)!==0)throw new Error('Invalid broker step reserved field');
     const result={status,operation,width,rip,nextRip,length,hash:v.getBigUint64(48,true),
@@ -191,7 +191,7 @@
       if(s.active||s.waits.size)invariant(s,'Instruction already active or parked');
       s.spilledSyscall=false;s.syscallCheckpoint=null;
       if(!(([0,OP.SYSCALL,OP.FLAGS,OP.BRANCH].includes(operation)&&width===0)||([OP.READ,OP.WRITE,OP.READ_FLAGS].includes(operation)&&[1,2,4,8].includes(width))||
-           ([OP.CAS,OP.FETCH_ADD].includes(operation)&&[4,8].includes(width))||([OP.CALL,OP.RETURN].includes(operation)&&width===8)))
+           ([OP.CAS,OP.FETCH_ADD,OP.ADD_MEMORY].includes(operation)&&[4,8].includes(width))||([OP.CALL,OP.RETURN].includes(operation)&&width===8)))
         throw new TypeError('Unsupported instruction admission');
       if(operation===OP.BRANCH||operation===OP.CALL) {
         if(!Array.isArray(continuations)||continuations.length<1||continuations.length>2)throw new TypeError('Finite branch continuations required');
@@ -227,8 +227,8 @@
       if(q.getUint32(FIELD.magic,true)!==ABI.magic||q.getUint32(FIELD.version,true)!==ABI.version||
          q.getUint32(FIELD.sequence,true)!==sequence||q.getBigUint64(FIELD.lease,true)!==lease)return fail(REASON.PROTOCOL);
       const operation=q.getUint32(FIELD.operation,true),width=q.getUint32(FIELD.width,true),access=q.getUint32(FIELD.access,true);
-      if(![OP.READ,OP.WRITE,OP.CAS,OP.FETCH_ADD].includes(operation))return fail(REASON.OPCODE);
-      if(![1,2,4,8].includes(width)||([OP.CAS,OP.FETCH_ADD].includes(operation)&&![4,8].includes(width)))return fail(REASON.WIDTH);
+      if(![OP.READ,OP.WRITE,OP.CAS,OP.FETCH_ADD,OP.ADD_MEMORY].includes(operation))return fail(REASON.OPCODE);
+      if(![1,2,4,8].includes(width)||([OP.CAS,OP.FETCH_ADD,OP.ADD_MEMORY].includes(operation)&&![4,8].includes(width)))return fail(REASON.WIDTH);
       if(access!==(operation===OP.READ?storage.PROT.READ:operation===OP.WRITE?storage.PROT.WRITE:storage.PROT.READ|storage.PROT.WRITE))
         return fail(REASON.ACCESS);
       const a=s.active;
@@ -245,6 +245,20 @@
       }
       if([OP.CAS,OP.FETCH_ADD].includes(operation)&&address%BigInt(width))return fail(REASON.ALIGNMENT);
       try {
+        if(operation===OP.ADD_MEMORY) {
+          // Non-LOCK ADD: one synchronous authority transaction, no alignment
+          // restriction or guest atomic-ordering guarantee. Validate the whole
+          // READ+WRITE range and stage all COW pages before publishing anything.
+          const tx=s.space.prepareWrite(address,width);
+          try {
+            if(current(this,token)!==s||s.active!==a||s.poisoned)invariant(s,'ADD memory owner changed during preparation');
+            const bytes=s.space.read(address,width);let old=0n;
+            for(let i=width-1;i>=0;i--)old=old<<8n|BigInt(bytes[i]);
+            let sum=BigInt.asUintN(width*8,old+q.getBigUint64(FIELD.operand0,true));
+            for(let i=0;i<width;i++){tx.bytes[i]=Number(sum&255n);sum>>=8n;}
+            tx.commit();return response(s,sequence,STATUS.OK,REASON.NONE,old);
+          }finally{tx.cancel();}
+        }
         if(operation===OP.CAS||operation===OP.FETCH_ADD) {
           const old=operation===OP.CAS?s.space.compareExchange(address,width,q.getBigUint64(FIELD.operand0,true),q.getBigUint64(FIELD.operand1,true)):
             s.space.fetchAdd(address,width,q.getBigUint64(FIELD.operand0,true));
@@ -294,7 +308,7 @@
         if(([OP.BRANCH,OP.CALL].includes(a.operation)&&!a.continuations.includes(nextRip))||
            (a.operation===OP.RETURN&&nextRip!==a.result?.data)||
            ([OP.CALL,OP.RETURN].includes(a.operation)&&s.view.getBigUint64(s.layout.stackAddress,true)!==a.stackAfter)||
-           ([OP.READ,OP.WRITE,OP.CAS,OP.FETCH_ADD,OP.READ_FLAGS,OP.CALL,OP.RETURN].includes(a.operation)&&a.result?.status!==STATUS.OK)||
+           ([OP.READ,OP.WRITE,OP.CAS,OP.FETCH_ADD,OP.READ_FLAGS,OP.CALL,OP.RETURN,OP.ADD_MEMORY].includes(a.operation)&&a.result?.status!==STATUS.OK)||
            ([0,OP.FLAGS,OP.BRANCH].includes(a.operation)&&a.result)||
            a.operation===OP.SYSCALL||cpuRip(s)!==nextRip)
           invariant(s,'Full successful post-state was not spilled');

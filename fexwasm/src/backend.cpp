@@ -500,6 +500,7 @@ public:
     , Owner(S.NextOwner++) {}
 
   CompileResult Run();
+  OrderedNodeWrapper BrokerAddend {}; // proven source of one non-LOCK ADD memory transaction
   CompileResult RunRegion(std::vector<std::unique_ptr<Emitter>>& Units);
   // A region as structured code over its units' CFG (single entry: the
   // first unit). False, with nothing emitted, if that CFG is irreducible.
@@ -4604,7 +4605,10 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
     if (Cfg.BrokerMemory) {
       SysBase(); Address(Op->Addr, Op->Offset, Op->OffsetType, Op->OffsetScale);
       B.mem(op::i64_store, 3, broker::Scratch + 32);
-      BrokerRequest(1, uint32_t(Size));
+      if (Cfg.BrokerOperation == 11) {
+        SysBase(); GPR(BrokerAddend); B.mem(op::i64_store, 3, broker::Scratch + 56);
+      }
+      BrokerRequest(Cfg.BrokerOperation == 11 ? 11 : 1, uint32_t(Size));
       SysBase(); B.mem(op::i64_load, 3, broker::Scratch + 72);
       SetNode(Node);
       break;
@@ -4653,6 +4657,9 @@ void Emitter::EmitOpImpl(Ref Node, const IROp_Header* IROp) {
   case OP_STOREMEMTSO: {
     auto Op = IROp->C<IROp_StoreMem>();
     if (Cfg.BrokerMemory) {
+      // The linked ADD store has already committed in the single broker RPC.
+      // Its FEX arithmetic and flag nodes still execute using returned old data.
+      if (Cfg.BrokerOperation == 11) break;
       SysBase(); Address(Op->Addr, Op->Offset, Op->OffsetType, Op->OffsetScale);
       B.mem(op::i64_store, 3, broker::Scratch + 32);
       SysBase(); GPR(Op->Value); B.mem(op::i64_store, 3, broker::Scratch + 56);
@@ -11104,6 +11111,7 @@ std::vector<uint8_t> BuildDispatcher(const BackendConfig& Cfg, const std::vector
 }
 
 CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConfig& Cfg) {
+  OrderedNodeWrapper BrokerAddend {};
   if (Cfg.BrokerMemory) {
     if (Cfg.RegArgs || Cfg.RegArgMask || Cfg.Relocs || !Cfg.SharedMemory || !Cfg.ThreadBaseGlobal ||
         Cfg.MemPages != broker::Pages || Cfg.MemMaxPages != broker::Pages || Cfg.CallsViaDispatcher || Cfg.FetchIR ||
@@ -11131,6 +11139,96 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
     auto Reject = [](const IROp_Header* H) {
       CompileResult R; R.Error = "broker unsupported IR " + std::string(GetName(H->Op)); return R;
     };
+    if (Cfg.BrokerOperation == 11) {
+      // Fuse only a proven single load + ADD-with-flags + same-address store.
+      // FEX may regenerate equivalent SIB/RIP-relative address SSA nodes.
+      OrderedNodeWrapper Load {}, Add {}, Store {}, AF {}, PF {}, NZCV {}, LoadNZCV {}, StoreAF {}, StorePF {}, StoreNZCV {}, Exit {};
+      std::vector<OrderedNodeWrapper> AvailableRegisters;
+      std::unordered_map<uint32_t, uint32_t> Order; uint32_t Position = 0;
+      for (auto [Block, Header] : IR.GetBlocks()) for (auto [Node, H] : IR.GetCode(Block)) {
+        Order.emplace(IR.GetID(Node).Value, ++Position);
+        if (H->Op == OP_LOADREGISTER && Load.IsInvalid()) AvailableRegisters.push_back(IR.WrapNode(Node));
+        if (H->Op == OP_LOADMEM || H->Op == OP_LOADMEMTSO) {
+          if (!Load.IsInvalid()) return Reject(H);
+          Load = IR.WrapNode(Node);
+        } else if (H->Op == OP_ADDWITHFLAGS) {
+          if (Load.IsInvalid() || !Add.IsInvalid() || H->Args[0] != Load ||
+              std::find(AvailableRegisters.begin(), AvailableRegisters.end(), H->Args[1]) == AvailableRegisters.end()) return Reject(H);
+          Add = IR.WrapNode(Node); BrokerAddend = H->Args[1];
+        } else if (H->Op == OP_STOREMEM || H->Op == OP_STOREMEMTSO) {
+          if (Add.IsInvalid() || !Store.IsInvalid() || H->C<IROp_StoreMem>()->Value != Add) return Reject(H);
+          Store = IR.WrapNode(Node);
+        } else if (H->Op == OP_LOADNZCV) {
+          if (!LoadNZCV.IsInvalid() || Add.IsInvalid() || uint32_t(H->Size) != 4) return Reject(H);
+          LoadNZCV = IR.WrapNode(Node);
+        } else if (H->Op == OP_STOREAF || H->Op == OP_STOREPF || H->Op == OP_STORENZCV) {
+          auto& Value = H->Op == OP_STOREAF ? AF : H->Op == OP_STOREPF ? PF : NZCV;
+          if (!Value.IsInvalid()) return Reject(H);
+          Value = H->Args[0];
+          auto& Write = H->Op == OP_STOREAF ? StoreAF : H->Op == OP_STOREPF ? StorePF : StoreNZCV;
+          Write = IR.WrapNode(Node);
+          if (uint32_t(H->Size) != (H->Op == OP_STORENZCV ? 4u : 8u)) return Reject(H);
+        } else if (H->Op == OP_EXITFUNCTION) {
+          if (!Exit.IsInvalid()) return Reject(H);
+          Exit = IR.WrapNode(Node);
+        }
+      }
+      if (Load.IsInvalid() || Add.IsInvalid() || Store.IsInvalid() || AF.IsInvalid() || PF != Add || NZCV.IsInvalid() || Cfg.BrokerFlow || (Cfg.BrokerWidth != 4 && Cfg.BrokerWidth != 8)) {
+        CompileResult R; R.Error = "broker ADD memory pattern required"; return R;
+      }
+      const auto* Auxiliary = IR.GetOp<IROp_Header>(AF); const auto* Carry = IR.GetOp<IROp_Header>(NZCV);
+      auto Before = [&](OrderedNodeWrapper A, OrderedNodeWrapper B) {
+        if (A.IsInvalid() || B.IsInvalid()) return false;
+        const auto X = Order.find(IR.GetID(IR.GetNode(A)).Value), Y = Order.find(IR.GetID(IR.GetNode(B)).Value);
+        return X != Order.end() && Y != Order.end() && X->second < Y->second;
+      };
+      uint64_t InvertCarry;
+      if (Auxiliary->Op != OP_XOR || uint32_t(Auxiliary->Size) != 8 || Auxiliary->Args[0] != Load || Auxiliary->Args[1] != BrokerAddend ||
+          Carry->Op != OP_XOR || uint32_t(Carry->Size) != 4 || Carry->Args[0] != LoadNZCV ||
+          !Before(Load, AF) || !Before(AF, StoreAF) || !Before(Add, StoreAF) || !Before(Add, StorePF) || !Before(Add, LoadNZCV) ||
+          !Before(LoadNZCV, NZCV) || !Before(NZCV, StoreNZCV) ||
+          !Before(Store, Exit) || !Before(StoreAF, Exit) || !Before(StorePF, Exit) || !Before(StoreNZCV, Exit) ||
+          !ConstantPC(Carry->Args[1], InvertCarry) || InvertCarry != 0x20000000) {
+        CompileResult R; R.Error = "broker ADD flag pattern required"; return R;
+      }
+      std::function<bool(OrderedNodeWrapper, OrderedNodeWrapper, unsigned)> SameAddress = [&](OrderedNodeWrapper A, OrderedNodeWrapper B, unsigned Depth) {
+        if (A == B) return true;
+        if (A.IsInvalid() || B.IsInvalid() || Depth > 4) return false;
+        const auto* X = IR.GetOp<IROp_Header>(A); const auto* Y = IR.GetOp<IROp_Header>(B);
+        if (X->Op != Y->Op || X->Size != Y->Size) return false;
+        switch (X->Op) {
+        case OP_LOADREGISTER: return X->C<IROp_LoadRegister>()->Class == Y->C<IROp_LoadRegister>()->Class && X->C<IROp_LoadRegister>()->Reg == Y->C<IROp_LoadRegister>()->Reg;
+        case OP_INLINECONSTANT: return X->C<IROp_InlineConstant>()->Constant == Y->C<IROp_InlineConstant>()->Constant;
+        case OP_CONSTANT: return X->C<IROp_Constant>()->Constant == Y->C<IROp_Constant>()->Constant;
+        case OP_ENTRYPOINTOFFSET: return X->C<IROp_EntrypointOffset>()->Offset == Y->C<IROp_EntrypointOffset>()->Offset;
+        case OP_INLINEENTRYPOINTOFFSET: return X->C<IROp_InlineEntrypointOffset>()->Offset == Y->C<IROp_InlineEntrypointOffset>()->Offset;
+        case OP_ADDSHIFT:
+          if (X->C<IROp_AddShift>()->Shift != Y->C<IROp_AddShift>()->Shift || X->C<IROp_AddShift>()->ShiftAmount != Y->C<IROp_AddShift>()->ShiftAmount) return false;
+          [[fallthrough]];
+        case OP_ADD: return SameAddress(X->Args[0], Y->Args[0], Depth + 1) && SameAddress(X->Args[1], Y->Args[1], Depth + 1);
+        default: return false;
+        }
+      };
+      const auto* L = IR.GetOp<IROp_LoadMem>(Load); const auto* W = IR.GetOp<IROp_StoreMem>(Store);
+      const auto* Source = IR.GetOp<IROp_LoadRegister>(BrokerAddend);
+      std::function<bool(OrderedNodeWrapper, unsigned)> ReadyAddress = [&](OrderedNodeWrapper A, unsigned Depth) {
+        if (A.IsInvalid()) return true; // absent displacement
+        if (Depth > 4 || !Before(A, Load)) return false;
+        const auto* H = IR.GetOp<IROp_Header>(A);
+        if (uint32_t(H->Size) != 8) return false;
+        switch (H->Op) {
+        case OP_LOADREGISTER: case OP_CONSTANT: case OP_INLINECONSTANT:
+        case OP_ENTRYPOINTOFFSET: case OP_INLINEENTRYPOINTOFFSET: return true;
+        case OP_ADD: case OP_ADDSHIFT: return Before(H->Args[0], A) && Before(H->Args[1], A) && ReadyAddress(H->Args[0], Depth + 1) && ReadyAddress(H->Args[1], Depth + 1);
+        default: return false;
+        }
+      };
+      if (L->Class != RegClass::GPR || W->Class != RegClass::GPR || Source->Class != RegClass::GPR || Source->Reg >= 16 ||
+          uint32_t(Source->Header.Size) != 8 || uint32_t(L->Header.Size) != Cfg.BrokerWidth || uint32_t(W->Header.Size) != Cfg.BrokerWidth ||
+          uint32_t(IR.GetOp<IROp_Header>(Add)->Size) != Cfg.BrokerWidth || L->Align != W->Align || L->OffsetType != W->OffsetType || L->OffsetScale != W->OffsetScale ||
+          L->Addr.IsInvalid() || !ReadyAddress(L->Addr, 0) || !ReadyAddress(L->Offset, 0) ||
+          !SameAddress(L->Addr, W->Addr, 0) || !SameAddress(L->Offset, W->Offset, 0)) return Reject(&W->Header);
+    }
     for (auto [Block, Header] : IR.GetBlocks()) { Blocks++; for (auto [Node, H] : IR.GetCode(Block)) {
       // A NOP must have no architectural effects, including otherwise-allowed
       // register/flag operations or address arithmetic. Validate FEX's actual
@@ -11140,6 +11238,18 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
         case OP_IRHEADER: case OP_CODEBLOCK: case OP_BEGINBLOCK: case OP_ENDBLOCK:
         case OP_GUESTOPCODE: case OP_INLINECONSTANT: case OP_INLINEENTRYPOINTOFFSET:
         case OP_CONSTANT: case OP_ENTRYPOINTOFFSET: case OP_EXITFUNCTION: break;
+        default: return Reject(H);
+        }
+      }
+      if (Cfg.BrokerOperation == 11) {
+        switch (H->Op) {
+        case OP_IRHEADER: case OP_CODEBLOCK: case OP_BEGINBLOCK: case OP_ENDBLOCK:
+        case OP_GUESTOPCODE: case OP_INLINECONSTANT: case OP_INLINEENTRYPOINTOFFSET:
+        case OP_CONSTANT: case OP_ENTRYPOINTOFFSET: case OP_LOADREGISTER:
+        case OP_ADD: case OP_ADDSHIFT: case OP_XOR: case OP_ADDWITHFLAGS:
+        case OP_LOADMEM: case OP_LOADMEMTSO: case OP_STOREMEM: case OP_STOREMEMTSO:
+        case OP_LOADNZCV: case OP_STORENZCV: case OP_STOREAF: case OP_STOREPF:
+        case OP_EXITFUNCTION: break;
         default: return Reject(H);
         }
       }
@@ -11167,6 +11277,7 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
       case OP_LOADPF: case OP_LOADAF: case OP_STOREPF: case OP_STOREAF:
       case OP_LOADNZCV: case OP_STORENZCV: case OP_SUBWITHFLAGS: case OP_ADDWITHFLAGS:
       case OP_NZCVSELECT: case OP_LOADDF:
+        if (Cfg.BrokerOperation == 11 && (H->Op == OP_STOREPF || H->Op == OP_STOREAF || H->Op == OP_LOADNZCV || H->Op == OP_STORENZCV || H->Op == OP_ADDWITHFLAGS)) break;
         if (Cfg.BrokerOperation < 3 || Cfg.BrokerOperation >= 9) return Reject(H);
         break;
       case OP_INVALIDATEFLAGS:
@@ -11181,12 +11292,13 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
       case OP_LOADREGISTER: {
         auto O = H->C<IROp_LoadRegister>();
         if (O->Class != RegClass::GPR || O->Reg >= (Cfg.BrokerOperation >= 3 ? NUM_STATIC : 16) ||
-            (Cfg.BrokerOperation >= 9 && (O->Reg != 4 || uint32_t(H->Size) != 8))) return Reject(H);
+            ((Cfg.BrokerOperation == 9 || Cfg.BrokerOperation == 10) && (O->Reg != 4 || uint32_t(H->Size) != 8)) ||
+            (Cfg.BrokerOperation == 11 && (O->Reg >= 16 || uint32_t(H->Size) != 8))) return Reject(H);
         break;
       }
       case OP_STOREREGISTER: {
         auto R = PhysicalRegister(Node);
-        if (R.AsRegClass() != RegClass::GPRFixed || R.Reg >= (Cfg.BrokerOperation >= 3 ? NUM_STATIC : 16) ||
+        if (Cfg.BrokerOperation == 11 || R.AsRegClass() != RegClass::GPRFixed || R.Reg >= (Cfg.BrokerOperation >= 3 ? NUM_STATIC : 16) ||
             (Cfg.BrokerOperation >= 9 && (R.Reg != 4 || uint32_t(H->Size) != 8))) return Reject(H);
         break;
       }
@@ -11223,11 +11335,11 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
         Branches++; break;
       }
       case OP_LOADMEM: case OP_LOADMEMTSO:
-        if (H->C<IROp_LoadMem>()->Class != RegClass::GPR || (Cfg.BrokerOperation != 1 && Cfg.BrokerOperation != 8) || uint32_t(H->Size) != Cfg.BrokerWidth)
+        if (H->C<IROp_LoadMem>()->Class != RegClass::GPR || (Cfg.BrokerOperation != 1 && Cfg.BrokerOperation != 8 && Cfg.BrokerOperation != 11) || uint32_t(H->Size) != Cfg.BrokerWidth)
           return Reject(H);
         Reads++; break;
       case OP_STOREMEM: case OP_STOREMEMTSO:
-        if (H->C<IROp_StoreMem>()->Class != RegClass::GPR || Cfg.BrokerOperation != 2 || uint32_t(H->Size) != Cfg.BrokerWidth)
+        if (H->C<IROp_StoreMem>()->Class != RegClass::GPR || (Cfg.BrokerOperation != 2 && Cfg.BrokerOperation != 11) || uint32_t(H->Size) != Cfg.BrokerWidth)
           return Reject(H);
         Writes++; break;
       case OP_EXITFUNCTION: {
@@ -11263,7 +11375,7 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
     }}
     if (Blocks != (Cfg.BrokerFlow == 2 ? 3u : 1u) || Exits != (Cfg.BrokerFlow == 2 ? 2u : 1u) ||
         Branches != (Cfg.BrokerFlow == 2) || (Cfg.BrokerFlow && !SawTarget) ||
-        (Cfg.BrokerFlow == 2 && !SawFallthrough) || Reads != (Cfg.BrokerOperation == 1 || Cfg.BrokerOperation == 8 || Cfg.BrokerOperation == 10) || Writes != (Cfg.BrokerOperation == 2 || Cfg.BrokerOperation == 9) ||
+        (Cfg.BrokerFlow == 2 && !SawFallthrough) || Reads != (Cfg.BrokerOperation == 1 || Cfg.BrokerOperation == 8 || Cfg.BrokerOperation == 10 || Cfg.BrokerOperation == 11) || Writes != (Cfg.BrokerOperation == 2 || Cfg.BrokerOperation == 9 || Cfg.BrokerOperation == 11) ||
         Atomics != (Cfg.BrokerOperation == 3 || Cfg.BrokerOperation == 4) || Syscalls != (Cfg.BrokerOperation == 5)) {
       CompileResult R; R.Error = "broker instruction effect count mismatch"; return R;
     }
@@ -11273,6 +11385,7 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
   BackendConfig UCfg = Cfg; // units: most stay cold, so they inline only small callees
   UCfg.InlineMaxNodes = std::min(Cfg.InlineMaxNodes, Cfg.UnitInlineMaxNodes);
   Emitter E(IR, EntryRIP, UCfg, S);
+  E.BrokerAddend = BrokerAddend;
   return E.Run();
 }
 

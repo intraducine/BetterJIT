@@ -78,6 +78,15 @@ async function main(){try{
  const limited=JSON.parse(fs.readFileSync(limitedOutput));assert.equal(limited.status,'probe-failed');assert.equal(limited.result,null);
  assert.equal(limited.progress.executedWasmSteps,64);assert.equal(limited.executionBudget.maximumSteps,64);assert.equal(limited.native.units,4);assert.equal(limited.native.failed,0);
  records.push({mode:'step-budget-exhausted',report:limited});
+ // Cross the actual dynamic-kernel/worker/mailbox boundary with operation11,
+ // then quiesce at UD2. The direct memory matrix separately checks bytes/flags.
+ phase='memory-add';const memoryAdd=inputs('--synthetic'),dataAddress=require('./sparse-linux-image-fixture.cjs').BASE+0x3180n,addressBytes=new Uint8Array(8);
+ new DataView(addressBytes.buffer).setBigUint64(0,dataAddress,true);memoryAdd.minimumSteps=4;memoryAdd.evidence='Synthetic ELF interpreter with one non-LOCK ADD memory through the production sparse kernel; not Wine.';
+ memoryAdd.interpreter.set([0x48,0x89,0xe7,0x48,0xb8,...addressBytes,0x48,0xba,1,0,0,0,0,0,0,0,0x48,1,0x10,0x0f,0x0b],0x1000);
+ const memoryAddReport=await probe(()=>memoryAdd,path.join(directory,'memory-add.json')),added=memoryAddReport.result;
+ assert.equal(added.executedWasmSteps,4);assert.equal(added.broker.requests,1);assert.equal(added.broker.ok,1);assert.equal(added.raxAfter,dataAddress);assert.equal(added.rdxAfter,1n);
+ assert.equal(added.nativeRequestsDrained,true);assert.equal(added.guestBacking.ownedPayloadBytes,0);assert.equal(added.guestAccessQuiescenceAcknowledged,true);
+ records.push({mode:'memory-add',steps:added.executedWasmSteps,broker:added.broker,native:memoryAddReport.native});
  const result={evidence:'Actual FEX/Wasm probe-harness contracts, including deliberate initial-state corruption and native-child death. No Wine or physical-device evidence.',records};
  console.log(save(result));
  }finally{fs.rmSync(directory,{recursive:true,force:true});}}

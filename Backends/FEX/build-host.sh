@@ -37,14 +37,18 @@ cmake -S "$FEX" -B "$B" -G Ninja -DCMAKE_C_COMPILER="$(command -v clang)" -DCMAK
 cmake --build "$B" --parallel "${BETTERJIT_BUILD_JOBS:-4}" --target FEXCore FEXCore_Base JemallocLibs fmt xxhash cephes_128bit softfloat_3e
 mkdir -p .build/host-fex
 BUILD_ID=$(bash fexwasm/build_id.sh "$FEX")
+for HOST_TARGET in fexserve sparse-memory-add-ir; do
+HOST_MAIN=fexwasm/tools/fexserve.cpp
+if [[ "$HOST_TARGET" == sparse-memory-add-ir ]]; then HOST_MAIN=fexwasm/src/testing/memory-add-ir.cpp; fi
 clang++ -std=gnu++20 -O2 -gline-tables-only -fno-exceptions -fno-strict-aliasing -fwrapv -Wno-unused-function \
   "-DFEXWASM_BUILD_ID=\"$BUILD_ID\"" "${HOST_FLAGS[@]}" -DJIT_ARM64 -D_LARGEFILE64_SOURCE \
   -I"$B/FEXCore/Source" -I"$FEX/FEXCore/Source" -I"$FEX/FEXCore/Source/IncludePrivate" -I"$FEX/FEXCore/include" \
   -I"$B/include" -I"$B/generated" -I"$FEX/External/fmt/include" -I"$FEX/External/xxhash" \
   -I"$FEX/FEXHeaderUtils" -I"$FEX/CodeEmitter" -I"$FEX/External/unordered_dense/include" \
   -I"$FEX/External/cephes/include" -I"$FEX/External/SoftFloat-3e/include" -Ifexwasm/src \
-  fexwasm/tools/fexserve.cpp fexwasm/src/*.cpp \
+  "$HOST_MAIN" fexwasm/src/*.cpp \
   "$B/FEXCore/Source/libFEXCore.a" "$B/FEXCore/Source/libFEXCore_Base.a" "$B/FEXCore/Source/libJemallocLibs.a" \
   "$B/External/fmt/libfmt.a" "$B/External/xxhash/cmake_unofficial/libxxhash.a" \
   "$B/External/cephes/libcephes_128bit.a" "$B/External/SoftFloat-3e/libsoftfloat_3e.a" \
-  ${LINK_FLAGS[@]+"${LINK_FLAGS[@]}"} -o .build/host-fex/fexserve
+  ${LINK_FLAGS[@]+"${LINK_FLAGS[@]}"} -o ".build/host-fex/$HOST_TARGET"
+done

@@ -35,6 +35,30 @@ function spillSyscall(f) {
  return f.broker.finishInstruction(f.token,{status:STEP.SYSCALL,nextRip:RIP+2n});
 }
 
+test('non-LOCK ADD memory uses one authenticated read/write request and returns old data',t=>{
+ const f=fixture(t);f.space.mapAnonymous(AT,2n*P,RW);const at=AT+P-3n;
+ f.space.write(at,Uint8Array.of(255,255,255,255,255,255,255,255));f.begin(OP.ADD_MEMORY,8);
+ const result=f.request({operation:OP.ADD_MEMORY,address:at,value:1n,access:RW});
+ assert.equal(result.status,S.OK);assert.equal(result.data,0xffffffffffffffffn);assert.deepEqual(f.space.read(at,8),new Uint8Array(8));
+ complete(f);assert.equal(f.broker.stats().requests,1);assert.equal(f.broker.stats().ok,1);
+ for(const width of [1,2,16])assert.throws(()=>f.begin(OP.ADD_MEMORY,width),TypeError);
+});
+test('ADD memory cannot substitute an atomic opcode, width or access intent',t=>{
+ for(const change of [{operation:OP.FETCH_ADD},{width:4},{access:PROT.READ},{access:PROT.WRITE}]){
+  const f=fixture(t);f.space.mapAnonymous(AT,P,RW);f.space.write(AT,Uint8Array.of(7));f.begin(OP.ADD_MEMORY,8);
+  const result=f.request({operation:OP.ADD_MEMORY,access:RW,value:1n,...change});assert.equal(result.status,S.UNSUPPORTED);
+  f.broker.finishInstruction(f.token,{status:STEP.UNSUPPORTED});assert.equal(f.space.read(AT,1)[0],7);
+ }
+});
+test('zero-addend ADD still requires write permission and a committed ADD cannot repeat its RPC',t=>{
+ const f=fixture(t);f.space.mapAnonymous(AT,P,PROT.READ);f.begin(OP.ADD_MEMORY,8);
+ const denied=f.request({operation:OP.ADD_MEMORY,access:RW});assert.equal(denied.status,S.FAULT);assert.equal(denied.reason,R.PROTECTION);
+ f.broker.finishInstruction(f.token,{status:STEP.FAULT});assert.deepEqual(f.space.read(AT,8),new Uint8Array(8));
+ const g=fixture(t);g.space.mapAnonymous(AT,P,RW);g.begin(OP.ADD_MEMORY,8);
+ assert.equal(g.request({operation:OP.ADD_MEMORY,access:RW,value:1n}).status,S.OK);
+ assert.throws(()=>g.request({operation:OP.ADD_MEMORY,access:RW,value:1n}),BrokerInvariantError);assert.equal(g.space.read(AT,1)[0],1);
+});
+
 test('prepared user copyout holds the spilled owner until prefix commit or cancellation',t=>{
  const f=fixture(t);f.space.mapAnonymous(AT,P,RW);spillSyscall(f);
  const tx=f.broker.prepareCopyOut(f.token,AT,8);tx.bytes.fill(4);

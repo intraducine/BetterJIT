@@ -121,3 +121,7 @@ executable-access booleans and fault-injection milestones. A confirmed third-ste
 kill is distinguished from an earlier startup exit or an unconfirmed kill.
 The failure artifact retains these diagnostics after temporary files are removed.
 The original report, exit, counter and progress assertions remain required.
+
+The [coverage-11 non-LOCK ADD memory slice](sparse-memory-add.md) addresses the
+next instruction proven by green run 38871692398. Its host arithmetic and memory
+fixtures remain separate from the exact prepared Wine result.

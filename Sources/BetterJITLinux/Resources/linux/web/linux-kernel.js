@@ -1231,7 +1231,7 @@ class Kernel {
          !Number.isInteger(p.length)||p.length<1||p.length>15||p.nextRip!==p.rip+BigInt(p.length)||
          !(p.instruction instanceof Uint8Array)||p.instruction.length!==p.length||approved.has(p.rip)||
          !(([0,5,6,7].includes(p.operation)&&p.width===0)||([1,2,8].includes(p.operation)&&[1,2,4,8].includes(p.width))||
-           ([3,4].includes(p.operation)&&[4,8].includes(p.width))||([9,10].includes(p.operation)&&p.width===8)))
+           ([3,4,11].includes(p.operation)&&[4,8].includes(p.width))||([9,10].includes(p.operation)&&p.width===8)))
         throw new Error('Invalid admitted instruction metadata');
       const actual=space.executableSnapshot(p.rip,p.length);
       if(!actual.every((x,i)=>x===p.instruction[i]))throw new Error('Executable bytes differ from the compiled step');

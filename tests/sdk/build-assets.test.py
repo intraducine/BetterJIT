@@ -29,6 +29,7 @@ class AssetTests(unittest.TestCase):
         self.asset = self.root/assets.COMPONENTS['fex-host']['path']; self.asset.mkdir(parents=True)
         self.binary = self.asset/'fexserve'; self.binary.write_bytes(bytes.fromhex('cffaedfe0c000001')+b'fixture')
         self.binary.chmod(0o755)
+        self.ir_binary = self.asset/'sparse-memory-add-ir'; self.ir_binary.write_bytes(self.binary.read_bytes()); self.ir_binary.chmod(0o755)
         self.producer = {'repository':assets.REPOSITORY, 'workflow':assets.WORKFLOW,
                          'run':'123', 'attempt':'1', 'commit':'a'*40, 'step':'build-host', 'outcome':'success'}
     def seal(self): return assets.seal(self.asset, 'fex-host', self.expected, self.producer, NOW)
@@ -49,6 +50,16 @@ class AssetTests(unittest.TestCase):
         before = assets.identity(self.root, 'fex-ios', self.tools)
         (self.root/'COPYING').write_text('changed notice')
         self.assertNotEqual(assets.identity(self.root, 'fex-ios', self.tools), before)
+    def test_ir_diagnostic_is_hashed_and_its_source_invalidates_host_reuse(self):
+        sealed = self.seal()
+        self.assertIn('sparse-memory-add-ir', sealed['files'])
+        original = self.ir_binary.read_bytes(); self.ir_binary.unlink()
+        with self.assertRaisesRegex(ValueError, 'changed'): self.validate()
+        self.ir_binary.write_bytes(original); self.ir_binary.chmod(0o755)
+        path = self.root/'fexwasm/src/testing/memory-add-ir.cpp'; path.write_text(path.read_text()+'\n// diagnostic change\n')
+        expected = assets.identity(self.root, 'fex-host', self.tools)
+        self.assertNotEqual(expected, self.expected)
+        with self.assertRaisesRegex(ValueError, 'Incompatible'): assets.validate(self.asset, 'fex-host', expected, NOW)
     def test_compiler_sdk_and_build_tool_changes_reject(self):
         self.seal()
         for key in self.tools:

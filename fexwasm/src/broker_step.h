@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 10;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 11;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
@@ -94,6 +94,9 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
     if (Op == 0x3c || Op == 0x3d || Op == 0xa8 || Op == 0xa9) return {true, 6, 0};
     if (I < Size) {
       const bool Register = (Bytes[I] & 0xc0) == 0xc0;
+      // Non-LOCK ADD r/m32,r32 and r/m64,r64 only. A dedicated broker
+      // transaction links the complete FEX load/add/store and preserves flags.
+      if (!Register && Op == 0x01) return {true, 11, Width};
       if (Op == 0x84 || Op == 0x85 || Op == 0x38 || Op == 0x39 || Op == 0x3a || Op == 0x3b)
         return {true, Register ? 6u : 8u, Register ? 0u : ((Op & 1) ? Width : 1u)};
       if ((Op == 0x80 || Op == 0x81 || Op == 0x83) && (Bytes[I] & 0x38) == 0x38)
