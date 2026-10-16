@@ -78,6 +78,26 @@ async function main(){try{
  const limited=JSON.parse(fs.readFileSync(limitedOutput));assert.equal(limited.status,'probe-failed');assert.equal(limited.result,null);
  assert.equal(limited.progress.executedWasmSteps,64);assert.equal(limited.executionBudget.maximumSteps,64);assert.equal(limited.native.units,4);assert.equal(limited.native.failed,0);
  records.push({mode:'step-budget-exhausted',report:limited});
+ // Independent distinct-RIP count caps, using the unchanged production host,
+ // kernel and execution worker. Explicit probe selection is test-only here.
+ for(const [mode,nops,profile,cap]of [['default-near-cap',254,'default',256],['default-count-cap',256,'default',256],
+  ['probe-past-default',300,'host-wine-probe-v1',512],['probe-near-cap',510,'host-wine-probe-v1',512],['probe-count-cap',512,'host-wine-probe-v1',512]]){
+  phase=mode;const input=inputs('--synthetic'),code=Uint8Array.from([0x48,0x89,0xe7,...Array(nops).fill(0x90),0x0f,0x0b]);
+  input.interpreter.set(code,0x1000);new DataView(input.interpreter.buffer).setBigUint64(64+56+32,BigInt(code.length),true);input.translationProfile=profile;input.minimumSteps=1+nops;
+  input.evidence='Synthetic distinct-RIP translation count-cap control; explicitly selected host probe profile, not Wine.';
+  const output=path.join(directory,mode+'.json');let report;
+  if(nops>=cap){await assert.rejects(probe(()=>input,output),/Sparse process translation limit reached/);report=JSON.parse(fs.readFileSync(output));assert.equal(report.result,null);assert.equal(report.progress.executedWasmSteps,cap);assert.equal(report.native.units,cap);assert.equal(report.native.failed,0);assert.equal(report.resourceTelemetry.cleanup.guestQuiescenceAcknowledged,false);assert.equal(report.resourceTelemetry.samples.failure.host.cacheEntries,cap);}
+  else{report=await probe(()=>input,output);assert.equal(report.result.executedWasmSteps,nops+1);assert.equal(report.native.units,nops+1);assert.equal(report.native.failed,1);assert.equal(report.resourceTelemetry.cleanup.guestQuiescenceAcknowledged,true);assert.equal(report.resourceTelemetry.samples.beforeDrop.host.cacheEntries,nops+2);}
+  const budget=report.executionBudget??report.result.executionBudget,telemetry=report.resourceTelemetry;
+  assert.equal(budget.maximumTranslationUnits,cap);assert.equal(budget.maximumTranslationBytes,2097152);assert.equal(budget.maximumSteps,20000);assert.equal(budget.deadlineMs,30000);
+  assert.equal(telemetry.cleanup.hostClosed,true);assert.equal(telemetry.cleanup.cacheEntries,0);assert.equal(telemetry.cleanup.allExecutionWorkersExited,true);assert.equal(telemetry.cleanup.executionTerminationRequestsSettled,true);assert.equal(telemetry.cleanup.kernelTerminationSettled,true);assert.equal(telemetry.cleanup.nativeChildClosed,true);
+  assert(telemetry.samples.baseline.node.rssBytes>0);assert.equal(telemetry.samples.afterCleanup.native.retainedIRBytes,null);assert.equal(telemetry.samples.afterCleanup.node.compiledWebAssemblyBytes,null);
+  records.push({mode,report});
+ }
+ phase='telemetry-unavailable';const unavailableOutput=path.join(directory,phase+'.json'),sampler=P.resourceSnapshot;
+ try{P.resourceSnapshot=()=>{throw Error('Unavailable sampler');};await assert.rejects(probe(()=>({...loop,maximumSteps:64}),unavailableOutput),/Sparse instruction limit exceeded/);}
+ finally{P.resourceSnapshot=sampler;}
+ const unavailable=JSON.parse(fs.readFileSync(unavailableOutput));assert.equal(unavailable.result,null);assert.equal(unavailable.progress.executedWasmSteps,64);assert.equal(unavailable.resourceTelemetry.samples.failure.samplingAvailable,false);assert.equal(unavailable.resourceTelemetry.samples.failure.native.rssBytes,null);assert.equal(unavailable.resourceTelemetry.cleanup.nativeChildClosed,true);records.push({mode:phase,report:unavailable});
  // Cross the actual dynamic-kernel/worker/mailbox boundary with operation11,
  // then quiesce at UD2. The direct memory matrix separately checks bytes/flags.
  phase='memory-add';const memoryAdd=inputs('--synthetic'),dataAddress=require('./sparse-linux-image-fixture.cjs').BASE+0x3180n,addressBytes=new Uint8Array(8);

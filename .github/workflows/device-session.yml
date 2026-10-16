@@ -260,7 +260,7 @@ jobs:
           node tests/sdk/linux-host/sparse-linux-bootstrap.cjs .build/host-fex/fexserve .build/sparse-call-bootstrap-results.json --synthetic-calls
           node tests/sdk/linux-host/sparse-linux-bootstrap.cjs .build/host-fex/fexserve .build/sparse-extend-bootstrap-results.json --synthetic-extensions
           node tests/sdk/linux-host/sparse-linux-bootstrap.cjs .build/host-fex/fexserve .build/sparse-nop-bootstrap-results.json --synthetic-nops
-          node tests/sdk/linux-host/sparse-linux-bootstrap.cjs .build/host-fex/fexserve .build/sparse-wine-bootstrap-results.json .build/device-linuxroot
+          node tests/sdk/linux-host/sparse-linux-bootstrap.cjs .build/host-fex/fexserve .build/sparse-wine-bootstrap-results.json .build/device-linuxroot --host-wine-probe-v1
       - name: Execute the compiled command in real macOS WebKit
         if: github.ref == 'refs/heads/experimental/sparse-guest-backing'
         run: |

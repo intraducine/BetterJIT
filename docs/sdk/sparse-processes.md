@@ -80,8 +80,16 @@ All guest images share a 32 MiB backing budget. Internal contexts, input and
 executable snapshots, native code catalogues and module caches are separate
 bounded resources. Input stays limited to 1 MiB and each read/write to 64 KiB;
 captured output remains UTF-8 text with an aggregate 4 MiB retention limit.
-The process host bounds its translation cache to 256 entries and 2 MiB of
-received translation bytes. Each run loop admits at most 20,000 instructions.
+The process host defaults to 256 entries and 2 MiB of cumulative received
+translation bytes. An explicit `translationBudget` object may select at most
+512 entries and 2 MiB; both own data properties, `maximumUnits` and
+`maximumBytes`, are required. The host validates and copies those values into
+an immutable budget. Invalid, excessive, accessor or extra-key configurations
+are refused. These ceilings bound entries and serialized responses, not total
+retained RAM: compiled modules, native IR, guest backing and internal contexts
+remain separate. Each run loop defaults to at most 20,000 instructions.
+The [host Wine probe](sparse-linux-bootstrap.md) explicitly selects 512 entries;
+this changes neither the SDK default nor a phone memory policy.
 
 The syscall contract remains narrow: finite read/write, one leader per
 process, at most one unreaped child, checked static exec, specific-child wait

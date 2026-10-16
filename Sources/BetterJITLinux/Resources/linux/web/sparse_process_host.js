@@ -2,8 +2,20 @@
 // Bounded sparse execution host. A receipt revokes guest access, never proves
 // physical Worker termination. Occupancy and internal memories stay retained.
 (function(root){'use strict';
+ function translationBudget(value={maximumUnits:256,maximumBytes:2*1024*1024}){
+  const reject=()=>{throw Error('Invalid bounded sparse translation budget');};
+  if(!value||typeof value!=='object'||Array.isArray(value))reject();
+  const keys=Reflect.ownKeys(value);if(keys.length!==2||!keys.includes('maximumUnits')||!keys.includes('maximumBytes'))reject();
+  const units=Object.getOwnPropertyDescriptor(value,'maximumUnits'),bytes=Object.getOwnPropertyDescriptor(value,'maximumBytes');
+  if(!units||!bytes||!Object.hasOwn(units,'value')||!Object.hasOwn(bytes,'value'))reject();
+  const maximumUnits=units.value,maximumBytes=bytes.value;
+  if(!Number.isSafeInteger(maximumUnits)||maximumUnits<1||maximumUnits>512||
+     !Number.isSafeInteger(maximumBytes)||maximumBytes<1||maximumBytes>2*1024*1024)reject();
+  return Object.freeze({maximumUnits,maximumBytes});
+ }
  class SparseProcessHost {
-  constructor({get,cfg,workerFactory=()=>new Worker('sparse_thread.js'),onResult=()=>{},onFailure=()=>{},maximumSteps=20000}){
+  constructor({get,cfg,workerFactory=()=>new Worker('sparse_thread.js'),onResult=()=>{},onFailure=()=>{},maximumSteps=20000,translationBudget:limits}){
+   Object.defineProperty(this,'translationBudget',{value:translationBudget(limits),enumerable:true});
    Object.assign(this,{get,cfg,workerFactory,onResult,onFailure,maximumSteps});this.records=new Map();this.history=[];this.cache=new Map();this.cacheBytes=0;this.closed=false;this.drops=[];this.dropped=new Set();
   }
   notify(d){const k=new Int32Array(d.ksab);Atomics.add(k,0,1);Atomics.notify(k,0);}
@@ -32,7 +44,7 @@
       r.requests.add(m.id);
       this.track(r,(async()=>{
        const key=d.space+':'+m.rip;let p=this.cache.get(key);
-       if(!p){if(this.cache.size>=256)throw Error('Sparse process translation limit reached');p=(async()=>{const bytes=new Uint8Array(await(await this.get('/xlat/step?space='+d.space+'&rip='+m.rip)).arrayBuffer());this.cacheBytes+=bytes.length;if(this.cacheBytes>2*1024*1024)throw Error('Sparse process translation byte limit reached');const u=FexLinuxThread.parseBrokerStep(bytes);if(u.status===0)u.module=await WebAssembly.compile(u.code);return u;})();this.cache.set(key,p);}
+       if(!p){if(this.cache.size>=this.translationBudget.maximumUnits)throw Error('Sparse process translation limit reached');p=(async()=>{const bytes=new Uint8Array(await(await this.get('/xlat/step?space='+d.space+'&rip='+m.rip)).arrayBuffer());this.cacheBytes+=bytes.length;if(this.cacheBytes>this.translationBudget.maximumBytes)throw Error('Sparse process translation byte limit reached');const u=FexLinuxThread.parseBrokerStep(bytes);if(u.status===0)u.module=await WebAssembly.compile(u.code);return u;})();this.cache.set(key,p);}
        const unit=await p;if(!this.closed&&!r.stopping&&!r.finished)w.postMessage({op:'unit-reply',id:m.id,unit});r.requests.delete(m.id);
       })());
      }else if(m.op==='thread-result'||m.op==='failure'){

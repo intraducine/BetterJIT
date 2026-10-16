@@ -45,7 +45,7 @@ Run the bounded host probe with prepared inputs:
 ```sh
 node tests/sdk/linux-host/sparse-linux-bootstrap.cjs \
   .build/host-fex/fexserve .build/sparse-wine-bootstrap-results.json \
-  .build/device-linuxroot
+  .build/device-linuxroot --host-wine-probe-v1
 ```
 
 The experimental CI workflow requires this probe. It verifies the adapted Wine
@@ -67,6 +67,33 @@ translation. A synthetic finite loop verifies 258 executions of four translated
 units; lowering its budget to 64 must fail without a completed result.
 The fixed internal worker memory and occupied slot remain retained until session
 teardown; this does not prove physical retirement or lower resident RAM.
+
+The prepared-root CI command explicitly passes `--host-wine-probe-v1` to select
+512 cached translations. Without that flag, this harness and the SDK retain
+the 256-entry default. Both profiles retain the 2 MiB cumulative response-byte
+ceiling, 20,000 executions and 30-second deadline. Unknown or numeric profile
+arguments and excessive budget configurations are refused. Count exhaustion occurs
+before requesting another native translation and remains a failed probe, never
+an unsupported-instruction result. Tests cover the 256/512 boundaries, cached
+and pending entries, independent byte enforcement and failure cleanup.
+
+This host-only exploration follows run
+[38918290332](https://github.com/intraducine/BetterJIT/actions/runs/38918290332):
+the unchanged Wine/musl inputs executed 2,369 steps from 256 compiled units, then
+hit the translation count cap at `0x7f0000038014`, before requesting `74 0c`
+(JE). Native rejected count was zero; there was no completed result or guest
+exit. Its 124,331 module bytes plus 24,576 header bytes total 148,907 serialized
+bytes. This is not retained RAM or a newly proven unsupported opcode.
+
+Successful and failed reports include the selected budgets, host cache accounting,
+parent Node process RSS/isolate heap counters, owned native-child RSS when the
+platform API is available, and teardown observations. Snapshots precede native
+catalogue destruction or failure cleanup; a later sample follows Node worker
+teardown. Reports are written after the native child closes. Native IR/allocator,
+compiled Wasm engine allocation and worker-isolate heap breakdown remain explicitly
+unmeasured. RSS, heap, external and serialized-byte counters overlap and must not
+be added into a retained-memory total. These host observations approve no physical
+device memory policy or SDK default expansion.
 
 Coverage 7 adds the register-only `81 /4` and `83 /4` immediate AND forms for
 32/64-bit operands, including the interpreter's `and rsp,-16` alignment step.

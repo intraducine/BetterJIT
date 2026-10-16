@@ -1,16 +1,38 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import test from 'node:test';import assert from 'node:assert/strict';
 import P from './linux-host/sparse-linux-probe-report.cjs';
+import Bootstrap from './linux-host/sparse-linux-bootstrap.cjs';
+import os from 'node:os';
 import {spawnSync} from 'node:child_process';
 const entry=0x12340000n,stackPointer=0x7ffff000n;
 const image=bytes=>({entry,stackPointer,codes:[{address:entry,bytes:Uint8Array.from(bytes)}],space:{executableSnapshot(){throw Error('Must not read guest mapping');}}});
 test('probe completion uses the enforced execution budget independently of trace length',()=>{
  const budget=P.executionBudget(),result={status:'unsupported-instruction',guestExitCode:null,executedWasmSteps:653};
- assert.deepEqual(budget,{maximumSteps:20000,deadlineMs:30000});P.validateCompletion(result,2,budget);
+ assert.deepEqual(budget,{maximumSteps:20000,deadlineMs:30000,translationProfile:'default',maximumTranslationUnits:256,maximumTranslationBytes:2097152});P.validateCompletion(result,2,budget);
  P.validateCompletion({...result,executedWasmSteps:20000},2,budget);
  for(const executedWasmSteps of [0,1,20001,1.5,NaN,Infinity])assert.throws(()=>P.validateCompletion({...result,executedWasmSteps},2,budget),assert.AssertionError);
  for(const change of [{status:'step-limit'},{status:'completed'},{guestExitCode:0}])assert.throws(()=>P.validateCompletion({...result,...change},2,budget),assert.AssertionError);
  for(const maximum of [0,-1,20001,1.5,NaN,Infinity])assert.throws(()=>P.executionBudget(maximum),assert.AssertionError);
+});
+test('the host Wine profile is explicit and cannot raise fixed count, byte, step or deadline maxima',()=>{
+ assert.deepEqual(P.executionBudget(undefined,'host-wine-probe-v1'),{maximumSteps:20000,deadlineMs:30000,translationProfile:'host-wine-probe-v1',maximumTranslationUnits:512,maximumTranslationBytes:2097152});
+ for(const profile of ['__proto__','constructor','toString','host-wine-probe-v2',512,null,{}, {maximumUnits:4096}])assert.throws(()=>P.executionBudget(20000,profile),/profile/);
+ assert.throws(()=>P.executionBudget(20001,'host-wine-probe-v1'),/step budget/);
+ assert.equal(Bootstrap.selectInputs('--synthetic').translationProfile,undefined);
+ assert.throws(()=>Bootstrap.selectInputs('--synthetic','--host-wine-probe-v1'),/prepared-root/);
+ for(const flag of ['--maximum-translations=999999','--host-wine-probe-v2',512,{}])assert.throws(()=>Bootstrap.selectInputs(undefined,flag),/profile option/);
+});
+test('host telemetry preserves scope and unmeasured fields and refuses arbitrary strings or totals',()=>{
+ const context={resourceSamples:{failure:{host:{cacheEntries:512,receivedTranslationBytes:148907},node:{rssBytes:123,parentIsolateHeapUsedBytes:NaN},native:{source:'/private/secret',rssBytes:456,retainedIRBytes:999},system:{freeBytes:-1},secret:'TOKEN=secret'}},
+  cleanup:{hostClosed:true,cacheEntries:0,guestQuiescenceAcknowledged:false},nativeProcess:{lifecycle:{closeRequested:true,closed:true}}};
+ const t=P.resourceTelemetryInfo(context);assert.equal(t.samples.failure.host.receivedTranslationBytes,148907);assert.equal(t.samples.failure.native.source,'unavailable');assert.equal(t.samples.failure.native.retainedIRBytes,null);assert.equal(t.samples.failure.node.compiledWebAssemblyBytes,null);assert.equal(t.samples.failure.node.parentIsolateHeapUsedBytes,null);assert.equal(t.samples.failure.system.freeBytes,null);assert.equal(t.cleanup.nativeChildClosed,true);assert.equal(t.cleanup.guestQuiescenceAcknowledged,false);assert(!JSON.stringify(t).includes('TOKEN'));assert(!JSON.stringify(t).includes('/private'));
+ const report=P.failureReport({...context,executionBudget:P.executionBudget(20000,'host-wine-probe-v1')},Error('cap'));assert.equal(report.executionBudget.maximumTranslationUnits,512);assert.equal(report.resourceTelemetry.cleanup.cacheEntries,0);
+});
+test('unavailable host and native memory APIs retain null measurements',()=>{
+ const free=os.freemem;try{os.freemem=()=>{throw Error('Unavailable host memory API');};
+  const snapshot=P.resourceSnapshot(undefined,{readMemory(){throw Error('Unavailable native memory API');}}),t=P.resourceTelemetryInfo({resourceSamples:{baseline:snapshot}});
+  assert.equal(t.samples.baseline.system.freeBytes,null);assert.equal(t.samples.baseline.native.rssBytes,null);assert.equal(t.samples.baseline.native.source,'unavailable');assert(t.samples.baseline.node.rssBytes>0);
+ }finally{os.freemem=free;}
 });
 test('native translation counts allow reuse while preserving single-instruction and rejection invariants',()=>{
  const native={units:100,guestInsts:100,failed:1};P.validateNative(native,653);P.validateNative(native,100);

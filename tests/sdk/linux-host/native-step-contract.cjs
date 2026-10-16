@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Explicit live native FEX -> Wasm diagnostics. No sparse guest/phone claim.
 const fs=require('fs'),path=require('path'),net=require('net'),assert=require('node:assert/strict');
-const {spawn}=require('child_process');
+const {spawn,spawnSync}=require('child_process');
 const translator=path.resolve(process.argv[2]??'.build/host-fex/fexserve');
 const output=process.argv[3];
 fs.accessSync(translator,fs.constants.X_OK);
@@ -9,7 +9,22 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function serve(options,run) {
  const port=await new Promise((resolve,reject)=>{const s=net.createServer();s.on('error',reject);s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>resolve(p));});});
  const child=spawn(translator,['--linux',String(port),options],{stdio:['ignore','ignore','pipe']});
- const closed=new Promise(resolve=>child.once('close',resolve));
+ const lifecycle={closeRequested:false,closed:false};
+ const closed=new Promise(resolve=>child.once('close',()=>{lifecycle.closed=true;resolve();}));
+ const readMemory=()=>{
+  const result={source:'unavailable',rssBytes:null,peakRSSBytes:null};
+  if(lifecycle.closed||!Number.isSafeInteger(child.pid))return result;
+  try{
+   if(process.platform==='linux'){
+    const status=fs.readFileSync('/proc/'+child.pid+'/status','utf8'),rss=status.match(/^VmRSS:\s+(\d+) kB$/m),peak=status.match(/^VmHWM:\s+(\d+) kB$/m);
+    if(rss){result.source='linux-proc-status';result.rssBytes=Number(rss[1])*1024;if(peak)result.peakRSSBytes=Number(peak[1])*1024;}
+   }else if(process.platform==='darwin'){
+    const sample=spawnSync('ps',['-o','rss=','-p',String(child.pid)],{encoding:'utf8',timeout:1000});
+    if(sample.status===0&&/^\s*\d+\s*$/.test(sample.stdout)){result.source='darwin-ps-rss';result.rssBytes=Number(sample.stdout.trim())*1024;}
+   }
+  }catch{}
+  return result;
+ };
  let log='',spawnError;child.stderr.on('data',bytes=>log=(log+bytes).slice(-8192));child.on('error',error=>spawnError=error);
  const get=(route,init)=>fetch(`http://127.0.0.1:${port}`+route,{...init,signal:AbortSignal.timeout(5000)});
  try {
@@ -19,9 +34,9 @@ async function serve(options,run) {
    try {if((await get('/xlat/totals')).ok){ready=true;break;}}catch{}
    await pause(25);
   }
-  assert.ok(ready,'Native server starts within 5 seconds');return await run(get,()=>log);
+  assert.ok(ready,'Native server starts within 5 seconds');return await run(get,()=>log,{readMemory,lifecycle});
  } finally {
-  if(child.exitCode===null)child.kill();
+  if(child.exitCode===null){lifecycle.closeRequested=true;child.kill();}
   const killTimer=setTimeout(()=>child.kill('SIGKILL'),1000);killTimer.unref();
   await closed;clearTimeout(killTimer);
  }

@@ -1,9 +1,42 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Probe-only contracts and bounded diagnostics; never dump guest memory/state.
-const assert=require('node:assert/strict'),crypto=require('crypto');
-function executionBudget(maximumSteps=20000) {
+const assert=require('node:assert/strict'),crypto=require('crypto'),v8=require('node:v8'),os=require('node:os');
+function executionBudget(maximumSteps=20000,translationProfile='default') {
   assert(Number.isSafeInteger(maximumSteps)&&maximumSteps>=1&&maximumSteps<=20000,'Probe step budget must be an integer in 1..20000');
-  return {maximumSteps,deadlineMs:30000};
+  assert(translationProfile==='default'||translationProfile==='host-wine-probe-v1','Unknown bounded probe translation profile');
+  return {maximumSteps,deadlineMs:30000,translationProfile,maximumTranslationUnits:translationProfile==='host-wine-probe-v1'?512:256,maximumTranslationBytes:2*1024*1024};
+}
+const nonnegative=value=>Number.isSafeInteger(value)&&value>=0?value:null;
+function resourceSnapshot(host,nativeProcess) {
+  let memory={},heap={},native={},system={};try{memory=process.memoryUsage();heap=v8.getHeapStatistics();}catch{}
+  try{native=nativeProcess?.readMemory()??{};}catch{}
+  try{system={totalBytes:os.totalmem(),freeBytes:os.freemem()};}catch{}
+  return {host:{cacheEntries:host?.cache.size,receivedTranslationBytes:host?.cacheBytes,pendingTranslations:host?.history.reduce((n,r)=>n+r.pending.size,0),
+    outstandingRequests:host?.history.reduce((n,r)=>n+r.requests.size,0),retainedWorkerRecords:host?.history.length},
+    node:{rssBytes:memory.rss,parentIsolateHeapUsedBytes:memory.heapUsed,parentIsolateHeapTotalBytes:memory.heapTotal,parentIsolateExternalBytes:memory.external,
+      parentIsolateArrayBufferBytes:memory.arrayBuffers,parentIsolateMallocedBytes:heap.malloced_memory,parentIsolateHeapLimitBytes:heap.heap_size_limit},
+    native,system};
+}
+function resourceTelemetryInfo(context) {
+  const out={scope:'Host probe only: Node RSS includes its workers; V8 heap counters describe the parent isolate. Native RSS describes the separate owned translator process.',
+    accounting:'These overlapping counters must not be summed as a retained-memory total. Received translation bytes are cumulative serialized data, not RAM or a pre-allocation bound.',
+    samplingMoments:'beforeDrop precedes native catalogue destruction; failure precedes worker cleanup; afterCleanup follows Node worker teardown but precedes native-child shutdown. Native child lifecycle is finalized before report writing.',
+    unmeasured:['compiled WebAssembly engine allocation','native retained IR and allocator bytes','worker-isolate heap breakdown','physical-device memory headroom'],samples:{}};
+  const fields={host:['cacheEntries','receivedTranslationBytes','pendingTranslations','outstandingRequests','retainedWorkerRecords'],
+    node:['rssBytes','parentIsolateHeapUsedBytes','parentIsolateHeapTotalBytes','parentIsolateExternalBytes','parentIsolateArrayBufferBytes','parentIsolateMallocedBytes','parentIsolateHeapLimitBytes'],
+    native:['rssBytes','peakRSSBytes'],system:['totalBytes','freeBytes']};
+  for(const stage of ['baseline','beforeDrop','failure','afterCleanup']){
+    const sample=context.resourceSamples?.[stage];if(!sample)continue;const clean={samplingAvailable:sample.unavailable!==true};
+    for(const [group,keys]of Object.entries(fields)){clean[group]={};for(const key of keys)clean[group][key]=nonnegative(sample[group]?.[key]);}
+    clean.native.source=['linux-proc-status','darwin-ps-rss'].includes(sample.native?.source)?sample.native.source:'unavailable';
+    clean.native.retainedIRBytes=null;clean.native.allocatorBytes=null;clean.node.compiledWebAssemblyBytes=null;out.samples[stage]=clean;
+  }
+  const cleanup=context.cleanup??{},lifecycle=context.nativeProcess?.lifecycle;
+  out.cleanup={};for(const key of ['hostClosed','allExecutionWorkersExited','executionTerminationRequestsSettled','kernelTerminationSettled','guestQuiescenceAcknowledged'])out.cleanup[key]=typeof cleanup[key]==='boolean'?cleanup[key]:null;
+  for(const key of ['cacheEntries','executionWorkersCreated'])out.cleanup[key]=nonnegative(cleanup[key]);
+  out.cleanup.nativeChildCloseRequested=typeof lifecycle?.closeRequested==='boolean'?lifecycle.closeRequested:null;
+  out.cleanup.nativeChildClosed=typeof lifecycle?.closed==='boolean'?lifecycle.closed:null;
+  return out;
 }
 function validateCompletion(result,minimumSteps,budget) {
   assert.equal(result.status,'unsupported-instruction');assert.equal(result.guestExitCode,null);
@@ -95,15 +128,17 @@ function failureReport(context,error) {
   const report={schema:1,status:'probe-failed',evidence:'Bounded interpreter probe failure; no successful guest exit or Wine compatibility result.',
     stage:clean(context.stage,64),input:inputIdentity(context.input),error:errorInfo(error),nativeAvailable:!!native,
     progress:progressInfo(context.progress),result:progressInfo(context.result),configuration:{},native:{}};
-  if(context.executionBudget){report.executionBudget={};for(const key of ['maximumSteps','deadlineMs'])
-    if(Number.isSafeInteger(context.executionBudget[key])&&context.executionBudget[key]>0)report.executionBudget[key]=context.executionBudget[key];}
+  if(context.executionBudget){report.executionBudget={};for(const key of ['maximumSteps','deadlineMs','maximumTranslationUnits','maximumTranslationBytes'])
+    if(Number.isSafeInteger(context.executionBudget[key])&&context.executionBudget[key]>0)report.executionBudget[key]=context.executionBudget[key];
+    if(['default','host-wine-probe-v1'].includes(context.executionBudget.translationProfile))report.executionBudget.translationProfile=context.executionBudget.translationProfile;}
   const provenance=context.input?.provenance;
   if(provenance){report.provenance={};for(const [key,length]of [['wineSourceCommit',40],['patchSHA256',64]])
     if(typeof provenance[key]==='string'&&new RegExp('^[0-9a-f]{'+length+'}$').test(provenance[key]))report.provenance[key]=provenance[key];}
   for(const key of ['buildID','coverageVersion','memoryABI','stepABI'])if(['number','string'].includes(typeof cfg[key]))report.configuration[key]=typeof cfg[key]==='string'?clean(cfg[key],64):cfg[key];
   for(const key of ['units','guestInsts','failed','unitBytes','cacheHits','diskHits'])if(Number.isFinite(native?.[key]))report.native[key]=native[key];
   if(context.nativeError)report.nativeError=errorInfo(context.nativeError);
+  report.resourceTelemetry=resourceTelemetryInfo(context);
   return report;
 }
 const stringify=value=>JSON.stringify(value,(_key,v)=>typeof v==='bigint'?'0x'+v.toString(16):v,2)+'\n';
-module.exports={executionBudget,validateCompletion,validateNative,codeBytes,entryStackCheck,observeEntry,errorInfo,subprocessInfo,contractFailure,inputIdentity,progressInfo,failureReport,stringify};
+module.exports={executionBudget,resourceSnapshot,resourceTelemetryInfo,validateCompletion,validateNative,codeBytes,entryStackCheck,observeEntry,errorInfo,subprocessInfo,contractFailure,inputIdentity,progressInfo,failureReport,stringify};

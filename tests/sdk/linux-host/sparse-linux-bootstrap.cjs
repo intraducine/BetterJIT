@@ -29,18 +29,25 @@ function inputs(location) {
  assert.equal(sha(elf),provenance.filesSHA256.wine,'Must probe the exact adapted Wine binary recorded by preparation');
  return {path:'/opt/wine-flat/bin/wine',elf,interpreterPath,interpreter,evidence:'Exact prepared adapted Wine launcher and its staged musl interpreter, executed only to the first unsupported sparse instruction. Not a Wine command, nested CreateProcess, WebKit, phone, physical retirement or RAM result.',minimumSteps:2,provenance:{wineSourceCommit:provenance.wineSourceCommit,patchSHA256:provenance.patchSHA256}};
 }
+function selectInputs(location,flag){
+ assert(flag===undefined||flag==='--host-wine-probe-v1','Unknown probe profile option');
+ assert(flag===undefined||!String(location??'').startsWith('--'),'Host Wine profile requires prepared-root input');
+ const input=inputs(location);if(flag!==undefined)input.translationProfile='host-wine-probe-v1';return input;
+}
 async function execute(get,cfg,state,input,context={}) {
- const budget=context.executionBudget=P.executionBudget(input.maximumSteps);
+ const budget=context.executionBudget=P.executionBudget(input.maximumSteps,input.translationProfile);
+ const sample=stage=>{const samples=context.resourceSamples??={};try{samples[stage]=P.resourceSnapshot(host,context.nativeProcess);}catch{samples[stage]={unavailable:true};}};
  let kernel,host,timer;const workers=[],terminations=[];
+ sample('baseline');
  try {
   const result=await new Promise((resolve,reject)=>{
    timer=setTimeout(()=>reject(Error('Sparse interpreter bootstrap exceeded30seconds')),budget.deadlineMs);
-   host=new BetterJITSparseProcessHost({get,cfg,maximumSteps:budget.maximumSteps,onFailure:reject,workerFactory:()=>{
+   host=new BetterJITSparseProcessHost({get,cfg,maximumSteps:budget.maximumSteps,translationBudget:{maximumUnits:budget.maximumTranslationUnits,maximumBytes:budget.maximumTranslationBytes},onFailure:reject,workerFactory:()=>{
     const worker=new Worker(path.join(__dirname,'sparse-browser-thread.cjs'),{workerData:{resources}}),record={worker,exited:false},adapter={onmessage:null,onerror:null,postMessage:m=>worker.postMessage(m),terminate:()=>{terminations.push(worker.terminate());}};workers.push(record);
     worker.on('message',data=>adapter.onmessage?.({data}));worker.on('error',e=>adapter.onerror?.({message:String(e)}));worker.on('exit',()=>{record.exited=true;});return adapter;
    }});
    kernel=new Worker(path.join(__dirname,'sparse-linux-bootstrap-kernel.cjs'),{workerData:{resources,cfg,state,...input}});kernel.on('error',reject);kernel.on('message',m=>{try{
-    if(m.op==='spawn')host.spawn(m.spec);else if(m.op==='stop')host.stop(m.spec);else if(m.op==='drop')host.drop(m.spec);
+    if(m.op==='spawn')host.spawn(m.spec);else if(m.op==='stop')host.stop(m.spec);else if(m.op==='drop'){sample('beforeDrop');host.drop(m.spec);}
     else if(m.op==='probe-progress')context.progress=P.progressInfo(m.diagnostic);
     else if(m.op==='fatal'){context.progress=P.progressInfo(m.diagnostic);reject(Object.assign(Error(m.error.message),m.error));}
     else if(m.op==='kernel-result')resolve(m);
@@ -52,7 +59,13 @@ async function execute(get,cfg,state,input,context={}) {
   if(input.expectedSteps!==undefined){assert.equal(result.executedWasmSteps,input.expectedSteps);assert.equal(result.stackPointerAfter,result.stackPointer);assert.equal(result.broker.requests,4);assert.equal(result.broker.ok,4);}
   if(input.expectedRax!==undefined){assert.equal(result.raxAfter,BigInt(input.expectedRax));assert.equal(result.rdxAfter,BigInt(input.expectedRdx));}
   return {...result,executionBudget:budget,actualWorkersStillAlive:workers.length,nativeRequestsDrained:true};
- }finally{clearTimeout(timer);host?.close();await Promise.allSettled(terminations);await kernel?.terminate();}
+ }catch(error){sample('failure');throw error;}
+ finally{
+  clearTimeout(timer);host?.close();const settled=await Promise.allSettled(terminations);await kernel?.terminate();
+  context.cleanup={hostClosed:host?.closed===true,cacheEntries:host?.cache.size,executionWorkersCreated:workers.length,allExecutionWorkersExited:workers.every(w=>w.exited),
+   executionTerminationRequestsSettled:settled.every(r=>r.status==='fulfilled'),kernelTerminationSettled:!!kernel,guestQuiescenceAcknowledged:!!host&&host.history.length>0&&host.history.every(r=>r.acked)};
+  sample('afterCleanup');
+ }
 }
 function writeReport(output,report) {
  const text=P.stringify(report);if(output){fs.writeFileSync(output+'.tmp',text);fs.renameSync(output+'.tmp',output);}return text;
@@ -61,18 +74,20 @@ async function probe(selectInput,output,connect=serve) {
  const context={stage:'inputs'};
  try {
   const input=context.input=selectInput();context.stage='native-start';
-  return await connect('guestmem=broker1',async get=>{
+  const report=await connect('guestmem=broker1',async(get,_log,nativeProcess)=>{
+   context.nativeProcess=nativeProcess;
    try {
     context.stage='native-configuration';const cfg=context.cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());
     context.stage='execute';const result=await execute(get,cfg,state,input,context);
     context.stage='native-validation';const native=context.native=await(await get('/xlat/totals')).json();
     P.validateNative(native,result.executedWasmSteps);
-    const report={evidence:input.evidence,provenance:input.provenance,input:P.inputIdentity(input),cfg,native,result};writeReport(output,report);return report;
+    return {evidence:input.evidence,provenance:input.provenance,input:P.inputIdentity(input),cfg,native,result};
    } catch(error) {
     try{context.native=await(await get('/xlat/totals')).json();}catch(nativeError){context.nativeError=nativeError;}
     throw error;
    }
   });
+  report.resourceTelemetry=P.resourceTelemetryInfo(context);writeReport(output,report);return report;
  } catch(error) {writeReport(output,P.failureReport(context,error));throw error;}
 }
-module.exports={execute,inputs,probe};if(require.main===module)probe(()=>inputs(process.argv[4]),process.argv[3]).then(report=>console.log(P.stringify(report))).catch(e=>{console.error(P.stringify({status:'probe-failed',error:P.errorInfo(e)}));process.exitCode=1;});
+module.exports={execute,inputs,selectInputs,probe};if(require.main===module)probe(()=>{assert(process.argv.length<=6,'Unexpected probe configuration arguments');return selectInputs(process.argv[4],process.argv[5]);},process.argv[3]).then(report=>console.log(P.stringify(report))).catch(e=>{console.error(P.stringify({status:'probe-failed',error:P.errorInfo(e)}));process.exitCode=1;});
