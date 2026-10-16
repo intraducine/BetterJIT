@@ -89,7 +89,7 @@ test('dynamic header parsing derives source register and rejects forged control 
  function header(p){const b=new Uint8Array(96),v=new DataView(b.buffer);[0x31534a42,1,1,3,B.ABI.coverageVersion,0,p.operation,p.width].forEach((x,i)=>v.setUint32(i*4,x,true));v.setBigUint64(32,p.rip,true);v.setBigUint64(40,p.nextRip,true);v.setUint32(56,1,true);v.setUint32(60,p.length,true);b.set(p.instruction,64);v.setBigUint64(80,p.branchTarget,true);v.setUint32(88,p.continuationKind,true);return b;}
  for(let reg=0;reg<16;reg++)assert.equal(B.parseStepHeader(header(plan(reg))).sourceRegister,reg);
  for(const change of [{width:8},{continuationKind:0},{branchTarget:TARGET},{instruction:Uint8Array.of(0xff,0x20)}])assert.throws(()=>B.parseStepHeader(header({...plan(),...change})),/metadata/);
- const h=header(plan());new DataView(h.buffer).setUint32(16,12,true);assert.throws(()=>B.parseStepHeader(h),/ABI/);
+ const h=header(plan());new DataView(h.buffer).setUint32(16,13,true);assert.throws(()=>B.parseStepHeader(h),/ABI/);
 });
 test('static caller-supplied source indices cannot override instruction bytes',t=>{
  for(const sourceRegister of [-1,16,0xffff]){const f=kernelFixture(t,{sourceRegister});assert.equal(f.s.plans.get(RIP).sourceRegister,0);}

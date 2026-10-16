@@ -583,7 +583,11 @@ fexwasm_bytes fexwasm_step(fexwasm_translator* T, uint64_t RIP) {
   Cfg.BrokerFlow = Plan.Flow;
   Cfg.BrokerNoEffects = Plan.NoEffects;
   Cfg.BrokerTargetRegister = Plan.Register;
-  if (Plan.Flow == 5) {
+  if (Plan.Operation == 13 || Plan.Operation == 14) {
+    if (Length != Plan.Length || Plan.Register >= 16 || RIP + Length >= (1ull << 47)) {
+      T->Host->Release(); return Reject("register stack instruction address/length");
+    }
+  } else if (Plan.Flow == 5) {
     if (Length != Plan.Length || Plan.Register >= 16 || RIP + Length >= (1ull << 47)) {
       T->Host->Release(); return Reject("register jump instruction address/length");
     }

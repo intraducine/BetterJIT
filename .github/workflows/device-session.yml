@@ -234,6 +234,8 @@ jobs:
           node tests/sdk/linux-host/sparse-nop.cjs .build/host-fex/fexserve .build/sparse-nop-results.json
           node tests/sdk/linux-host/sparse-memory-add.cjs .build/host-fex/fexserve .build/sparse-memory-add-results.json
           .build/host-fex/sparse-memory-add-ir > .build/sparse-memory-add-ir-results.log
+          node tests/sdk/linux-host/sparse-stack.cjs .build/host-fex/fexserve .build/sparse-stack-results.json
+          .build/host-fex/sparse-register-stack-ir > .build/sparse-stack-ir-results.log
           node tests/sdk/linux-host/sparse-jump.cjs .build/host-fex/fexserve .build/sparse-jump-results.json
           .build/host-fex/sparse-register-jump-ir > .build/sparse-jump-ir-results.log
           node tests/sdk/linux-host/sparse-shift.cjs .build/host-fex/fexserve .build/sparse-shift-results.json
@@ -280,6 +282,8 @@ jobs:
             .build/sparse-nop-results.json
             .build/sparse-memory-add-results.json
             .build/sparse-memory-add-ir-results.log
+            .build/sparse-stack-results.json
+            .build/sparse-stack-ir-results.log
             .build/sparse-jump-results.json
             .build/sparse-jump-ir-results.log
             .build/sparse-shift-results.json

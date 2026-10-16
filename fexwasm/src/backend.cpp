@@ -11146,6 +11146,71 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
     if (Cfg.BrokerOperation == 12 && (Cfg.BrokerWidth || Cfg.BrokerFlow != 5 || Cfg.BrokerTarget || Cfg.BrokerTargetRegister >= 16)) {
       CompileResult R; R.Error = "invalid broker register jump contract"; return R;
     }
+    if (Cfg.BrokerOperation == 13 || Cfg.BrokerOperation == 14) {
+      if (Cfg.BrokerWidth != 8 || Cfg.BrokerFlow || Cfg.BrokerTarget || Cfg.BrokerTargetRegister >= 16) {
+        CompileResult R; R.Error = "invalid broker register stack contract"; return R;
+      }
+      // Prove the complete ordered dataflow, including old-RSP PUSH and the
+      // POP RSP overwrite. Other POP destinations have two legal store orders.
+      const bool Push = Cfg.BrokerOperation == 13;
+      OrderedNodeWrapper SP {}, Value {}, Handle {}, Output {}, Effect {};
+      uint32_t Loads = 0, SPStores = 0, ValueStores = 0, ExitCount = 0;
+      for (auto [Block, Header] : IR.GetBlocks()) for (auto [Node, H] : IR.GetCode(Block)) {
+        if (ExitCount && H->Op != OP_ENDBLOCK) return Reject(H);
+        switch (H->Op) {
+        case OP_IRHEADER: case OP_CODEBLOCK: case OP_BEGINBLOCK: case OP_ENDBLOCK:
+        case OP_GUESTOPCODE: case OP_INLINECONSTANT: case OP_INLINEENTRYPOINTOFFSET:
+        case OP_CONSTANT: case OP_ENTRYPOINTOFFSET: break;
+        case OP_LOADREGISTER: {
+          const auto* O = H->C<IROp_LoadRegister>();
+          if (!Effect.IsInvalid() || O->Class != RegClass::GPR || uint32_t(H->Size) != 8 ||
+              (O->Reg != 4 && (!Push || O->Reg != Cfg.BrokerTargetRegister))) return Reject(H);
+          const auto W = IR.WrapNode(Node);
+          if (O->Reg == 4) { if (!SP.IsInvalid()) return Reject(H); SP = W; }
+          if (Push && O->Reg == Cfg.BrokerTargetRegister) { if (!Value.IsInvalid()) return Reject(H); Value = W; }
+          Loads++; break;
+        }
+        case OP_PUSH: {
+          const auto* O = H->C<IROp_Push>();
+          if (!Push || !Effect.IsInvalid() || SP.IsInvalid() || Value.IsInvalid() || uint32_t(H->Size) != 8 ||
+              uint32_t(O->ValueSize) != 8 || O->Addr != SP || O->Value != Value) return Reject(H);
+          Effect = IR.WrapNode(Node); break;
+        }
+        case OP_RMWHANDLE:
+          if (Push || SP.IsInvalid() || !Handle.IsInvalid() || !Effect.IsInvalid() || uint32_t(H->Size) != 8 || H->C<IROp_RMWHandle>()->Value != SP) return Reject(H);
+          Handle = IR.WrapNode(Node); break;
+        case OP_ALLOCATEGPR:
+          if (Push || !Output.IsInvalid() || !Effect.IsInvalid() || uint32_t(H->Size) != 8 || H->C<IROp_AllocateGPR>()->ForPair) return Reject(H);
+          Output = IR.WrapNode(Node); break;
+        case OP_POP: {
+          const auto* O = H->C<IROp_Pop>();
+          if (Push || !Effect.IsInvalid() || Handle.IsInvalid() || Output.IsInvalid() || uint32_t(H->Size) != 8 || uint32_t(O->Size) != 8 ||
+              O->InoutAddr != Handle || O->OutValue != Output) return Reject(H);
+          Effect = IR.WrapNode(Node); break;
+        }
+        case OP_STOREREGISTER: {
+          const auto R = PhysicalRegister(Node); const auto V = H->C<IROp_StoreRegister>()->Value;
+          if (Effect.IsInvalid() || R.AsRegClass() != RegClass::GPRFixed || uint32_t(H->Size) != 8) return Reject(H);
+          if (Push) { if (R.Reg != 4 || V != Effect || ++SPStores != 1) return Reject(H); }
+          else if (R.Reg == Cfg.BrokerTargetRegister) { if (V != Output || ++ValueStores != 1) return Reject(H); }
+          else if (R.Reg == 4 && Cfg.BrokerTargetRegister != 4) { if (V != Handle || ++SPStores != 1) return Reject(H); }
+          else return Reject(H);
+          break;
+        }
+        case OP_EXITFUNCTION: {
+          const auto* O = H->C<IROp_ExitFunction>(); uint64_t Next;
+          if (Effect.IsInvalid() || O->Hint != BranchHint::None || !O->CallReturnAddress.IsInvalid() || !O->CallReturnBlock.IsInvalid() ||
+              !ConstantPC(O->NewRIP, Next) || Next != Cfg.BrokerNextRIP) return Reject(H);
+          ExitCount++; break;
+        }
+        default: return Reject(H);
+        }
+      }
+      if (ExitCount != 1 || Loads != (Push && Cfg.BrokerTargetRegister != 4 ? 2u : 1u) ||
+          SPStores != (Push || Cfg.BrokerTargetRegister != 4) || ValueStores != !Push) {
+        CompileResult R; R.Error = "broker register stack dataflow mismatch"; return R;
+      }
+    }
     if (Cfg.BrokerOperation == 11) {
       // Fuse only a proven single load + ADD-with-flags + same-address store.
       // FEX may regenerate equivalent SIB/RIP-relative address SSA nodes.
@@ -11275,17 +11340,17 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
       case OP_LSHL: case OP_LSHR: case OP_ASHR: case OP_ADDSHIFT:
       case OP_BFE: case OP_SBFE: case OP_BFI: case OP_ORLSHL: break;
       case OP_ALLOCATEGPR: case OP_RMWHANDLE:
-        if (Cfg.BrokerOperation != 10 || uint32_t(H->Size) != 8) return Reject(H);
+        if ((Cfg.BrokerOperation != 10 && Cfg.BrokerOperation != 14) || uint32_t(H->Size) != 8) return Reject(H);
         break;
       case OP_PUSH: {
         const auto* O = H->C<IROp_Push>(); uint64_t Value;
-        if (Cfg.BrokerOperation != 9 || uint32_t(H->Size) != 8 || uint32_t(O->ValueSize) != 8 ||
-            !ConstantPC(O->Value, Value) || Value != Cfg.BrokerNextRIP) return Reject(H);
+        if ((Cfg.BrokerOperation != 9 && Cfg.BrokerOperation != 13) || uint32_t(H->Size) != 8 || uint32_t(O->ValueSize) != 8 ||
+            (Cfg.BrokerOperation == 9 && (!ConstantPC(O->Value, Value) || Value != Cfg.BrokerNextRIP))) return Reject(H);
         Writes++; break;
       }
       case OP_POP: {
         const auto* O = H->C<IROp_Pop>();
-        if (Cfg.BrokerOperation != 10 || uint32_t(H->Size) != 8) return Reject(H);
+        if ((Cfg.BrokerOperation != 10 && Cfg.BrokerOperation != 14) || uint32_t(H->Size) != 8) return Reject(H);
         ReturnValue = O->OutValue; Reads++; break;
       }
       case OP_LOADPF: case OP_LOADAF: case OP_STOREPF: case OP_STOREAF:
@@ -11323,7 +11388,7 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
       case OP_STOREREGISTER: {
         auto R = PhysicalRegister(Node);
         if (Cfg.BrokerOperation == 11 || R.AsRegClass() != RegClass::GPRFixed || R.Reg >= (Cfg.BrokerOperation >= 3 ? NUM_STATIC : 16) ||
-            (Cfg.BrokerOperation >= 9 && (R.Reg != 4 || uint32_t(H->Size) != 8))) return Reject(H);
+            (Cfg.BrokerOperation >= 9 && Cfg.BrokerOperation != 13 && Cfg.BrokerOperation != 14 && (R.Reg != 4 || uint32_t(H->Size) != 8))) return Reject(H);
         break;
       }
       case OP_LOADCONTEXT: {
@@ -11404,7 +11469,7 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
     }}
     if (Blocks != (Cfg.BrokerFlow == 2 ? 3u : 1u) || Exits != (Cfg.BrokerFlow == 2 ? 2u : 1u) ||
         Branches != (Cfg.BrokerFlow == 2) || (Cfg.BrokerFlow && !SawTarget) ||
-        (Cfg.BrokerFlow == 2 && !SawFallthrough) || Reads != (Cfg.BrokerOperation == 1 || Cfg.BrokerOperation == 8 || Cfg.BrokerOperation == 10 || Cfg.BrokerOperation == 11) || Writes != (Cfg.BrokerOperation == 2 || Cfg.BrokerOperation == 9 || Cfg.BrokerOperation == 11) ||
+        (Cfg.BrokerFlow == 2 && !SawFallthrough) || Reads != (Cfg.BrokerOperation == 1 || Cfg.BrokerOperation == 8 || Cfg.BrokerOperation == 10 || Cfg.BrokerOperation == 11 || Cfg.BrokerOperation == 14) || Writes != (Cfg.BrokerOperation == 2 || Cfg.BrokerOperation == 9 || Cfg.BrokerOperation == 11 || Cfg.BrokerOperation == 13) ||
         Atomics != (Cfg.BrokerOperation == 3 || Cfg.BrokerOperation == 4) || Syscalls != (Cfg.BrokerOperation == 5)) {
       CompileResult R; R.Error = "broker instruction effect count mismatch"; return R;
     }

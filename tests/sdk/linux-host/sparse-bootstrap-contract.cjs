@@ -125,6 +125,25 @@ async function main(){try{
  const changedOutput=path.join(directory,'cached-jump-target-changed.json');await assert.rejects(probe(()=>cachedJump,changedOutput),/Sparse executable bytes changed/);
  const changed=JSON.parse(fs.readFileSync(changedOutput));assert.equal(changed.status,'probe-failed');assert.equal(changed.result,null);assert.equal(changed.progress.executedWasmSteps,5);assert.equal(BigInt(changed.progress.rip),target);assert.equal(BigInt(changed.progress.rdx),1n);assert.equal(changed.native.units,5);assert.equal(changed.native.failed,0);
  records.push({mode:phase,report:changed});
+ // Production dynamic admission must derive stack operands from exact bytes.
+ phase='register-stack';const stack=inputs('--synthetic');stack.minimumSteps=7;
+ stack.interpreter.set([0x48,0x89,0xe7,0x55,0x54,0x58,0x5d,0x57,0x5c,0x0f,0x0b],0x1000);
+ stack.evidence='Synthetic ELF compact register PUSH/POP, including old-RSP PUSH and POP RSP overwrite; not Wine.';
+ const stackReport=await probe(()=>stack,path.join(directory,phase+'.json')),stacked=stackReport.result;
+ assert.equal(stacked.executedWasmSteps,7);assert.equal(stacked.broker.requests,6);assert.equal(stacked.stackPointerAfter,stacked.stackPointer);assert.equal(stacked.raxAfter,stacked.stackPointer-8n);
+ records.push({mode:phase,steps:stacked.executedWasmSteps,broker:stacked.broker,native:stackReport.native});
+ // Runtime refusals have no compiler failure. Keep the Wine probe's ordinary
+ // compiler-boundary postcondition intact and assert this fixture separately.
+ for(const mode of ['push-underflow','pop-RSP-data']){
+  phase=mode;const fault=inputs('--synthetic');fault.minimumSteps=mode==='push-underflow'?3:5;
+  fault.interpreter.set(mode==='push-underflow'?[0x48,0x89,0xe7,0x48,0xbc,4,0,0,0,0,0,0,0,0x55,0x0f,0x0b]:[0x48,0x89,0xe7,0x48,0xb8,255,255,255,255,255,255,255,255,0x50,0x5c,0x55,0x0f,0x0b],0x1000);
+  fault.evidence='Synthetic ELF register stack runtime refusal after exact checkpoint; arbitrary POP RSP data is accepted before the next access.';
+  const report=await require('./native-step-contract.cjs').serve('guestmem=broker1',async get=>{
+   const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer()),result=await execute(get,cfg,state,fault),native=await(await get('/xlat/totals')).json();assert.equal(native.failed,0);return{result,native};
+  }),r=report.result;
+  assert.equal(r.executedWasmSteps,fault.minimumSteps);assert.equal(r.broker.requests,mode==='push-underflow'?1:3);assert.equal(r.broker.unsupported,1);assert.equal(r.steps.at(-1).status,2);assert.equal(r.stackPointerAfter,mode==='push-underflow'?4n:0xffffffffffffffffn);
+  assert.equal(r.stoppedRip,require('./sparse-linux-image-fixture.cjs').BASE+(mode==='push-underflow'?0x100dn:0x100fn));records.push({mode,steps:r.executedWasmSteps,broker:r.broker,native:report.native});
+ }
  const result={evidence:'Actual FEX/Wasm probe-harness contracts, including deliberate initial-state corruption and native-child death. No Wine or physical-device evidence.',records};
  console.log(save(result));
  }finally{fs.rmSync(directory,{recursive:true,force:true});}}

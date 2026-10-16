@@ -102,7 +102,7 @@ async function main(){const nativeOracle=oracle();for(const row of golden){asser
   const bytes=new Uint8Array(5);bytes[0]=0xe8;new DataView(bytes.buffer).setInt32(1,disp,true);const u=await request(rip,bytes);assert.equal(u.status,supported?0:2,'target '+rip+' '+disp);
   if(supported)assert.equal(u.branchTarget,rip+5n+BigInt(disp));else{assert.equal(u.code.length,0);assert.equal(u.nextRip,rip);}metadata.push({rip:String(rip),displacement:disp,status:u.status});
  }
- const negatives={push:[0x50],pop:[0x58],retImm:[0xc2,8,0],farRet:[0xcb],farRetImm:[0xca,8,0],iret:[0xcf],farCall:[0x9a,0,0,0,0,0,0],indirectCall:[0xff,0xd0],memoryCall:[0xff,0x10]};
+ const negatives={pushWord:[0x66,0x50],popWord:[0x66,0x58],retImm:[0xc2,8,0],farRet:[0xcb],farRetImm:[0xca,8,0],iret:[0xcf],farCall:[0x9a,0,0,0,0,0,0],indirectCall:[0xff,0xd0],memoryCall:[0xff,0x10]};
  for(const prefix of [0x66,0x67,0x64,0x65,0xf0,0xf2,0xf3,0x48]){negatives['call-prefix-'+prefix]=[prefix,0xe8,0,0,0,0];negatives['return-prefix-'+prefix]=[prefix,0xc3];}
  for(let n=1;n<5;n++)negatives['truncated-call-'+n]=[0xe8,0,0,0,0].slice(0,n);
  const rejected=[];for(const [name,bytes]of Object.entries(negatives)){

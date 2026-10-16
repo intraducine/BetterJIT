@@ -1232,12 +1232,13 @@ class Kernel {
          !Number.isInteger(p.length)||p.length<1||p.length>15||p.nextRip!==p.rip+BigInt(p.length)||
          !(p.instruction instanceof Uint8Array)||p.instruction.length!==p.length||approved.has(p.rip)||
          !(([0,5,6,7,12].includes(p.operation)&&p.width===0)||([1,2,8].includes(p.operation)&&[1,2,4,8].includes(p.width))||
-           ([3,4,11].includes(p.operation)&&[4,8].includes(p.width))||([9,10].includes(p.operation)&&p.width===8)))
+           ([3,4,11].includes(p.operation)&&[4,8].includes(p.width))||([9,10,13,14].includes(p.operation)&&p.width===8)))
         throw new Error('Invalid admitted instruction metadata');
       const actual=space.executableSnapshot(p.rip,p.length);
       if(!actual.every((x,i)=>x===p.instruction[i]))throw new Error('Executable bytes differ from the compiled step');
       approved.set(p.rip,Object.freeze({...p,continuations:B.instructionContinuations(p),
-        sourceRegister:p.operation===B.OP.JUMP_REGISTER?B.jumpSourceRegister(p):undefined,instruction:p.instruction.slice()}));
+        sourceRegister:p.operation===B.OP.JUMP_REGISTER?B.jumpSourceRegister(p):undefined,
+        stackRegister:[B.OP.PUSH_REGISTER,B.OP.POP_REGISTER].includes(p.operation)?B.stackRegister(p):undefined,instruction:p.instruction.slice()}));
     }
     if(dynamic)space.executableSnapshot(entryRip,1);
     if((!dynamic&&!approved.has(entryRip))||!(this.host.state instanceof Uint8Array)||this.host.state.length!==this.cfg.stateSize)
@@ -1283,7 +1284,7 @@ class Kernel {
         // Refuse at this safe boundary; never deliver while Wasm locals live.
         if(this.freezing||t.pending||t.proc.pending)throw new Error('Sparse signals/snapshots are unsupported');
         const plan=this.sparsePlan(t),rip=plan.rip;
-        const generation=this.sparseBroker.beginInstruction(s.token,{rip,operation:plan.operation,width:plan.width,continuations:plan.continuations,nextRip:plan.nextRip,sourceRegister:plan.sourceRegister});
+        const generation=this.sparseBroker.beginInstruction(s.token,{rip,operation:plan.operation,width:plan.width,continuations:plan.continuations,nextRip:plan.nextRip,sourceRegister:plan.sourceRegister,stackRegister:plan.stackRegister});
         s.active=plan;
         view.setBigUint64(scratch+B.FIELD.checkpoint,generation,true);
         view.setBigUint64(scratch+B.FIELD.checkpointRip,rip,true);

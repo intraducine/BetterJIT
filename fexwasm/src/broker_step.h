@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 13;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 14;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
@@ -14,7 +14,7 @@ struct Admission {
   uint32_t Flow = 0; // 0 fallthrough, 1 jump, 2 conditional, 3 direct call, 4 checked return, 5 register jump
   bool NoEffects = false; // NOP: only instruction markers and constant fallthrough IR
   uint32_t Length = 0; // independent NOP encoding length, checked against FEX
-  uint32_t Register = 16; // exact source of a bounded register-indirect jump
+  uint32_t Register = 16; // selected GPR for a bounded register jump or stack operation
 };
 // Bounded architectural NOP encodings. Legacy prefixes may repeat, followed
 // by at most one REX. REP/LOCK and a REX before a legacy prefix are excluded.
@@ -78,6 +78,8 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
   if (I < Size && Bytes[I] >= 0x40 && Bytes[I] <= 0x4f) Rex = Bytes[I++];
   if (I >= Size) return {};
   const uint8_t Op = Bytes[I++];
+  if (!Word && !Segment && !Lock && Op >= 0x50 && Op <= 0x5f)
+    return {true, Op < 0x58 ? 13u : 14u, 8, 0, false, uint32_t(I), uint32_t((Op & 7) + ((Rex & 1) ? 8 : 0))};
   // Accumulator sign extension: CBW/CWDE/CDQE and CWD/CDQ/CQO. Optional
   // operand-size and REX prefixes select width; REX.W takes precedence.
   // FEX's SBFE/BFI lowering must still pass the register-only effect check.
