@@ -11217,9 +11217,95 @@ static CompileResult CheckBrokerImmediateTest(const IRListView& IR, uint64_t Ent
   return {};
 }
 
+// SETcc reuses OP6/width0, but may only read its exact condition and replace
+// one decoded byte. Prove the complete pinned frontend shape before emission.
+static CompileResult CheckBrokerSetCC(const IRListView& IR, uint64_t EntryRIP, const BackendConfig& Cfg) {
+  auto Reject = [](const char* Why) { CompileResult R; R.Error = std::string("broker register SETcc ") + Why; return R; };
+  const auto CC = Cfg.BrokerSetCondition;
+  if (CC >= 16 || Cfg.BrokerOperation != 6 || Cfg.BrokerWidth || Cfg.BrokerFlow || Cfg.BrokerTarget || Cfg.BrokerNoEffects ||
+      Cfg.BrokerTargetRegister >= 16 || (Cfg.BrokerSetShift && (Cfg.BrokerSetShift != 8 || Cfg.BrokerTargetRegister >= 4)) ||
+      Cfg.BrokerTestWidth || Cfg.BrokerTestShift || Cfg.BrokerTestMask) return Reject("profile");
+  OrderedNodeWrapper Source {}, Condition {}, PF {}, Merge {}, Store {}, Exit {};
+  std::unordered_map<uint32_t, uint32_t> Order; uint32_t Position = 0;
+  const bool Parity = CC == 10 || CC == 11;
+  for (auto [Block, Header] : IR.GetBlocks()) for (auto [Node, H] : IR.GetCode(Block)) {
+    const auto W = IR.WrapNode(Node); Order.emplace(IR.GetID(Node).Value, ++Position);
+    if (!Exit.IsInvalid() && H->Op != OP_ENDBLOCK) return Reject("effect after exit");
+    auto Once = [&](OrderedNodeWrapper& Slot) { if (!Slot.IsInvalid()) return false; Slot = W; return true; };
+    switch (H->Op) {
+    case OP_IRHEADER: case OP_CODEBLOCK: case OP_BEGINBLOCK: case OP_ENDBLOCK:
+    case OP_GUESTOPCODE: case OP_INLINECONSTANT: case OP_CONSTANT: case OP_INLINEENTRYPOINTOFFSET: case OP_ENTRYPOINTOFFSET: break;
+    case OP_LOADREGISTER:
+      if (!Once(Source) || uint32_t(H->Size) != 8 || H->C<IROp_LoadRegister>()->Class != RegClass::GPR ||
+          H->C<IROp_LoadRegister>()->Reg != Cfg.BrokerTargetRegister) return Reject("destination read");
+      break;
+    case OP_NZCVSELECT:
+      if (Parity || !Once(Condition) || uint32_t(H->Size) != 8) return Reject("NZCV selection");
+      break;
+    case OP_LOADPF:
+      if (!Parity || !Once(PF) || uint32_t(H->Size) != 8) return Reject("PF read");
+      break;
+    case OP_PARITY:
+      if (!Parity || !Once(Condition) || uint32_t(H->Size) != 4) return Reject("parity selection");
+      break;
+    case OP_BFI: if (!Once(Merge) || uint32_t(H->Size) != 8) return Reject("byte merge"); break;
+    case OP_STOREREGISTER: {
+      const auto R = PhysicalRegister(Node);
+      if (!Once(Store) || uint32_t(H->Size) != 8 || R.AsRegClass() != RegClass::GPRFixed || R.Reg != Cfg.BrokerTargetRegister) return Reject("destination store");
+      break;
+    }
+    case OP_EXITFUNCTION: if (!Once(Exit)) return Reject("exit count"); break;
+    default: return Reject("uncovered effect");
+    }
+  }
+  auto Before = [&](OrderedNodeWrapper A, OrderedNodeWrapper B) {
+    if (A.IsInvalid() || B.IsInvalid()) return false;
+    const auto X = Order.find(IR.GetID(IR.GetNode(A)).Value), Y = Order.find(IR.GetID(IR.GetNode(B)).Value);
+    return X != Order.end() && Y != Order.end() && X->second < Y->second;
+  };
+  auto Constant = [&](OrderedNodeWrapper W, uint64_t Expected, OrderedNodeWrapper Use) {
+    if (!Before(W, Use)) return false;
+    const auto* H = IR.GetOp<IROp_Header>(W); if (uint32_t(H->Size) != 8) return false;
+    return (H->Op == OP_INLINECONSTANT && H->C<IROp_InlineConstant>()->Constant == Expected) ||
+           (H->Op == OP_CONSTANT && H->C<IROp_Constant>()->Constant == Expected);
+  };
+  if (!Before(Condition, Source) || !Before(Source, Merge) || !Before(Merge, Store) || !Before(Store, Exit)) return Reject("ordered effects");
+  if (Parity) {
+    const auto* P = IR.GetOp<IROp_Parity>(Condition);
+    if (!Before(PF, Condition) || P->Raw != PF || !P->Mask || P->Invert != (CC == 10)) return Reject("parity dataflow");
+  } else {
+    // FEX NZCV carries inverted x86 carry. FU/FNU read overflow; do not
+    // substitute the floating ordered/unordered or noninverted carry tests.
+    constexpr CondClass Conditions[] = {CondClass::FU, CondClass::FNU, CondClass::ULT, CondClass::UGE,
+      CondClass::EQ, CondClass::NEQ, CondClass::ULE, CondClass::UGT, CondClass::MI, CondClass::PL,
+      CondClass::EQ, CondClass::EQ, CondClass::SLT, CondClass::SGE, CondClass::SLE, CondClass::SGT};
+    const auto* S = IR.GetOp<IROp_NZCVSelect>(Condition);
+    if (S->Cond != Conditions[CC] || !Constant(S->TrueVal, 1, Condition) || !Constant(S->FalseVal, 0, Condition)) return Reject("condition dataflow");
+  }
+  const auto* M = IR.GetOp<IROp_Bfi>(Merge);
+  if (M->Width != 8 || M->lsb != Cfg.BrokerSetShift || M->Dest != Source || M->Src != Condition ||
+      IR.GetOp<IROp_StoreRegister>(Store)->Value != Merge) return Reject("byte dataflow");
+  const auto* X = IR.GetOp<IROp_ExitFunction>(Exit);
+  if (X->Hint != BranchHint::None || !X->CallReturnAddress.IsInvalid() || !X->CallReturnBlock.IsInvalid() || !Before(X->NewRIP, Exit)) return Reject("exit metadata");
+  const auto* PC = IR.GetOp<IROp_Header>(X->NewRIP); uint64_t Next;
+  if (uint32_t(PC->Size) != 8) return Reject("exit width");
+  switch (PC->Op) {
+  case OP_INLINEENTRYPOINTOFFSET: Next = EntryRIP + PC->C<IROp_InlineEntrypointOffset>()->Offset; break;
+  case OP_ENTRYPOINTOFFSET: Next = EntryRIP + PC->C<IROp_EntrypointOffset>()->Offset; break;
+  case OP_INLINECONSTANT: Next = PC->C<IROp_InlineConstant>()->Constant; break;
+  case OP_CONSTANT: Next = PC->C<IROp_Constant>()->Constant; break;
+  default: return Reject("exit PC");
+  }
+  if (Next != Cfg.BrokerNextRIP) return Reject("fallthrough");
+  return {};
+}
+
 CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConfig& Cfg) {
   OrderedNodeWrapper BrokerAddend {};
   if (Cfg.BrokerMemory) {
+    if (Cfg.BrokerSetCondition != 16 || Cfg.BrokerSetShift) {
+      auto Set = CheckBrokerSetCC(IR, EntryRIP, Cfg); if (!Set.Error.empty()) return Set;
+    }
     if (Cfg.BrokerTestWidth || Cfg.BrokerTestMask || Cfg.BrokerTestShift) {
       auto Test = CheckBrokerImmediateTest(IR, EntryRIP, Cfg); if (!Test.Error.empty()) return Test;
     }

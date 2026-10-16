@@ -33,6 +33,7 @@ struct BackendConfig {
   uint32_t BrokerTargetRegister = 16;
   uint32_t BrokerTestWidth = 0, BrokerTestShift = 0;
   uint64_t BrokerTestMask = 0; // decoded immediate, sign-extended for qword TEST
+  uint32_t BrokerSetCondition = 16, BrokerSetShift = 0; // register SETcc; 16 means absent
   uint64_t BrokerNextRIP = 0;
   uint64_t BrokerTarget = 0;
   uint32_t BrokerFlow = 0; // fallthrough/jump/conditional/direct-call/checked-return/register-jump

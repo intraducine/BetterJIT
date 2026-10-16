@@ -326,6 +326,11 @@
     "fexwasm/src/testing/test-immediate-ir.cpp": "fexwasm/src/testing/test-immediate-ir.cpp",
     "tests/sdk/linux-host/sparse-test-immediate-oracle.c": "tests/sdk/linux-host/sparse-test-immediate-oracle.c",
     "tests/sdk/linux-host/sparse-test-immediate-oracle.json": "tests/sdk/linux-host/sparse-test-immediate-oracle.json",
-    "tests/sdk/linux-host/sparse-test-immediate.cjs": "tests/sdk/linux-host/sparse-test-immediate.cjs"
+    "tests/sdk/linux-host/sparse-test-immediate.cjs": "tests/sdk/linux-host/sparse-test-immediate.cjs",
+    "docs/sdk/sparse-setcc.md": "docs/sdk/sparse-setcc.md",
+    "fexwasm/src/testing/setcc-ir.cpp": "fexwasm/src/testing/setcc-ir.cpp",
+    "tests/sdk/linux-host/sparse-setcc-oracle.c": "tests/sdk/linux-host/sparse-setcc-oracle.c",
+    "tests/sdk/linux-host/sparse-setcc-oracle.json": "tests/sdk/linux-host/sparse-setcc-oracle.json",
+    "tests/sdk/linux-host/sparse-setcc.cjs": "tests/sdk/linux-host/sparse-setcc.cjs"
   }
 }

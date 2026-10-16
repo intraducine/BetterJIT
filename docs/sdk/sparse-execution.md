@@ -6,8 +6,8 @@ with aligned atomics, bounded futex syscalls and multiple internal thread contex
 The later opt-in [guest clone/exit profile](sparse-clone.md) creates a same-mm
 thread from an actual translated guest syscall; B2/B3's original process
 records remain host-created fixtures.
-The current step/coverage versions are 3/17;
-[immediate register TEST](sparse-test-immediate.md), [non-LOCK memory OR](sparse-memory-or.md), [register-destination memory ADD](sparse-register-memory-add.md), [register PUSH/POP](sparse-register-stack.md),
+The current step/coverage versions are 3/18;
+[register SETcc](sparse-setcc.md), [immediate register TEST](sparse-test-immediate.md), [non-LOCK memory OR](sparse-memory-or.md), [register-destination memory ADD](sparse-register-memory-add.md), [register PUSH/POP](sparse-register-stack.md),
 [register jumps](sparse-register-jumps.md), [register shifts](sparse-register-shifts.md),
 [non-LOCK memory ADD](sparse-memory-add.md),
 [architectural NOPs](sparse-nops.md) and [integer extensions](sparse-integer-extensions.md)

@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 17;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 3, Coverage = 18;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
@@ -17,6 +17,7 @@ struct Admission {
   uint32_t Register = 16; // selected GPR for a bounded jump, stack, ADD destination or TEST source
   uint32_t TestWidth = 0, TestShift = 0; // internal immediate-TEST proof, no wire operation change
   uint64_t TestMask = 0;
+  uint32_t SetCondition = 16, SetShift = 0; // register SETcc proof; 16 means absent
 };
 // Bounded architectural NOP encodings. Legacy prefixes may repeat, followed
 // by at most one REX. REP/LOCK and a REX before a legacy prefix are excluded.
@@ -80,6 +81,13 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
   if (I < Size && Bytes[I] >= 0x40 && Bytes[I] <= 0x4f) Rex = Bytes[I++];
   if (I >= Size) return {};
   const uint8_t Op = Bytes[I++];
+  if (!Segment && !Lock && Op == 0x0f && I + 1 < Size && Bytes[I] >= 0x90 && Bytes[I] <= 0x9f && (Bytes[I + 1] & 0xc0) == 0xc0) {
+    // SETcc ignores operand size, REX.W/R/X and ModRM.reg. Any REX selects
+    // low bytes instead of AH..BH; REX.B extends that low-byte register.
+    const uint32_t Low = Bytes[I + 1] & 7;
+    Admission A {true, 6, 0, 0, false, uint32_t(I + 2), !Rex && Low >= 4 ? Low - 4 : Low + ((Rex & 1) ? 8 : 0)};
+    A.SetCondition = Bytes[I] & 15; A.SetShift = !Rex && Low >= 4 ? 8 : 0; return A;
+  }
   if (!Word && !Segment && !Lock && Op >= 0x50 && Op <= 0x5f)
     return {true, Op < 0x58 ? 13u : 14u, 8, 0, false, uint32_t(I), uint32_t((Op & 7) + ((Rex & 1) ? 8 : 0))};
   // Accumulator sign extension: CBW/CWDE/CDQE and CWD/CDQ/CQO. Optional
