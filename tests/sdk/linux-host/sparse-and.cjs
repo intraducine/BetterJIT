@@ -36,7 +36,7 @@ async function main() {
   const nativeOracle = oracle();
   await serve('guestmem=broker1', async (get, log) => {
     const cfg = await (await get('/xlat/config')).json();
-    assert.equal(cfg.coverageVersion,25);
+    assert.equal(cfg.coverageVersion,26);
     const state = new Uint8Array(await (await get('/xlat/state')).arrayBuffer());
     async function request(code, rip = CODE) {
       await get('/xlat/code?addr=' + rip.toString(16), {method: 'POST', body: Uint8Array.from(code)});
@@ -135,7 +135,7 @@ async function main() {
     }
     const negatives = {
       memory32: [0x83, 0x20, 0xf0], memory64: [0x48, 0x81, 0x20, 0xf0, 0xff, 0xff, 0xff],
-      byte: [0x80, 0xe0, 0xf0], word: [0x66, 0x83, 0xe0, 0xf0],
+      byte: [0x80, 0xe0, 0xf0], wordMemory: [0x66, 0x83, 0x20, 0xf0],
       lock: [0xf0, 0x48, 0x83, 0xe0, 0xf0], fs: [0x64, 0x48, 0x83, 0xe0, 0xf0],
       gs: [0x65, 0x48, 0x83, 0xe0, 0xf0], rep: [0xf3, 0x48, 0x83, 0xe0, 0xf0],
       addressOverride: [0x67, 0x48, 0x83, 0xe0, 0xf0],

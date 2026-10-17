@@ -21,10 +21,12 @@ TARGETS = {
     **{'sparse-' + name + '-ir': 'fexwasm/src/testing/' + name + '-ir.cpp'
        for name in ('memory-add', 'scalar-shift', 'register-jump', 'register-stack',
                     'register-memory-add', 'memory-or', 'test-immediate',
-                    'logical-immediate', 'word-compare', 'setcc', 'register-div')},
+                    'logical-immediate', 'word-compare', 'setcc', 'register-div', 'scalar-condition')},
 }
 FAMILIES = {
     'word-compare': ('word-compare', 'word-compare'),
+    'conditions': ('conditions', 'scalar-condition'),
+    'call': ('call', 'scalar-condition'),
     'logical-immediate': ('logical-immediate', 'logical-immediate'),
     'memory-or': ('memory-or', 'memory-or'),
     'memory-add': ('memory-add', 'memory-add'),

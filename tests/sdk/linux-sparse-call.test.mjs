@@ -7,7 +7,7 @@ import vm from 'node:vm';
 for(const name of ['guest_memory','guest_memory_broker'])vm.runInThisContext(fs.readFileSync(new URL('../../Sources/BetterJITLinux/Resources/linux/'+name+'.js',import.meta.url),'utf8'));
 const M=BetterJITGuestMemory,B=BetterJITGuestMemoryBroker,{OP,STEP,FIELD:F,REASON:R}=B;
 const RIP=0x123400004000n,TARGET=RIP+128n,STACK=0x223400000000n;
-const layout={version:1,cpu:{offset:256,size:1024,ripOffset:24,stackPointerOffset:64},lazyFlags:{offset:64,size:24},roundMode:{offset:112,size:4}};
+const layout={version:1,cpu:{offset:256,size:1024,ripOffset:24,stackPointerOffset:64,generalRegistersOffset:32},lazyFlags:{offset:64,size:24},roundMode:{offset:112,size:4}};
 const pack=n=>{const b=new Uint8Array(8);new DataView(b.buffer).setBigUint64(0,n,true);return b;};
 function fixture(t,{stack=STACK+128n,checkpointLayout=layout,budget=new M.BackingBudget()}={}){
  const space=new M.GuestAddressSpace(budget,{virtualLimit:1n<<47n});space.mapAnonymous(RIP,4096n,5);space.mapAnonymous(STACK,8192n,3);
@@ -85,4 +85,35 @@ test('retirement during CALL COW preparation cancels staged storage before a ret
 test('unsupported after a completed CALL write is fatal and cannot pretend the memory effect rolled back',t=>{
  const f=fixture(t);f.begin();assert.equal(f.request().status,0);assert.throws(()=>f.finish(STEP.UNSUPPORTED),/after a memory effect/);
  assert.deepEqual(f.space.read(f.stack-8n,8),pack(RIP+5n));
+});
+test('register CALL independently decodes every GPR and ignored REX alias and rejects forged metadata',()=>{
+ for(const rex of [undefined,...Array.from({length:16},(_,i)=>0x40+i)])for(let low=0;low<8;low++){
+  const instruction=Uint8Array.from([...(rex===undefined?[]:[rex]),0xff,0xd0+low]),p={operation:OP.CALL,width:8,rip:RIP,nextRip:RIP+BigInt(instruction.length),instruction,continuationKind:6,branchTarget:0n};
+  assert.equal(B.callSourceRegister(p),low+((rex??0)&1?8:0));assert.deepEqual(B.instructionContinuations(p),[]);
+  for(const extra of [{operation:OP.RETURN},{width:4},{continuationKind:3},{branchTarget:TARGET},{nextRip:p.nextRip+1n},
+    {instruction:instruction.slice(0,-1)},{instruction:Uint8Array.of(0xff,0x10)},{instruction:Uint8Array.of(0xff,0xd8)},
+    {instruction:Uint8Array.of(0x66,...instruction)},{instruction:Uint8Array.of(0x67,...instruction)}])assert.throws(()=>B.callSourceRegister({...p,...extra}));
+ }
+});
+test('register CALL owns the pre-BEGIN target and exact full checkpoint through the stack write',t=>{
+ for(const register of [0,1,8,15]){
+  const f=fixture(t),at=f.cpu+32+register*8;f.v.setBigUint64(at,TARGET,true);
+  f.begin(OP.CALL,{nextRip:RIP+2n,continuations:[],sourceRegister:register});
+  f.v.setBigUint64(at,RIP+8192n,true);assert.equal(f.request(OP.WRITE,{operand0:RIP+2n}).status,0);f.v.setBigUint64(at,TARGET,true);
+  f.spill();assert.equal(f.finish(0).rip,TARGET);assert.deepEqual(f.space.read(f.stack-8n,8),pack(RIP+2n));
+ }
+});
+test('register CALL refuses invalid owned targets before any stack publication and restores full state',t=>{
+ for(const target of [1n<<47n,0xffffffffffffffffn,RIP+8192n,STACK]){
+  const f=fixture(t);f.v.setBigUint64(f.cpu+32,target,true);const before=new Uint8Array(f.memory.buffer,f.cpu,1024).slice(),stack=f.space.read(STACK,8192),owned=f.budget.stats().ownedPayloadBytes;
+  f.begin(OP.CALL,{nextRip:RIP+2n,continuations:[],sourceRegister:0});assert.equal(f.request(OP.WRITE,{operand0:RIP+2n}).reason,R.CONTROL_TARGET);assert.equal(f.finish(2).rip,RIP);
+  assert.deepEqual(new Uint8Array(f.memory.buffer,f.cpu,1024),before);assert.deepEqual(f.space.read(STACK,8192),stack);assert.equal(f.budget.stats().ownedPayloadBytes,owned);
+ }
+});
+test('register CALL rejects altered non-RSP GPRs, flags, rounding and forged post-target after its checked write',t=>{
+ for(const field of ['GPR','flags','round','target']){
+  const f=fixture(t);f.v.setBigUint64(f.cpu+32,TARGET,true);f.begin(OP.CALL,{nextRip:RIP+2n,continuations:[],sourceRegister:0});assert.equal(f.request(OP.WRITE,{operand0:RIP+2n}).status,0);f.spill();
+  if(field==='target')f.spill(TARGET+1n);else{const at=field==='GPR'?f.cpu+40:field==='flags'?f.cpu+160:B.ABI.threadBase+112;f.v.setUint8(at,f.v.getUint8(at)^1);}
+  assert.throws(()=>f.finish(0),/post-state|unexpected checkpoint/);
+ }
 });

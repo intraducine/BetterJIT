@@ -22,7 +22,7 @@ function oracle(){
  }finally{fs.rmSync(dir,{recursive:true,force:true});}
 }
 async function main(){const nativeOracle=oracle();await serve('guestmem=broker1',async(get,log)=>{
- const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.stepABI,4);assert.equal(cfg.coverageVersion,25);
+ const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.stepABI,4);assert.equal(cfg.coverageVersion,26);
  const budget=new M.BackingBudget(),space=new M.GuestAddressSpace(budget),memory=B.createInternalMemory(),broker=new B.GuestMemoryBroker(),token=broker.register(0,{space,memory,checkpointLayout:cfg.checkpoint}),view=new DataView(memory.buffer),tb=B.ABI.threadBase,g=tb+cfg.ctx+cfg.gregsOff,ripAt=tb+cfg.ctx+cfg.ripOff,units=new Map();
  let checks=0,divideErrors=0,wide64=0,nativeChecks=0;const refused=[],records=[];
  async function request(code,rip=RIP){await get('/xlat/code?addr='+rip.toString(16),{method:'POST',body:Uint8Array.from(code)});return FexLinuxThread.parseBrokerStep(new Uint8Array(await(await get('/xlat/step?rip='+rip)).arrayBuffer()));}

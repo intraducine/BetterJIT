@@ -357,6 +357,12 @@
     "tests/sdk/linux-sparse-word-compare.test.mjs": "tests/sdk/linux-sparse-word-compare.test.mjs",
     "docs/sdk/sparse-word-compare.md": "docs/sdk/sparse-word-compare.md",
     "scripts/iterate-sparse.py": "scripts/iterate-sparse.py",
-    "tests/sdk/iteration.test.py": "tests/sdk/iteration.test.py"
+    "tests/sdk/iteration.test.py": "tests/sdk/iteration.test.py",
+    "fexwasm/src/testing/scalar-condition-ir.cpp": "fexwasm/src/testing/scalar-condition-ir.cpp",
+    "tests/sdk/linux-host/sparse-conditions.cjs": "tests/sdk/linux-host/sparse-conditions.cjs",
+    "tests/sdk/linux-host/sparse-conditions-oracle.c": "tests/sdk/linux-host/sparse-conditions-oracle.c",
+    "tests/sdk/linux-host/sparse-conditions-oracle.json": "tests/sdk/linux-host/sparse-conditions-oracle.json",
+    "tests/sdk/linux-sparse-conditions.test.mjs": "tests/sdk/linux-sparse-conditions.test.mjs",
+    "docs/sdk/sparse-scalar-conditions.md": "docs/sdk/sparse-scalar-conditions.md"
   }
 }

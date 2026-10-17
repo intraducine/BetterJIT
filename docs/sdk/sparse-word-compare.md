@@ -1,6 +1,6 @@
 # Word memory-immediate compare
 
-Coverage 25 admits `66 81 /7` (`CMP r/m16,imm16`) and `66 83 /7`
+Coverage 25 initially admitted `66 81 /7` (`CMP r/m16,imm16`) and `66 83 /7`
 (`CMP r/m16,sign-extended imm8`) with a memory operand. The instruction updates
 all six arithmetic flags and writes neither the operand nor a GPR. This is a
 generic instruction family; no application identity or instruction address
@@ -68,3 +68,6 @@ guest payload/cache and closed workers/native child. That teardown does not
 establish an earlier runtime retirement acknowledgement. The coverage-25
 synthetic checks do not establish Wine completion or device/app integration;
 the next reviewed automatic probe must retain the immutable inputs and budgets.
+
+[Coverage 26](sparse-scalar-conditions.md) extends the same exact contract to
+word register/immediate, register/register and both memory/register directions.

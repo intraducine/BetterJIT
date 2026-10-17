@@ -51,3 +51,6 @@ while `workerRetirementAcknowledged` remained false. Neither the new synthetic
 logical tests nor the earlier passing probe gate establishes Wine completion,
 physical-device execution or integration with Madeira, PPSSPP or MeloNX. The
 next real probe must keep the same input bytes and bounded accounting.
+
+[Coverage 26](sparse-scalar-conditions.md) adds word register and accumulator
+immediate forms with upper-48-bit preservation and exact word flag contracts.

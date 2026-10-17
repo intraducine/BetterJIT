@@ -4,7 +4,7 @@
   'use strict';
   const storage=root.BetterJITGuestMemory;
   if(!storage||storage.STORAGE_VERSION!==1)throw new Error('Guest storage contract 1 required');
-  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:4,coverageVersion:25,stepHeaderBytes:96,
+  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:4,coverageVersion:26,stepHeaderBytes:96,
     magic:0x314d4a42,internalPages:33,threadBase:0x10000,threadBytes:0x200000,
     scratchOffset:0x1f0000,scratchBytes:128,memoryRequest:0x10003,instructionBoundary:0x10004,maximumThreads:8,parkedState:4,
     userCopyBytes:65536});
@@ -31,6 +31,13 @@
        !canonical(p.rip)||p.nextRip!==p.rip+BigInt(b.length)||!canonical(p.nextRip))throw new TypeError('Invalid register jump metadata');
     return (b[i+1]&7)+(i&&(b[0]&1)?8:0);
   }
+  function callSourceRegister(p) {
+    const b=p.instruction,i=b?.length===3&&b[0]>=0x40&&b[0]<=0x4f?1:0;
+    if(!(b instanceof Uint8Array)||b.length!==i+2||b[i]!==0xff||(b[i+1]&0xf8)!==0xd0||
+       p.operation!==OP.CALL||p.width!==8||p.continuationKind!==6||p.branchTarget!==0n||
+       !canonical(p.rip)||p.nextRip!==p.rip+BigInt(b.length)||!canonical(p.nextRip))throw new TypeError('Invalid register call metadata');
+    return (b[i+1]&7)+(i&&(b[0]&1)?8:0);
+  }
   function instructionContinuations(p) {
     const kind=p.continuationKind??0,target=p.branchTarget??0n;
     if(p.operation===OP.JUMP_REGISTER){jumpSourceRegister(p);return Object.freeze([]);}
@@ -41,6 +48,7 @@
     if(p.operation===OP.DIV_REGISTER){divisionOperand(p);return Object.freeze([p.nextRip]);}
     if(p.operation===OP.READ_FLAGS&&p.width===2){wordCompareOperand(p);return Object.freeze([p.nextRip]);}
     if(p.operation===OP.CALL) {
+      if(kind===6){callSourceRegister(p);return Object.freeze([]);}
       const b=p.instruction;
       if(b.length!==5||b[0]!==0xe8||kind!==3||p.width!==8)throw new TypeError('Invalid direct call metadata');
       const next=p.rip+5n,expected=next+BigInt(new DataView(b.buffer,b.byteOffset,b.byteLength).getInt32(1,true));
@@ -57,32 +65,81 @@
       return Object.freeze([p.nextRip]);
     }
     const b=p.instruction,v=new DataView(b.buffer,b.byteOffset,b.byteLength);let flow,offset;
-    if(b.length===2&&[0x72,0x73,0x74,0x75,0x76,0x77,0x78,0x79,0xeb].includes(b[0])){flow=b[0]===0xeb?1:2;offset=BigInt(v.getInt8(1));}
+    if(b.length===2&&((b[0]>=0x70&&b[0]<=0x7f)||b[0]===0xeb)){flow=b[0]===0xeb?1:2;offset=BigInt(v.getInt8(1));}
     else if(b.length===5&&b[0]===0xe9){flow=1;offset=BigInt(v.getInt32(1,true));}
-    else if(b.length===6&&b[0]===0x0f&&[0x82,0x83,0x84,0x85,0x86,0x87,0x88,0x89].includes(b[1])){flow=2;offset=BigInt(v.getInt32(2,true));}
+    else if(b.length===6&&b[0]===0x0f&&b[1]>=0x80&&b[1]<=0x8f){flow=2;offset=BigInt(v.getInt32(2,true));}
     else throw new TypeError('Uncovered branch instruction');
-    if(kind!==flow||typeof target!=='bigint'||target!==BigInt.asUintN(64,p.nextRip+offset))throw new TypeError('Invalid branch continuation');
+    if(!canonical(p.rip)||!canonical(p.nextRip)||p.nextRip!==p.rip+BigInt(b.length)||!canonical(target)||kind!==flow||typeof target!=='bigint'||target!==p.nextRip+offset)throw new TypeError('Invalid branch continuation');
     return Object.freeze(kind===1?[target]:[p.nextRip,target]);
   }
   function wordCompareOperand(p) {
     const b=p.instruction;let i=0,rex=0;
-    const fail=()=>{throw new TypeError('Invalid word memory CMP metadata');};
+    const fail=()=>{throw new TypeError('Invalid word CMP metadata');};
     if(!(b instanceof Uint8Array)||b[i++]!==0x66)fail();
     if(b[i]>=0x40&&b[i]<=0x47)rex=b[i++];
-    const opcode=b[i++];if((opcode!==0x81&&opcode!==0x83)||i>=b.length)fail();
-    const m=b[i++],mod=m>>6,rm=m&7;if(mod===3||(m&0x38)!==0x38)fail();
-    let base=-1,index=-1,scale=1,displacement=0n,ripRelative=false,bytes=mod===1?1:mod===2?4:0;
-    if(rm===4){if(i>=b.length)fail();const sib=b[i++],lowBase=sib&7,lowIndex=sib>>3&7;scale=1<<(sib>>6);
-      if(lowIndex!==4||(rex&2))index=lowIndex+((rex&2)?8:0);
-      if(mod===0&&lowBase===5){if(rex&1)fail();bytes=4;}else base=lowBase+((rex&1)?8:0);
-    }else if(mod===0&&rm===5){ripRelative=true;bytes=4;}else base=rm+((rex&1)?8:0);
-    const immediateBytes=opcode===0x83?1:2;if(i+bytes+immediateBytes!==b.length)fail();
+    const opcode=b[i++],imm=opcode===0x81||opcode===0x83||opcode===0x3d;
+    if(![0x81,0x83,0x39,0x3b,0x3d].includes(opcode))fail();
+    let kind=4,leftRegister=0,rightRegister=16,base=-1,index=-1,scale=1,displacement=0n,ripRelative=false,bytes=0;
+    if(opcode!==0x3d){
+      if(i>=b.length)fail();const m=b[i++],mod=m>>6,rm=m&7,r=(m>>3&7)+((rex&4)?8:0),operand=rm+((rex&1)?8:0);
+      if(imm&&(m&0x38)!==0x38)fail();
+      if(mod===3){kind=imm?4:3;leftRegister=imm||opcode===0x39?operand:r;rightRegister=imm?16:opcode===0x39?r:operand;}
+      else{
+        kind=imm?0:opcode===0x39?1:2;leftRegister=kind===2?r:16;rightRegister=kind===1?r:16;
+        bytes=mod===1?1:mod===2?4:0;
+        if(rm===4){if(i>=b.length)fail();const sib=b[i++],lowBase=sib&7,lowIndex=sib>>3&7;scale=1<<(sib>>6);
+          if(lowIndex!==4||(rex&2))index=lowIndex+((rex&2)?8:0);
+          if(mod===0&&lowBase===5){if(rex&1)fail();bytes=4;}else base=lowBase+((rex&1)?8:0);
+        }else if(mod===0&&rm===5){ripRelative=true;bytes=4;}else base=operand;
+      }
+    }
+    const immediateBytes=imm?(opcode===0x83?1:2):0;if(i+bytes+immediateBytes!==b.length)fail();
     const v=new DataView(b.buffer,b.byteOffset,b.byteLength);
     if(bytes===1)displacement=BigInt(v.getInt8(i));if(bytes===4)displacement=BigInt(v.getInt32(i,true));i+=bytes;
-    const immediate=opcode===0x83?v.getInt8(i)&65535:v.getUint16(i,true);
-    if(p.operation!==OP.READ_FLAGS||p.width!==2||p.continuationKind!==0||p.branchTarget!==0n||
+    const immediate=imm?(opcode===0x83?v.getInt8(i)&65535:v.getUint16(i,true)):0;
+    if(p.operation!==(kind<3?OP.READ_FLAGS:OP.FLAGS)||p.width!==(kind<3?2:0)||p.continuationKind!==0||p.branchTarget!==0n||
        !canonical(p.rip)||p.nextRip!==p.rip+BigInt(b.length)||!canonical(p.nextRip)||p.length!==b.length)fail();
-    return Object.freeze({base,index,scale,displacement,ripRelative,immediate,length:b.length});
+    return Object.freeze({kind,leftRegister,rightRegister,base,index,scale,displacement,ripRelative,immediate,length:b.length});
+  }
+  function wordLogicalOperand(p) {
+    const b=p.instruction;let i=0,rex=0;const fail=()=>{throw new TypeError('Invalid word logical metadata');};
+    if(!(b instanceof Uint8Array)||b[i++]!==0x66)fail();if(b[i]>=0x40&&b[i]<=0x47)rex=b[i++];
+    const opcode=b[i++];let register=0,kind=opcode===0x0d?1:opcode===0x25?4:opcode===0x35?6:0;
+    if(!kind){if(![0x81,0x83].includes(opcode)||i>=b.length)fail();const m=b[i++];if(m<0xc0)fail();kind=m>>3&7;register=(m&7)+((rex&1)?8:0);}
+    if(![1,4,6].includes(kind)||i+(opcode===0x83?1:2)!==b.length)fail();
+    const v=new DataView(b.buffer,b.byteOffset,b.byteLength),mask=opcode===0x83?v.getInt8(i)&65535:v.getUint16(i,true);
+    if(p.operation!==OP.FLAGS||p.width!==0||p.continuationKind!==0||p.branchTarget!==0n||p.length!==b.length||
+       !canonical(p.rip)||!canonical(p.nextRip)||p.nextRip!==p.rip+BigInt(b.length))fail();
+    return Object.freeze({register,kind,mask,length:b.length});
+  }
+  function conditionOperand(p) {
+    const b=p.instruction;let i=0,rex=0;const fail=()=>{throw new TypeError('Invalid scalar condition metadata');};
+    if(!(b instanceof Uint8Array))fail();
+    if(p.operation===OP.BRANCH&&p.continuationKind===2){
+      if(p.width!==0||p.length!==b.length||!canonical(p.rip)||!canonical(p.nextRip)||p.nextRip!==p.rip+BigInt(b.length))fail();
+      instructionContinuations(p);
+      if(b.length===2&&b[0]>=0x70&&b[0]<=0x7f)return Object.freeze({code:b[0]&15,width:0,register:16,source:16,length:b.length});
+      if(b.length===6&&b[0]===0x0f&&b[1]>=0x80&&b[1]<=0x8f)return Object.freeze({code:b[1]&15,width:0,register:16,source:16,length:b.length});
+      fail();
+    }
+    if(b[i]>=0x40&&b[i]<=0x4f)rex=b[i++];
+    if(b.length!==i+3||b[i++]!==0x0f||b[i]<0x40||b[i]>0x4f)fail();const code=b[i++]&15,m=b[i];
+    if(m<0xc0||p.operation!==OP.FLAGS||p.width!==0||p.continuationKind!==0||p.branchTarget!==0n||p.length!==b.length||
+       !canonical(p.rip)||!canonical(p.nextRip)||p.nextRip!==p.rip+BigInt(b.length))fail();
+    return Object.freeze({code,width:rex&8?8:4,register:(m>>3&7)+((rex&4)?8:0),source:(m&7)+((rex&1)?8:0),length:b.length});
+  }
+  // Derive the optional register-only profiles from independently checked bytes.
+  function scalarOperands(p) {
+    const b=p.instruction;if(p.operation===OP.READ_FLAGS&&p.width===2)return {wordCompareOperand:wordCompareOperand(p)};
+    if(p.operation===OP.BRANCH&&p.continuationKind===2)return {conditionOperand:conditionOperand(p)};
+    if(p.operation!==OP.FLAGS)return {};
+    if(b[0]===0x66){const i=b[1]>=0x40&&b[1]<=0x47?2:1,op=b[i],group=b[i+1]>>3&7;
+      if([0x39,0x3b,0x3d].includes(op)||[0x81,0x83].includes(op)&&group===7)return {wordCompareOperand:wordCompareOperand(p)};
+      if([0x0d,0x25,0x35].includes(op)||[0x81,0x83].includes(op)&&[1,4,6].includes(group))return {wordLogicalOperand:wordLogicalOperand(p)};
+    }
+    const i=b[0]>=0x40&&b[0]<=0x4f?1:0;
+    if(b[i]===0x0f&&b[i+1]>=0x40&&b[i+1]<=0x4f)return {conditionOperand:conditionOperand(p)};
+    return {};
   }
   function divisionOperand(p) {
     const b=p.instruction,i=b?.length===3&&b[0]>=0x40&&b[0]<=0x4f?1:0,rex=i?b[0]:0;
@@ -108,6 +165,54 @@
       carry=sub?a>=b:r<a,overflow=sub?((a^b)&(a^r))>>sign:((a^r)&(b^r))>>sign;
     const nzcv=((Number(r>>sign)<<31)|(Number(r===0n)<<30)|(Number(carry)<<29)|(Number(overflow)<<28))>>>0;
     return (sub?nzcv:nzcv^0x20000000)>>>0;
+  }
+  // Scalar counterpart of EmitNZCVOfKind. Float descriptors are outside this
+  // admitted instruction set. Keep-carry kinds consume only the owned C bit.
+  function materializeScalarNZCV(kind,a,b,stored) {
+    if(kind===0)return stored>>>0;
+    const inverted=!!(kind&16),base=kind&~16;
+    if(!Number.isInteger(kind)||kind<0||base<1||base>10)throw new TypeError('Unknown scalar lazy flag kind');
+    const kept=base>=7,k=kept?base-6:base,width=k===1||k===3||k===5?32:64,mask=(1n<<BigInt(width))-1n;
+    if(a<0n||a>mask||b<0n||b>=U64||(k!==5&&k!==6&&b>mask))throw new TypeError('Invalid scalar lazy operands');
+    const sub=k===1||k===2,logic=k===5||k===6,r=logic?a:BigInt.asUintN(width,sub?a-b:a+b),sign=BigInt(width-1),
+      carry=logic?false:sub?a>=b:r<a,overflow=logic?0n:(sub?(a^b)&(a^r):(a^r)&(b^r))>>sign;
+    let nzcv=((Number(r>>sign)<<31)|(Number(r===0n)<<30)|(Number(carry)<<29)|(Number(overflow&1n)<<28))>>>0;
+    if(kept)nzcv=((nzcv&~0x20000000)|(stored&0x20000000))>>>0;
+    return (inverted?nzcv^0x20000000:nzcv)>>>0;
+  }
+  function conditionHolds(code,nzcv,pf) {
+    if(!Number.isInteger(code)||code<0||code>=16)throw new TypeError('Invalid scalar condition');
+    const c=!(nzcv&0x20000000),z=!!(nzcv&0x40000000),s=!!(nzcv&0x80000000),o=!!(nzcv&0x10000000),p=!!parity(pf&255);
+    return [o,!o,c,!c,z,!z,c||z,!c&&!z,s,!s,p,!p,s!==o,s===o,z||s!==o,!z&&s===o][code];
+  }
+  function validateScalarPostState(s,a,nextRip) {
+    const f=s.layout.arithmeticFlags,c=a.wordComparison,l=a.wordLogical,d=a.scalarCondition;
+    let left,right,result,expectedRip=a.nextRip;
+    if(c){left=c.kind===0||c.kind===1?a.result.data:c.left;right=c.kind===2?a.result.data:c.kind===0||c.kind===4?BigInt(c.immediate):c.right;}
+    if(l){const mask=BigInt(l.mask),low=l.input&65535n;result=(l.input&~65535n)|(l.kind===1?low|mask:l.kind===4?low&mask:low^mask);}
+    if(d)expectedRip=d.width===0?(d.taken?a.continuations[1]:a.nextRip):a.nextRip;
+    if(nextRip!==expectedRip)invariant(s,'Scalar instruction changed its owned continuation');
+    for(const p of a.snapshot){
+      const expected=p.bytes.slice(),v=new DataView(expected.buffer),actual=new Uint8Array(s.memory.buffer,ABI.threadBase+p.offset,expected.length);
+      if(p.offset===s.layout.spans[0].offset){
+        v.setBigUint64(s.layout.ripAddress-ABI.threadBase-p.offset,expectedRip,true);
+        if(c){v.setUint32(f.parityRawOffset,Number(BigInt.asUintN(32,left-right)),true);
+          const aux=c.kind===0||c.kind===4?(c.immediate&16?~left:left):left^right;
+          v.setUint32(f.auxiliaryRawOffset,Number(BigInt.asUintN(32,aux)),true);}
+        if(l){v.setBigUint64(s.layout.generalRegistersOffset+l.register*8,result,true);v.setUint32(f.parityRawOffset,Number(result&0xffffffffn),true);}
+        if(d){
+          if(d.width)v.setBigUint64(s.layout.generalRegistersOffset+d.register*8,BigInt.asUintN(d.width*8,d.taken?d.value:d.destination),true);
+          if(d.width||![10,11].includes(d.code))v.setUint32(f.nzcvOffset,d.nzcv,true);
+        }
+      }else if(p.offset===s.layout.spans[1].offset){
+        if(c){v.setUint32(0,1,true);v.setBigUint64(8,(left&65535n)<<16n,true);v.setBigUint64(16,(right&65535n)<<16n,true);}
+        if(l){v.setUint32(0,21,true);v.setBigUint64(8,(result&65535n)<<16n,true);}
+        if(d&&(d.width||![10,11].includes(d.code))){v.setUint32(0,0,true);
+          if(d.width&&[10,11].includes(d.code))v.setBigUint64(8,BigInt(d.code===10?parity(d.pf&255):parity(d.pf&255)^1),true);
+        }
+      }
+      if(!actual.every((n,i)=>n===expected[i]))invariant(s,'Scalar instruction changed unexpected checkpoint state');
+    }
   }
   function parity(byte){let odd=0;for(;byte;byte>>>=1)odd^=byte&1;return odd^1;}
   // Expected flags come only from owned inputs, using signed overflow bounds
@@ -182,7 +287,7 @@
     const result={status,operation,width,rip,nextRip,length,hash:v.getBigUint64(48,true),
       continuationKind:v.getUint32(88,true),branchTarget:v.getBigUint64(80,true),
       instruction:bytes.slice(64,64+length),codeBytes:size};
-    if(status===0)try{result.continuations=instructionContinuations(result);if(operation===OP.JUMP_REGISTER)result.sourceRegister=jumpSourceRegister(result);if([OP.PUSH_REGISTER,OP.POP_REGISTER].includes(operation))result.stackRegister=stackRegister(result);if(operation===OP.ADD_REGISTER_MEMORY)result.addMemoryOperand=addMemoryOperand(result);if(operation===OP.SUB_REGISTER_MEMORY)result.subMemoryOperand=subMemoryOperand(result);if(operation===OP.OR_MEMORY)result.orMemoryOperand=orMemoryOperand(result);if(operation===OP.DIV_REGISTER)result.divisionOperand=divisionOperand(result);if(operation===OP.READ_FLAGS&&width===2)result.wordCompareOperand=wordCompareOperand(result);}catch(error){throw new Error('Invalid broker continuation metadata: '+error.message);}
+    if(status===0)try{result.continuations=instructionContinuations(result);if(operation===OP.JUMP_REGISTER)result.sourceRegister=jumpSourceRegister(result);if(operation===OP.CALL&&result.continuationKind===6)result.sourceRegister=callSourceRegister(result);if([OP.PUSH_REGISTER,OP.POP_REGISTER].includes(operation))result.stackRegister=stackRegister(result);if(operation===OP.ADD_REGISTER_MEMORY)result.addMemoryOperand=addMemoryOperand(result);if(operation===OP.SUB_REGISTER_MEMORY)result.subMemoryOperand=subMemoryOperand(result);if(operation===OP.OR_MEMORY)result.orMemoryOperand=orMemoryOperand(result);if(operation===OP.DIV_REGISTER)result.divisionOperand=divisionOperand(result);Object.assign(result,scalarOperands(result));}catch(error){throw new Error('Invalid broker continuation metadata: '+error.message);}
     return result;
   }
 
@@ -311,7 +416,7 @@
     }
     // Called at a safe boundary after native code has spilled the full CPU state.
     // operation/width must come from compile-time admission, never guest input.
-    beginInstruction(token,{rip,operation=0,width=0,continuations,nextRip,sourceRegister,stackRegister,addMemoryOperand,subMemoryOperand,orMemoryOperand,divisionOperand,wordCompareOperand}) {
+    beginInstruction(token,{rip,operation=0,width=0,continuations,nextRip,sourceRegister,stackRegister,addMemoryOperand,subMemoryOperand,orMemoryOperand,divisionOperand,wordCompareOperand,wordLogicalOperand,conditionOperand}) {
       const s=requireOwner(this,token);rip=u64(rip);
       if(s.preparedCopies.size)throw new BrokerInvariantError('Prepared copyout must complete before BEGIN');
       if(s.active||s.waits.size)invariant(s,'Instruction already active or parked');
@@ -320,21 +425,36 @@
            ([OP.CAS,OP.FETCH_ADD,OP.ADD_MEMORY,OP.ADD_REGISTER_MEMORY,OP.SUB_REGISTER_MEMORY,OP.OR_MEMORY,OP.DIV_REGISTER].includes(operation)&&[4,8].includes(width))||([OP.CALL,OP.RETURN,OP.PUSH_REGISTER,OP.POP_REGISTER].includes(operation)&&width===8)))
         throw new TypeError('Unsupported instruction admission');
       if(operation===OP.BRANCH||operation===OP.CALL) {
-        if(!Array.isArray(continuations)||continuations.length<1||continuations.length>2)throw new TypeError('Finite branch continuations required');
+        const dynamic=operation===OP.CALL&&sourceRegister!==undefined;
+        if(!Array.isArray(continuations)||(dynamic?continuations.length!==0:continuations.length<1||continuations.length>2))throw new TypeError('Finite branch continuations required');
         continuations=Object.freeze(continuations.map(u64));
       }
       let stackBefore,stackAfter;
-      const wordCompare=operation===OP.READ_FLAGS&&width===2,c=wordCompare&&wordCompareOperand?Object.freeze({
-        base:wordCompareOperand.base,index:wordCompareOperand.index,scale:wordCompareOperand.scale,
-        displacement:wordCompareOperand.displacement,ripRelative:wordCompareOperand.ripRelative,
-        immediate:wordCompareOperand.immediate,length:wordCompareOperand.length}):null;
+      const indirectCall=operation===OP.CALL&&sourceRegister!==undefined;
+      const wordCompare=!!wordCompareOperand||operation===OP.READ_FLAGS&&width===2,c=wordCompareOperand?Object.freeze({...wordCompareOperand}):null;
+      const reg=n=>Number.isInteger(n)&&n>=0&&n<16;
       if(wordCompare&&(s.layout.generalRegistersOffset===undefined||!s.layout.arithmeticFlags||!c||
+         !Number.isInteger(c.kind)||c.kind<0||c.kind>4||operation!==(c.kind<3?OP.READ_FLAGS:OP.FLAGS)||width!==(c.kind<3?2:0)||
+         (c.kind===0?(c.leftRegister!==16||c.rightRegister!==16):c.kind===1?(c.leftRegister!==16||!reg(c.rightRegister)):
+          c.kind===2?(!reg(c.leftRegister)||c.rightRegister!==16):c.kind===3?(!reg(c.leftRegister)||!reg(c.rightRegister)):(!reg(c.leftRegister)||c.rightRegister!==16))||
          !['base','index'].every(n=>Number.isInteger(c[n])&&c[n]>=-1&&c[n]<16)||![1,2,4,8].includes(c.scale)||
          typeof c.displacement!=='bigint'||c.displacement<-(1n<<31n)||c.displacement>=(1n<<31n)||
          typeof c.ripRelative!=='boolean'||(c.ripRelative&&(c.base!==-1||c.index!==-1))||
-         !Number.isInteger(c.immediate)||c.immediate<0||c.immediate>65535||!Number.isInteger(c.length)||c.length<4||c.length>11||
-         !canonical(rip)||!canonical(nextRip)||nextRip!==rip+BigInt(c.length)||
-         !Array.isArray(continuations)||continuations.length!==1||continuations[0]!==nextRip))throw new TypeError('Checked word memory CMP metadata required');
+         (c.kind>=3&&(c.base!==-1||c.index!==-1||c.scale!==1||c.displacement!==0n||c.ripRelative))||
+         !Number.isInteger(c.immediate)||c.immediate<0||c.immediate>65535||([1,2,3].includes(c.kind)&&c.immediate!==0)||
+         !Number.isInteger(c.length)||c.length<3||c.length>11||!canonical(rip)||!canonical(nextRip)||nextRip!==rip+BigInt(c.length)||
+         !Array.isArray(continuations)||continuations.length!==1||continuations[0]!==nextRip))throw new TypeError('Checked word CMP metadata required');
+      const logical=wordLogicalOperand?Object.freeze({...wordLogicalOperand}):null,conditional=conditionOperand?Object.freeze({...conditionOperand}):null;
+      if(logical&&(wordCompare||conditional||operation!==OP.FLAGS||width||s.layout.generalRegistersOffset===undefined||!s.layout.arithmeticFlags||
+         !reg(logical.register)||![1,4,6].includes(logical.kind)||!Number.isInteger(logical.mask)||logical.mask<0||logical.mask>65535||
+         !Number.isInteger(logical.length)||logical.length<4||logical.length>6||!canonical(rip)||!canonical(nextRip)||nextRip!==rip+BigInt(logical.length)||
+         !Array.isArray(continuations)||continuations.length!==1||continuations[0]!==nextRip))throw new TypeError('Checked word logical metadata required');
+      if(conditional&&(wordCompare||logical||s.layout.generalRegistersOffset===undefined||!s.layout.arithmeticFlags||
+         !Number.isInteger(conditional.code)||conditional.code<0||conditional.code>=16||width||
+         (conditional.width===0?(operation!==OP.BRANCH||conditional.register!==16||conditional.source!==16||![2,6].includes(conditional.length)||continuations.length!==2):
+           (operation!==OP.FLAGS||![4,8].includes(conditional.width)||!reg(conditional.register)||!reg(conditional.source)||![3,4].includes(conditional.length)||
+            !Array.isArray(continuations)||continuations.length!==1||continuations[0]!==nextRip))||
+         !canonical(rip)||!canonical(nextRip)||nextRip!==rip+BigInt(conditional.length)))throw new TypeError('Checked scalar condition metadata required');
       if(operation===OP.DIV_REGISTER&&(s.layout.generalRegistersOffset===undefined||!divisionOperand||
          !Number.isInteger(divisionOperand.register)||divisionOperand.register<0||divisionOperand.register>=16||
          ![2,3].includes(divisionOperand.length)||!canonical(rip)||!canonical(nextRip)||nextRip!==rip+BigInt(divisionOperand.length)||
@@ -357,8 +477,10 @@
          !canonical(rip)||!canonical(nextRip)||(nextRip!==rip+2n&&nextRip!==rip+3n)||!Array.isArray(continuations)||continuations.length))
         throw new TypeError('Checked register jump metadata required');
       if(operation===OP.CALL||operation===OP.RETURN) {
-        if(s.layout.stackAddress===undefined||!canonical(rip)||nextRip!==rip+(operation===OP.CALL?5n:1n)||!canonical(nextRip)||
-           (operation===OP.CALL&&(continuations.length!==1||!canonical(continuations[0])))||
+        if(s.layout.stackAddress===undefined||!canonical(rip)||!canonical(nextRip)||
+           (indirectCall?(s.layout.generalRegistersOffset===undefined||!Number.isInteger(sourceRegister)||sourceRegister<0||sourceRegister>=16||
+              (nextRip!==rip+2n&&nextRip!==rip+3n)||!Array.isArray(continuations)||continuations.length!==0):nextRip!==rip+(operation===OP.CALL?5n:1n))||
+           (operation===OP.CALL&&!indirectCall&&(continuations.length!==1||!canonical(continuations[0])))||
            (operation===OP.RETURN&&continuations!==undefined&&(!Array.isArray(continuations)||continuations.length)))throw new TypeError('Checked stack control metadata required');
         stackBefore=s.view.getBigUint64(s.layout.stackAddress,true);
         stackAfter=stackBefore+(operation===OP.CALL?-8n:8n);
@@ -367,10 +489,18 @@
       if(s.checkpoint===U64-1n)invariant(s,'Checkpoint generation exhausted');
       const snapshot=s.layout.spans.map(p=>({offset:p.offset,
         bytes:new Uint8Array(s.memory.buffer,ABI.threadBase+p.offset,p.size).slice()}));
+      if(indirectCall)continuations=Object.freeze([new DataView(snapshot[0].bytes.buffer).getBigUint64(s.layout.generalRegistersOffset+sourceRegister*8,true)]);
       const jumpTarget=operation===OP.JUMP_REGISTER?new DataView(snapshot[0].bytes.buffer).getBigUint64(s.layout.generalRegistersOffset+sourceRegister*8,true):undefined;
       let memoryArithmetic,memoryOR,wordComparison;
-      if(wordCompare){const cpu=new DataView(snapshot[0].bytes.buffer),reg=n=>n<0?0n:cpu.getBigUint64(s.layout.generalRegistersOffset+n*8,true);
-        wordComparison=Object.freeze({immediate:c.immediate,address:BigInt.asUintN(64,(c.ripRelative?nextRip:0n)+reg(c.base)+reg(c.index)*BigInt(c.scale)+c.displacement)});}
+      const ownedCPU=new DataView(snapshot[0].bytes.buffer),ownedReg=n=>n<0||n===16?0n:ownedCPU.getBigUint64(s.layout.generalRegistersOffset+n*8,true);
+      if(wordCompare)wordComparison=Object.freeze({...c,left:ownedReg(c.leftRegister),right:ownedReg(c.rightRegister),
+        address:c.kind<3?BigInt.asUintN(64,(c.ripRelative?nextRip:0n)+ownedReg(c.base)+ownedReg(c.index)*BigInt(c.scale)+c.displacement):undefined});
+      const wordLogical=logical?Object.freeze({...logical,input:ownedReg(logical.register)}):null;
+      let scalarCondition;
+      if(conditional){const f=s.layout.arithmeticFlags,lazy=new DataView(snapshot[1].bytes.buffer),kind=lazy.getUint32(0,true),fa=lazy.getBigUint64(8,true),fb=lazy.getBigUint64(16,true),
+          nzcv=materializeScalarNZCV(kind,fa,fb,ownedCPU.getUint32(f.nzcvOffset,true)),pf=ownedCPU.getUint32(f.parityRawOffset,true),taken=conditionHolds(conditional.code,nzcv,pf);
+        scalarCondition=Object.freeze({...conditional,nzcv,pf,kind,fa,fb,taken,destination:ownedReg(conditional.register),value:ownedReg(conditional.source)});
+      }
       if(readArithmetic){const cpu=new DataView(snapshot[0].bytes.buffer),reg=n=>n<0?0n:cpu.getBigUint64(s.layout.generalRegistersOffset+n*8,true);
         memoryArithmetic=Object.freeze({register:o.register,destinationValue:reg(o.register),
           address:BigInt.asUintN(64,(o.ripRelative?nextRip:0n)+reg(o.base)+reg(o.index)*BigInt(o.scale)+o.displacement)});}
@@ -383,7 +513,7 @@
       let division;
       if(operation===OP.DIV_REGISTER){const cpu=new DataView(snapshot[0].bytes.buffer),reg=n=>BigInt.asUintN(width*8,cpu.getBigUint64(s.layout.generalRegistersOffset+n*8,true)),low=reg(0),high=reg(2),divisor=reg(divisionOperand.register);
         division=Object.freeze({low,high,divisor,reason:divisor===0n?'zero-divisor':high>=divisor?'quotient-overflow':null});}
-      s.active={rip,generation:++s.checkpoint,operation,width,continuations,snapshot,result:null,nextRip,stackBefore,stackAfter,jumpTarget,stackRegister,stackValue,memoryArithmetic,memoryOR,division,wordComparison};return s.checkpoint;
+      s.active={rip,generation:++s.checkpoint,operation,width,continuations,snapshot,result:null,nextRip,stackBefore,stackAfter,jumpTarget,stackRegister,stackValue,memoryArithmetic,memoryOR,division,wordComparison,wordLogical,scalarCondition,indirectCall};return s.checkpoint;
     }
     // The caller uses its authenticated thread record's token, not a request PID.
     // This synchronous route has no syscall, signal, redirect or await callbacks.
@@ -432,6 +562,7 @@
         if(!canonical(a.stackBefore)||!canonical(a.stackAfter))return fail(REASON.ADDRESS_DOMAIN);
         if(address!==(a.operation===OP.CALL?a.stackAfter:a.stackBefore)||
            (a.operation===OP.CALL&&q.getBigUint64(FIELD.operand0,true)!==a.nextRip))return fail(REASON.CHECKPOINT);
+        if(a.operation===OP.CALL&&!canonical(a.continuations[0]))return fail(REASON.CONTROL_TARGET);
         if(a.operation===OP.CALL)try{s.space.executableSnapshot(a.continuations[0],1);s.space.read(a.continuations[0],1);}catch(error){
           if(error instanceof storage.MemoryFault)return fail(REASON.CONTROL_TARGET);throw error;
         }
@@ -476,6 +607,9 @@
           const tx=s.space.prepareWrite(address,width);
           try {
             if(current(this,token)!==s||s.active!==a||s.poisoned)invariant(s,'Stack write owner changed during preparation');
+            if(a.indirectCall)try{s.space.executableSnapshot(a.continuations[0],1);s.space.read(a.continuations[0],1);}catch(error){
+              if(error instanceof storage.MemoryFault)return fail(REASON.CONTROL_TARGET);throw error;
+            }
             tx.bytes.set(bytes);tx.commit();
           }finally{tx.cancel();}
         }else s.space.write(address,bytes);
@@ -507,6 +641,13 @@
            ([0,OP.FLAGS,OP.BRANCH,OP.DIV_REGISTER].includes(a.operation)&&a.result)||
            a.operation===OP.SYSCALL||cpuRip(s)!==nextRip)
           invariant(s,'Full successful post-state was not spilled');
+        if(a.indirectCall)for(const p of a.snapshot){
+          const expected=p.bytes.slice(),actual=new Uint8Array(s.memory.buffer,ABI.threadBase+p.offset,expected.length);
+          if(p.offset===s.layout.spans[0].offset){const v=new DataView(expected.buffer);
+            v.setBigUint64(s.layout.ripAddress-ABI.threadBase-p.offset,nextRip,true);
+            v.setBigUint64(s.layout.stackAddress-ABI.threadBase-p.offset,a.stackAfter,true);}
+          if(!actual.every((v,i)=>v===expected[i]))invariant(s,'Register CALL changed unexpected checkpoint state');
+        }
         if(a.operation===OP.DIV_REGISTER){
           if(nextRip!==a.nextRip)invariant(s,'Register DIV fallthrough changed');
           const dividend=(a.division.high<<BigInt(a.width*8))|a.division.low;
@@ -533,20 +674,7 @@
             }else if(!actual.every((v,i)=>v===expected[i]))invariant(s,'OR memory changed rounding state');
           }
         }
-        if(a.wordComparison) {
-          if(nextRip!==a.nextRip)invariant(s,'Word memory CMP fallthrough changed');
-          const value=a.result.data,immediate=BigInt(a.wordComparison.immediate),difference=BigInt.asUintN(32,value-immediate),flags=s.layout.arithmeticFlags;
-          for(const p of a.snapshot){const expected=p.bytes.slice(),actual=new Uint8Array(s.memory.buffer,ABI.threadBase+p.offset,expected.length),v=new DataView(expected.buffer);
-            if(p.offset===s.layout.spans[0].offset){
-              v.setBigUint64(s.layout.ripAddress-ABI.threadBase-p.offset,a.nextRip,true);
-              v.setUint32(flags.parityRawOffset,Number(difference),true);
-              v.setUint32(flags.auxiliaryRawOffset,Number(a.wordComparison.immediate&16?BigInt.asUintN(32,~value):value),true);
-            }else if(p.offset===s.layout.spans[1].offset){
-              v.setUint32(0,1,true);v.setBigUint64(8,value<<16n,true);v.setBigUint64(16,immediate<<16n,true);
-            }
-            if(!actual.every((n,i)=>n===expected[i]))invariant(s,'Word memory CMP changed unexpected checkpoint state');
-          }
-        }
+        if(a.wordComparison||a.wordLogical||a.scalarCondition)validateScalarPostState(s,a,nextRip);
         if(a.operation===OP.ADD_REGISTER_MEMORY||a.operation===OP.SUB_REGISTER_MEMORY) {
           if(nextRip!==a.nextRip)invariant(s,'Register memory arithmetic fallthrough changed');
           const sum=BigInt.asUintN(a.width*8,a.operation===OP.ADD_REGISTER_MEMORY?
@@ -704,6 +832,6 @@
         faults:b.faults,unsupported:b.unsupported,rejected:b.rejected});
     }
   }
-  root.BetterJITGuestMemoryBroker=Object.freeze({ABI,FIELD,STATUS,REASON,OP,STEP,LIFECYCLE,jumpSourceRegister,stackRegister,addMemoryOperand,subMemoryOperand,orMemoryOperand,divisionOperand,wordCompareOperand,materializeArithmeticNZCV,instructionContinuations,parseStepHeader,createInternalMemory,
+  root.BetterJITGuestMemoryBroker=Object.freeze({ABI,FIELD,STATUS,REASON,OP,STEP,LIFECYCLE,jumpSourceRegister,callSourceRegister,stackRegister,addMemoryOperand,subMemoryOperand,orMemoryOperand,divisionOperand,wordCompareOperand,wordLogicalOperand,conditionOperand,scalarOperands,materializeScalarNZCV,conditionHolds,materializeArithmeticNZCV,instructionContinuations,parseStepHeader,createInternalMemory,
     BrokerInvariantError,UserCopyUnsupported,GuestMemoryBroker});
 })(typeof globalThis!=='undefined'?globalThis:self);

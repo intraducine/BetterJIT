@@ -234,6 +234,8 @@ jobs:
           .build/host-fex/sparse-logical-immediate-ir > .build/sparse-logical-immediate-ir-results.log
           node tests/sdk/linux-host/sparse-word-compare.cjs .build/host-fex/fexserve .build/sparse-word-compare-results.json
           .build/host-fex/sparse-word-compare-ir > .build/sparse-word-compare-ir-results.log
+          node tests/sdk/linux-host/sparse-conditions.cjs .build/host-fex/fexserve .build/sparse-conditions-results.json
+          .build/host-fex/sparse-scalar-condition-ir > .build/sparse-scalar-condition-ir-results.log
           node tests/sdk/linux-host/sparse-call.cjs .build/host-fex/fexserve .build/sparse-call-results.json
           node tests/sdk/linux-host/sparse-extend.cjs .build/host-fex/fexserve .build/sparse-extend-results.json
           node tests/sdk/linux-host/sparse-nop.cjs .build/host-fex/fexserve .build/sparse-nop-results.json
@@ -297,6 +299,8 @@ jobs:
             .build/sparse-logical-immediate-ir-results.log
             .build/sparse-word-compare-results.json
             .build/sparse-word-compare-ir-results.log
+            .build/sparse-conditions-results.json
+            .build/sparse-scalar-condition-ir-results.log
             .build/sparse-call-results.json
             .build/sparse-call-bootstrap-results.json
             .build/sparse-extend-results.json

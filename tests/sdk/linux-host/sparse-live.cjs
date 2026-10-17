@@ -77,7 +77,7 @@ async function main() {
   const module=await WebAssembly.compile(endbr.code),instance=await WebAssembly.instantiate(module,{e:{mem:memory,tb:new WebAssembly.Global({value:'i32'},tb),memory:()=>{throw Error('ENDBR64 touched guest memory');}}});
   const endbrResult=broker.finishInstruction(token,{status:instance.exports.run(),nextRip:endbr.nextRip});assert.equal(endbrResult.status,0);assert.equal(endbrResult.rip,endbrRip+4n);assert.deepEqual(new Uint8Array(memory.buffer,tb+cfg.ctx,state.length),cpuBefore);assert.deepEqual(new Uint8Array(memory.buffer,tb+lazy.offset,lazy.size),lazyBefore);assert.equal(view.getUint32(tb+round.offset,true),2);broker.unregister(token);space.close();
   const rejected=[];
-  const negatives={pushWord:[0x66,0x50],popWord:[0x66,0x58],indirectCall:[0xff,0xd0],retImmediate:[0xc2,8,0],atomicPair:[0xf0,0x48,0x0f,0xc7,0x0b],
+  const negatives={pushWord:[0x66,0x50],popWord:[0x66,0x58],memoryIndirectCall:[0xff,0x10],retImmediate:[0xc2,8,0],atomicPair:[0xf0,0x48,0x0f,0xc7,0x0b],
    rep:[0xf3,0xa4],endbr32:[0xf3,0x0f,0x1e,0xfb],endbrTruncated:[0xf3,0x0f,0x1e],endbrWrongPrefix:[0xf2,0x0f,0x1e,0xfa],endbrExtraPrefix:[0x66,0xf3,0x0f,0x1e,0xfa],simd:[0x0f,0x10,0x03],x87:[0xd9,0x03],legacyInt80:[0xcd,0x80],memoryIndirectBranch:[0xff,0x20],addressSize:[0x67,0x48,0x8b,0x03],truncated:[0x48,0x8b,0x83]};
   for(const [i,[name,bytes]]of Object.entries(negatives).entries()) {
    const rip=F.CODE+0x1000n+BigInt(i)*0x100n;

@@ -5,13 +5,13 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 4, Coverage = 25;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 4, Coverage = 26;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
   bool Supported = false;
   uint32_t Operation = 0, Width = 0; // 0 register-only, 1 read, 2 write
-  uint32_t Flow = 0; // 0 fallthrough, 1 jump, 2 conditional, 3 direct call, 4 checked return, 5 register jump
+  uint32_t Flow = 0; // 0 fallthrough, 1 jump, 2 conditional, 3 direct call, 4 return, 5 register jump, 6 register call
   bool NoEffects = false; // NOP: only instruction markers and constant fallthrough IR
   uint32_t Length = 0; // independently decoded bounded length, checked against FEX
   uint32_t Register = 16; // selected GPR for a bounded jump, stack, ADD destination or TEST source
@@ -21,12 +21,15 @@ struct Admission {
   uint32_t BitWidth = 0, BitRegister = 16, BitIndex = 0; // BT; register 16 selects imm8
   uint32_t LogicalWidth = 0, LogicalKind = 0; // group-1 /1 OR, /4 AND, /6 XOR
   uint64_t LogicalMask = 0; // decoded, width-masked signed immediate
-  bool WordCompare = false; // 66 81/83 /7, memory source, no operand write
+  bool WordCompare = false; // 16-bit CMP; no operand writes
+  uint32_t CompareKind = 0; // 0 mem/imm, 1 mem/reg, 2 reg/mem, 3 reg/reg, 4 reg/imm
+  uint32_t CompareLeftRegister = 16, CompareRightRegister = 16;
   uint32_t CompareImmediate = 0; // imm16 or sign-extended imm8, masked to16 bits
   int32_t CompareBase = -1, CompareIndex = -1;
   uint32_t CompareScale = 1;
   int64_t CompareDisplacement = 0;
   bool CompareRIPRelative = false;
+  uint32_t ConditionCode = 16, ConditionalMoveWidth = 0, ConditionSourceRegister = 16;
 };
 // Bounded architectural NOP encodings. Legacy prefixes may repeat, followed
 // by at most one REX. REP/LOCK and a REX before a legacy prefix are excluded.
@@ -106,8 +109,10 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
   if (I == 1 && Op == 0xe8) return {true, 9, 8, 3};
   if (I == 1 && Op == 0xc3) return {true, 10, 8, 4};
   if (I == 1 && (Op == 0xeb || Op == 0xe9)) return {true, 7, 0, 1};
-  if (I == 1 && ((Op >= 0x72 && Op <= 0x79) ||
-      (Op == 0x0f && I < Size && (Bytes[I] >= 0x82 && Bytes[I] <= 0x89)))) return {true, 7, 0, 2};
+  if (I == 1 && ((Op >= 0x70 && Op <= 0x7f) ||
+      (Op == 0x0f && I < Size && (Bytes[I] >= 0x80 && Bytes[I] <= 0x8f)))) {
+    Admission A {true, 7, 0, 2}; A.ConditionCode = (Op == 0x0f ? Bytes[I] : Op) & 15; return A;
+  }
   const uint32_t Width = Rex & 8 ? 8 : Word ? 2 : 4;
   if (!Segment && !Lock && Op == 0x0f && I + 1 < Size && (Bytes[I] == 0xa3 || Bytes[I] == 0xba)) {
     // BT only: the base is a register and the bit index is a register or
@@ -138,7 +143,12 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
     // byte opcodes ignore operand size, while REX.W takes precedence over 66.
     const size_t ImmediateBytes = !(Op & 1) ? 1 : Width == 8 ? 4 : Width;
     if (ImmediateBytes > Size - I) return {};
-    return {true, 6, 0, 0, false, uint32_t(I + ImmediateBytes), 0};
+    Admission A {true, 6, 0, 0, false, uint32_t(I + ImmediateBytes), 0};
+    if (Word && !(Rex & 8) && (Op & 1)) {
+      A.LogicalWidth = 2; A.LogicalKind = Op == 0x0d ? 1 : Op == 0x25 ? 4 : 6;
+      A.LogicalMask = uint32_t(Bytes[I]) | uint32_t(Bytes[I + 1]) << 8;
+    }
+    return A;
   }
   if (!Word && !Segment && !Lock && Op == 0xf7 && I < Size && (Bytes[I] & 0xf8) == 0xf0)
     return {true, 17, Width, 0, false, uint32_t(I + 1), uint32_t((Bytes[I] & 7) + ((Rex & 1) ? 8 : 0))};
@@ -161,37 +171,61 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
     Admission A {true, 6, 0, 0, false, uint32_t(I + ImmediateBytes), Register};
     A.TestWidth = TestWidth; A.TestShift = Shift; A.TestMask = Mask; return A;
   }
-  if (Word && !Segment && !Lock && !(Rex & 8) && (Op == 0x81 || Op == 0x83)) {
+  if (Word && !Segment && !Lock && !(Rex & 8) && (Op == 0x81 || Op == 0x83) && I < Size && (Bytes[I] & 0xc0) == 0xc0) {
+    const auto Group = Bytes[I] >> 3 & 7;
+    if (Group == 1 || Group == 4 || Group == 6) {
+      const size_t N = Op == 0x83 ? 1 : 2;
+      if (N > Size - (I + 1)) return {};
+      const uint32_t Raw = Op == 0x83 ? uint16_t(int16_t(int8_t(Bytes[I + 1]))) : uint32_t(Bytes[I + 1]) | uint32_t(Bytes[I + 2]) << 8;
+      Admission A {true, 6, 0, 0, false, uint32_t(I + 1 + N), uint32_t((Bytes[I] & 7) + ((Rex & 1) ? 8 : 0))};
+      A.LogicalWidth = 2; A.LogicalKind = Group; A.LogicalMask = Raw; return A;
+    }
+  }
+  if (Word && !Segment && !Lock && !(Rex & 8) && (Op == 0x81 || Op == 0x83 || Op == 0x39 || Op == 0x3b || Op == 0x3d)) {
+    Admission A; A.Supported = A.WordCompare = true;
+    if (Op == 0x3d) {
+      if (Size - I < 2) return {};
+      A.Operation = 6; A.Register = A.CompareLeftRegister = 0; A.CompareKind = 4;
+      A.CompareImmediate = uint32_t(Bytes[I]) | uint32_t(Bytes[I + 1]) << 8; A.Length = I + 2; return A;
+    }
     if (I >= Size) return {};
     const uint8_t M = Bytes[I++], Mod = M >> 6, RM = M & 7;
-    if (Mod == 3 || (M & 0x38) != 0x38) return {};
-    int32_t Base = -1, Index = -1; uint32_t Scale = 1; bool RIPRelative = false;
-    size_t Displacement = Mod == 1 ? 1 : Mod == 2 ? 4 : 0;
-    if (RM == 4) {
-      if (I >= Size) return {};
-      const uint8_t SIB = Bytes[I++], LowBase = SIB & 7, LowIndex = SIB >> 3 & 7;
-      Scale = 1u << (SIB >> 6);
-      if (LowIndex != 4 || (Rex & 2)) Index = LowIndex + ((Rex & 2) ? 8 : 0);
-      if (LowBase == 5 && Mod == 0) {
-        // Same pinned frontend no-base SIB/REX.B defect as memory ADD/SUB.
-        if (Rex & 1) return {};
-        Displacement = 4;
-      } else Base = LowBase + ((Rex & 1) ? 8 : 0);
-    } else if (Mod == 0 && RM == 5) { Displacement = 4; RIPRelative = true; }
-    else Base = RM + ((Rex & 1) ? 8 : 0);
-    const size_t ImmediateBytes = Op == 0x83 ? 1 : 2;
-    if (Displacement + ImmediateBytes > Size - I) return {};
-    int64_t Offset = 0;
-    if (Displacement == 1) Offset = int8_t(Bytes[I]);
-    if (Displacement == 4) {
-      uint32_t Raw = 0; for (unsigned J = 0; J < 4; J++) Raw |= uint32_t(Bytes[I + J]) << (J * 8);
-      Offset = int32_t(Raw);
+    const bool Immediate = Op == 0x81 || Op == 0x83;
+    if (Immediate && (M & 0x38) != 0x38) return {};
+    const auto R = uint32_t((M >> 3 & 7) + ((Rex & 4) ? 8 : 0));
+    const size_t ImmediateBytes = Immediate ? (Op == 0x83 ? 1 : 2) : 0;
+    if (Mod == 3) {
+      const auto Operand = uint32_t(RM + ((Rex & 1) ? 8 : 0));
+      A.Operation = 6; A.CompareKind = Immediate ? 4 : 3;
+      A.CompareLeftRegister = Immediate || Op == 0x39 ? Operand : R;
+      A.CompareRightRegister = Immediate ? 16 : Op == 0x39 ? R : Operand;
+      A.Register = A.CompareLeftRegister;
+    } else {
+      A.Operation = 8; A.Width = 2; A.CompareKind = Immediate ? 0 : Op == 0x39 ? 1 : 2;
+      if (!Immediate) (Op == 0x39 ? A.CompareRightRegister : A.CompareLeftRegister) = R;
+      size_t Displacement = Mod == 1 ? 1 : Mod == 2 ? 4 : 0;
+      if (RM == 4) {
+        if (I >= Size) return {};
+        const uint8_t SIB = Bytes[I++], LowBase = SIB & 7, LowIndex = SIB >> 3 & 7;
+        A.CompareScale = 1u << (SIB >> 6);
+        if (LowIndex != 4 || (Rex & 2)) A.CompareIndex = LowIndex + ((Rex & 2) ? 8 : 0);
+        if (LowBase == 5 && Mod == 0) {
+          if (Rex & 1) return {}; // pinned frontend no-base SIB/REX.B exclusion
+          Displacement = 4;
+        } else A.CompareBase = LowBase + ((Rex & 1) ? 8 : 0);
+      } else if (Mod == 0 && RM == 5) { Displacement = 4; A.CompareRIPRelative = true; }
+      else A.CompareBase = RM + ((Rex & 1) ? 8 : 0);
+      if (Displacement + ImmediateBytes > Size - I) return {};
+      if (Displacement == 1) A.CompareDisplacement = int8_t(Bytes[I]);
+      if (Displacement == 4) {
+        uint32_t Raw = 0; for (unsigned J = 0; J < 4; J++) Raw |= uint32_t(Bytes[I + J]) << (J * 8);
+        A.CompareDisplacement = int32_t(Raw);
+      }
+      I += Displacement;
     }
-    I += Displacement;
-    const uint32_t Immediate = Op == 0x83 ? uint16_t(int16_t(int8_t(Bytes[I]))) : uint32_t(Bytes[I]) | uint32_t(Bytes[I + 1]) << 8;
-    Admission A {true, 8, 2, 0, false, uint32_t(I + ImmediateBytes)};
-    A.WordCompare = true; A.CompareImmediate = Immediate; A.CompareBase = Base; A.CompareIndex = Index;
-    A.CompareScale = Scale; A.CompareDisplacement = Offset; A.CompareRIPRelative = RIPRelative; return A;
+    if (ImmediateBytes > Size - I) return {};
+    if (Immediate) A.CompareImmediate = Op == 0x83 ? uint16_t(int16_t(int8_t(Bytes[I]))) : uint32_t(Bytes[I]) | uint32_t(Bytes[I + 1]) << 8;
+    A.Length = I + ImmediateBytes; return A;
   }
   if (!Word && !Segment && !Lock) {
     // Each admitted arithmetic family has an explicit register, read-only or
@@ -201,6 +235,8 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
     if (I < Size) {
       const bool Register = (Bytes[I] & 0xc0) == 0xc0;
       const uint8_t Group = Bytes[I] >> 3 & 7;
+      if (Register && Op == 0xff && Group == 2)
+        return {true, 9, 8, 6, false, uint32_t(I + 1), uint32_t((Bytes[I] & 7) + ((Rex & 1) ? 8 : 0))};
       if (Register && Op == 0xff && Group == 4)
         return {true, 12, 0, 5, false, uint32_t(I + 1), uint32_t((Bytes[I] & 7) + ((Rex & 1) ? 8 : 0))};
       // Non-LOCK ADD r/m32,r32 and r/m64,r64 only. A dedicated broker
@@ -243,8 +279,11 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
       }
       if (Register && ((Op == 0x01 || Op == 0x03 || Op == 0x29 || Op == 0x2b || Op == 0x31 || Op == 0x33 || Op == 0x21 || Op == 0x23 || Op == 0x09 || Op == 0x0b) ||
           ((Op == 0x81 || Op == 0x83) && ((Bytes[I] >> 3 & 7) == 0 || (Bytes[I] >> 3 & 7) == 5)))) return {true, 6, 0};
-      if (Op == 0x0f && Bytes[I] >= 0x42 && Bytes[I] <= 0x47 && I + 1 < Size && (Bytes[I+1] & 0xc0) == 0xc0)
-        return {true, 6, 0}; // unsigned/equality CMOV, 32/64-bit GPRs only
+      if (Op == 0x0f && Bytes[I] >= 0x40 && Bytes[I] <= 0x4f && I + 1 < Size && (Bytes[I+1] & 0xc0) == 0xc0) {
+        Admission A {true, 6, 0, 0, false, uint32_t(I + 2), uint32_t((Bytes[I+1] >> 3 & 7) + ((Rex & 4) ? 8 : 0))};
+        A.ConditionCode = Bytes[I] & 15; A.ConditionalMoveWidth = Width;
+        A.ConditionSourceRegister = (Bytes[I+1] & 7) + ((Rex & 1) ? 8 : 0); return A;
+      }
     }
   }
   if (Lock && Op != 0x0f) return {};

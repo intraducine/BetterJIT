@@ -38,14 +38,16 @@ struct BackendConfig {
   uint32_t BrokerLogicalWidth = 0, BrokerLogicalKind = 0;
   uint64_t BrokerLogicalMask = 0; // group-1 register logical immediate proof
   bool BrokerWordCompare = false;
+  uint32_t BrokerCompareKind = 0, BrokerCompareLeftRegister = 16, BrokerCompareRightRegister = 16;
   uint32_t BrokerCompareImmediate = 0; // independently decoded word CMP immediate
   int32_t BrokerCompareBase = -1, BrokerCompareIndex = -1;
   uint32_t BrokerCompareScale = 1;
   int64_t BrokerCompareDisplacement = 0;
   bool BrokerCompareRIPRelative = false;
+  uint32_t BrokerConditionCode = 16, BrokerConditionalMoveWidth = 0, BrokerConditionSourceRegister = 16;
   uint64_t BrokerNextRIP = 0;
   uint64_t BrokerTarget = 0;
-  uint32_t BrokerFlow = 0; // fallthrough/jump/conditional/direct-call/checked-return/register-jump
+  uint32_t BrokerFlow = 0; // fallthrough/jump/conditional/direct-call/checked-return/register-jump/register-call
   // FEX's named vector constant pool (NAMED_VECTOR_CONST_POOL_MAX x 16 bytes)
   // and indexed constant tables, as FEX's CPUBackend installs them; folded into
   // v128.const at compile time.

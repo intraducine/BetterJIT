@@ -6,10 +6,11 @@ const resources=path.resolve(__dirname,'../../../Sources/BetterJITLinux/Resource
  output='arithmetic-ok\n',DATA=F.BASE+0x3180n;
 function load(){globalThis.self=globalThis;for(const n of ['guest_memory.js','guest_memory_broker.js','guest_image.js','guest_linux_image.js','thread_core.js','web/linux-kernel.js','web/sparse_process_host.js'])vm.runInThisContext(fs.readFileSync(path.join(resources,'linux',n),'utf8'));}
 function fixture(readOnly,fault){
- const elf=F.image(),interpreter=F.image({interpreter:true}),code=[],branches=[],marks={},first=(0x7fffffffn<<32n)|16n;
+ const elf=F.image(),interpreter=F.image({interpreter:true}),code=[],branches=[],calls=[],marks={},first=(0x7fffffffn<<32n)|16n;
  const emit=(...b)=>code.push(...b),word=n=>Array.from({length:8},(_,i)=>Number(BigInt.asUintN(64,n)>>BigInt(i*8)&255n)),
   mov=(r,n)=>emit(0x48,0xb8+r,...word(n)),check32=n=>{emit(0x83,0xf8,n,15,0x85,0,0,0,0);branches.push(code.length-4);},
   check64=(r,n)=>{mov(2,n);emit(0x48,0x39,0xd0|r,15,0x85,0,0,0,0);branches.push(code.length-4);};
+ const indirect=(register,target)=>{emit(register>=8?0x49:0x48,0xb8+(register&7),...word(0n));calls.push({at:code.length-8,target});emit(...(register>=8?[0x41]:[]),0xff,0xd0+(register&7));};
  mov(6,DATA);mov(0,0xdeadbeef80000004n);marks.firstRead=code.length;
  emit(0x2b,0x46,4);check32(5);emit(3,0x46,8);check32(12);
  emit(0x48,0x2b,0x46,16);check64(0,0x800000000000000cn);
@@ -21,6 +22,21 @@ function fixture(readOnly,fault){
  mov(0,DATA+4n);emit(0x66,0x83,0x78,6,0,15,0x85,0,0,0,0);branches.push(code.length-4);
  mov(0,DATA);emit(0x66,0x81,0x78,6,0xff,0x7f,15,0x85,0,0,0,0);branches.push(code.length-4);
  emit(0x66,0x83,0x78,4,0xff,15,0x85,0,0,0,0);branches.push(code.length-4);
+ // Additional generic word CMP directions through the byte-derived kernel.
+ mov(1,0x1234567800007fffn);emit(0x66,0x39,0x48,6,15,0x85,0,0,0,0);branches.push(code.length-4);
+ emit(0x66,0x3b,0x48,6,15,0x85,0,0,0,0);branches.push(code.length-4);
+ emit(0x66,0x39,0xc9,15,0x85,0,0,0,0);branches.push(code.length-4);
+ // Generic nested register calls at synthetic addresses through the real
+ // kernel: low/high GPRs, owned return-address pushes and checked RETs.
+ indirect(0,'nested');indirect(8,'leaf');indirect(15,'nested');
+ // Word logical updates preserve the upper 48 bits. Signed overflow,
+ // parity and signed Jcc/CMOV consume the real lazy word CMP descriptor.
+ mov(0,0x12345678aabb8000n);emit(0x66,0x83,0xc8,1);check64(0,0x12345678aabb8001n);
+ emit(0x66,0x83,0xf0,0xff);check64(0,0x12345678aabb7ffen);
+ emit(0x66,0x81,0xe0,0,0);check64(0,0x12345678aabb0000n);
+ mov(0,0x8000n);emit(0x66,0x3d,1,0);
+ for(const cc of [1,8,11,13]){emit(15,0x80+cc,0,0,0,0);branches.push(code.length-4);}
+ mov(0,0x12345678aabbccddn);mov(1,0xfedcba9876543210n);emit(15,0x40,0xc1);check64(0,0x76543210n);
  // Exercise new group-1 logical steps through the real kernel/worker path.
  // Deliberately different guest addresses; the same OR EAX,1 encoding is generic.
  mov(0,0xdeadbeef80000000n);emit(0x83,0xc8,1);check64(0,0x80000001n);
@@ -32,6 +48,8 @@ function fixture(readOnly,fault){
  check64(0,0xffffffff80000000n);
  emit(0xb8,1,0,0,0,0xbf,1,0,0,0);mov(6,DATA+64n);emit(0xba,Buffer.byteLength(output),0,0,0,15,5);check32(Buffer.byteLength(output));
  emit(0x31,0xff,0xb8,60,0,0,0,15,5);marks.failure=code.length;emit(0xbf,99,0,0,0,0xb8,60,0,0,0,15,5);
+ marks.nested=code.length;indirect(1,'leaf');emit(0xc3);marks.leaf=code.length;emit(0xc3);
+ for(const c of calls)code.splice(c.at,8,...word(F.BASE+0x1000n+BigInt(marks[c.target])));
  for(const at of branches){const relative=marks.failure-(at+4);for(let i=0;i<4;i++)code[at+i]=relative>>(i*8)&255;}
  interpreter.fill(0,0x1000,0x2000);interpreter.set(code,0x1000);const v=new DataView(interpreter.buffer);
  v.setBigUint64(64+56+32,BigInt(code.length),true);v.setBigUint64(0x2180,first,true);
@@ -41,15 +59,15 @@ function fixture(readOnly,fault){
  return {elf,interpreter,readOnly,fault,firstRead:F.BASE+0x1000n+BigInt(marks.firstRead),identity:{elf:sha(elf),interpreter:sha(interpreter)}};
 }
 function kernel(){load();const M=BetterJITGuestMemory,I=BetterJITGuestImage,L=BetterJITGuestLinuxImage,B=BetterJITGuestMemoryBroker,{Kernel}=LinuxBundle.require('./kernel.js'),
- budget=new M.BackingBudget(),empty=new M.GuestAddressSpace(budget,{virtualLimit:1n<<47n}),enc=new TextEncoder();let k,image,initial,lastCheckpoint;const outputs=[],quiesced=[];
+ budget=new M.BackingBudget(),empty=new M.GuestAddressSpace(budget,{virtualLimit:1n<<47n}),enc=new TextEncoder();let k,image,initial,lastCheckpoint;const outputs=[],quiesced=[],trace=[];
  try{image=L.prepare(empty,d.elf,{path:'/test/read-arithmetic',argv:[enc.encode('/test/read-arithmetic')],envp:[]},new Uint8Array(16),new I.ExecutableStore([{path:F.INTERP,bytes:d.interpreter}]));empty.close();
   const original=image.space.read(DATA,128),snapshot=t=>['cpu','lazyFlags','roundMode'].map(n=>{const p=d.cfg.checkpoint[n];return new Uint8Array(t.sparse.memory.buffer,t.tb+p.offset,p.size).slice();});
   if(d.fault)image.space.protect(DATA&~4095n,4096n,0);
   k=new Kernel({state:d.state,vfs:{},log:()=>{},sparseLifecycleVersion:5,sparseRetainInternalContexts:true,sparseAllowThreads:false,sparseAllowFutex:false,
    spawnSparseThread:spec=>parentPort.postMessage({op:'spawn',spec}),stopSparseThread:spec=>parentPort.postMessage({op:'stop',spec}),dropSparseSpace:spec=>parentPort.postMessage({op:'drop',spec}),
    writeSparseOutput:({fd,bytes})=>{outputs.push({fd,bytes:[...bytes]});return bytes.length;},
-   sparseStep:(t,last)=>{if(last.status===B.STEP.FAULT){assert(d.fault);assert.equal(last.rip,d.firstRead);assert.deepEqual(snapshot(t),lastCheckpoint);}else lastCheckpoint=snapshot(t);},
-   sparseExit:t=>{assert.equal(t.sparse.terminalStatus,d.fault?B.STEP.FAULT:B.STEP.OK);assert.equal(t.sparse.guestExitCode,d.fault?undefined:0);},
+   sparseStep:(t,last)=>{trace.push('0x'+last.rip.toString(16));if(trace.length>8)trace.shift();if(last.status===B.STEP.FAULT){assert(d.fault);assert.equal(last.rip,d.firstRead);assert.deepEqual(snapshot(t),lastCheckpoint);}else lastCheckpoint=snapshot(t);},
+   sparseExit:t=>{assert.equal(t.sparse.terminalStatus,d.fault?B.STEP.FAULT:B.STEP.OK);assert.equal(t.sparse.guestExitCode,d.fault?undefined:0,'Recent synthetic continuations: '+trace.join(', '));},
    sparseGuestQuiesced:(t,r)=>{assert.equal(r.failed,false);quiesced.push(r);k.done=true;}
   },d.cfg);
   initial=k.createSparseProcess({space:image.space,entryRip:image.entry,dynamic:true,standardIO:true});initial.proc.mm.catalog={id:initial.proc.space,refs:1};const t=initial.thread;
@@ -72,5 +90,5 @@ async function run(get,cfg,state,input){let k,host,timer,report;const workers=[]
 }
 if(!isMainThread)kernel();else{load();require('./native-step-contract.cjs').serve('guestmem=broker1',async get=>{const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer()),cases=[];
  for(const [readOnly,fault]of [[false,false],[true,false],[true,true]])cases.push(await run(get,cfg,state,fixture(readOnly,fault)));
- const report={evidence:'Synthetic dynamic ELF and interpreter, self-checking ADD/SUB32/64, group-1 OR/AND/XOR immediate sign extension/zero extension and carry clearing, word memory-immediate CMP, old-address aliasing, deterministic stdout/normal Linux exit or exact read-fault rollback through production SDK kernel/worker. No Wine completion or device claim.',cfg,cases,native:await(await get('/xlat/totals')).json()};if(process.argv[3])fs.writeFileSync(process.argv[3],JSON.stringify(report,(_k,v)=>typeof v==='bigint'?'0x'+v.toString(16):v,2)+'\n');console.log(JSON.stringify({...report,cfg:undefined}));
+ const report={evidence:'Synthetic dynamic ELF and interpreter, self-checking ADD/SUB32/64, group-1 OR/AND/XOR immediate sign extension/zero extension and carry clearing, all word CMP operand directions, word logical immediates, overflow/parity/signed conditions, nested register-indirect CALL/RET, old-address aliasing, deterministic stdout/normal Linux exit or exact read-fault rollback through production SDK kernel/worker. No Wine completion or device claim.',cfg,cases,native:await(await get('/xlat/totals')).json()};if(process.argv[3])fs.writeFileSync(process.argv[3],JSON.stringify(report,(_k,v)=>typeof v==='bigint'?'0x'+v.toString(16):v,2)+'\n');console.log(JSON.stringify({...report,cfg:undefined}));
  }).catch(e=>{console.error(e);process.exitCode=1;});}

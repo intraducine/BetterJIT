@@ -9,7 +9,7 @@ for(const file of ['guest_memory.js','guest_memory_broker.js','thread_core.js','
  vm.runInThisContext(fs.readFileSync(new URL('../../Sources/BetterJITLinux/Resources/linux/'+file,import.meta.url),'utf8'));
 const {Kernel,SLOT_BASE,SLOT_SIZE,S_REQ,S_DONE}=LinuxBundle.require('./kernel.js');
 const M=BetterJITGuestMemory,B=BetterJITGuestMemoryBroker,RIP=0x123400004000n,AT=0x123456780000n;
-const cfg={guestMemory:'broker1',memoryABI:1,stepABI:4,coverageVersion:25,stepHeaderBytes:96,memPages:33,memMaxPages:33,threadBase:65536,
+const cfg={guestMemory:'broker1',memoryABI:1,stepABI:4,coverageVersion:26,stepHeaderBytes:96,memPages:33,memMaxPages:33,threadBase:65536,
  regArgs:0,callsViaDispatcher:false,maxInstructions:1,shared:true,
  ctx:256,stateSize:1024,ripOff:24,gregsOff:32,checkpoint:{version:1,cpu:{offset:256,size:1024,ripOffset:24,stackPointerOffset:64,generalRegistersOffset:32},
  lazyFlags:{offset:64,size:24},roundMode:{offset:112,size:4}}};
@@ -104,8 +104,8 @@ test('threads share guest storage but own separate fixed internal contexts under
 test('finite branch metadata derives full signed-relative targets from admitted bytes',()=>{
  const p={operation:7,rip:RIP,nextRip:RIP+2n,length:2,instruction:Uint8Array.of(0x75,0xfe),continuationKind:2,branchTarget:RIP};
  assert.deepEqual(B.instructionContinuations(p),[RIP+2n,RIP]);
- for(const change of [{branchTarget:RIP&0xffffffffn},{continuationKind:1},{instruction:Uint8Array.of(0x70,0xfe)}])assert.throws(()=>B.instructionContinuations({...p,...change}));
- for(const opcode of [0x72,0x73,0x74,0x75,0x76,0x77])assert.deepEqual(B.instructionContinuations({...p,instruction:Uint8Array.of(opcode,0xfe)}),[RIP+2n,RIP]);
+ for(const change of [{branchTarget:RIP&0xffffffffn},{continuationKind:1},{instruction:Uint8Array.of(0x60,0xfe)}])assert.throws(()=>B.instructionContinuations({...p,...change}));
+ for(const opcode of Array.from({length:16},(_,i)=>0x70+i))assert.deepEqual(B.instructionContinuations({...p,instruction:Uint8Array.of(opcode,0xfe)}),[RIP+2n,RIP]);
  assert.throws(()=>B.instructionContinuations({...p,operation:0}),/Unexpected/);
 });
 test('branch completion accepts only the checkpointed finite continuation set',t=>{
