@@ -16,7 +16,7 @@ function fixture(t,{bytes,value=1n,destination=0xffffffffffffffffn,address=DATA,
  f.snapshot=()=>['cpu','lazyFlags','roundMode'].map(n=>{const s=layout[n];return new Uint8Array(memory.buffer,at+s.offset,s.size).slice();});
  f.begin=(extra={})=>checkpoint=broker.beginInstruction(token,{...p,...extra});
  f.request=(extra={})=>{for(const [n,x]of Object.entries({magic:B.ABI.magic,version:1,sequence:++sequence,operation:1,width:p.width,access:1,address,rip:RIP,checkpoint,lease:token.generation,...extra}))typeof x==='bigint'?q.setBigUint64(F[n],x,true):q.setUint32(F[n],x,true);return broker.dispatch(token,{lease:token.generation,sequence});};
- f.spill=()=>{const read=BigInt.asUintN(p.width*8,value),sum=BigInt.asUintN(p.width*8,destination+read);v.setBigUint64(cpu+24,p.nextRip,true);v.setBigUint64(g+p.addMemoryOperand.register*8,sum,true);v.setUint32(cpu+240,Number(BigInt.asUintN(32,sum)),true);v.setUint32(cpu+244,Number(BigInt.asUintN(32,destination^read)),true);};
+ f.spill=()=>{const read=BigInt.asUintN(p.width*8,value),sum=BigInt.asUintN(p.width*8,destination+read);v.setBigUint64(cpu+24,p.nextRip,true);v.setBigUint64(g+p.addMemoryOperand.register*8,sum,true);v.setUint32(cpu+240,Number(BigInt.asUintN(32,sum)),true);v.setUint32(cpu+244,Number(BigInt.asUintN(32,destination^read)),true);v.setUint32(at+64,p.width===4?19:20,true);v.setBigUint64(at+72,BigInt.asUintN(p.width*8,destination),true);v.setBigUint64(at+80,read,true);};
  f.finish=status=>broker.finishInstruction(token,{status,nextRip:p.nextRip});
  t.after(()=>{broker.unregister(token);space.close();assert.equal(budget.stats().ownedPayloadBytes,0);});return f;
 }
@@ -51,7 +51,7 @@ test('ADD read faults preserve bytes and COW accounting with complete register/f
 });
 test('ADD FINISH rejects destination, flags, unrelated CPU, lazy padding and rounding corruption',t=>{
  for(const [span,offset]of [['cpu',32],['cpu',32+7*8],['cpu',240],['cpu',244],['cpu',255],['lazyFlags',4],['roundMode',0]]){const f=fixture(t);f.begin();f.request();f.spill();const at=f.at+layout[span].offset+offset;f.v.setUint8(at,f.v.getUint8(at)^1);assert.throws(()=>f.finish(0),/changed/);}
- const f=fixture(t);f.begin();f.request();f.spill();f.v.setUint32(f.cpu+248,0x1234,true);assert.equal(f.finish(0).status,0,'Only the precise NZCV word may vary with lazy representation');
+ const f=fixture(t);f.begin();f.request();f.spill();f.v.setUint32(f.cpu+248,0x1234,true);assert.throws(()=>f.finish(0),/flags\/NZCV/,'Inactive lazy NZCV must preserve its owned pre-state word');
 });
 test('ADD BEGIN requires exact GPR/flag layouts and finite fallthrough metadata',t=>{
  for(const extra of [{continuations:[]},{nextRip:RIP+9n},{addMemoryOperand:{...plan().addMemoryOperand,register:16}},{addMemoryOperand:{...plan().addMemoryOperand,scale:3}}]){const f=fixture(t);assert.throws(()=>f.begin(extra),/ADD metadata/);}

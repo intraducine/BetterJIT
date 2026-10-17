@@ -18,6 +18,8 @@ jobs:
         with:
           node-version: '22'
       - run: bash scripts/check-sdk.sh
+      - name: Exact arithmetic materializer and SDK export dependency checks
+        run: node --test tests/fexhost/read-arithmetic-materializer.test.mjs
       - name: Device-suite runner and report regression checks (not device execution)
         run: bash scripts/check-fexhost.sh
       - name: Native binding ownership checks (test shim, not FEX)

@@ -1238,7 +1238,7 @@ class Kernel {
          !Number.isInteger(p.length)||p.length<1||p.length>15||p.nextRip!==p.rip+BigInt(p.length)||
          !(p.instruction instanceof Uint8Array)||p.instruction.length!==p.length||approved.has(p.rip)||
          !(([0,5,6,7,12].includes(p.operation)&&p.width===0)||([1,2,8].includes(p.operation)&&[1,2,4,8].includes(p.width))||
-           ([3,4,11,15,16,17].includes(p.operation)&&[4,8].includes(p.width))||([9,10,13,14].includes(p.operation)&&p.width===8)))
+           ([3,4,11,15,16,17,18].includes(p.operation)&&[4,8].includes(p.width))||([9,10,13,14].includes(p.operation)&&p.width===8)))
         throw new Error('Invalid admitted instruction metadata');
       const actual=space.executableSnapshot(p.rip,p.length);
       if(!actual.every((x,i)=>x===p.instruction[i]))throw new Error('Executable bytes differ from the compiled step');
@@ -1246,6 +1246,7 @@ class Kernel {
         sourceRegister:p.operation===B.OP.JUMP_REGISTER?B.jumpSourceRegister(p):undefined,
         stackRegister:[B.OP.PUSH_REGISTER,B.OP.POP_REGISTER].includes(p.operation)?B.stackRegister(p):undefined,
         addMemoryOperand:p.operation===B.OP.ADD_REGISTER_MEMORY?B.addMemoryOperand(p):undefined,
+        subMemoryOperand:p.operation===B.OP.SUB_REGISTER_MEMORY?B.subMemoryOperand(p):undefined,
         orMemoryOperand:p.operation===B.OP.OR_MEMORY?B.orMemoryOperand(p):undefined,
         divisionOperand:p.operation===B.OP.DIV_REGISTER?B.divisionOperand(p):undefined,instruction:p.instruction.slice()}));
     }
@@ -1295,7 +1296,7 @@ class Kernel {
         // Refuse at this safe boundary; never deliver while Wasm locals live.
         if(this.freezing||t.pending||t.proc.pending)throw new Error('Sparse signals/snapshots are unsupported');
         const plan=this.sparsePlan(t),rip=plan.rip;
-        const generation=this.sparseBroker.beginInstruction(s.token,{rip,operation:plan.operation,width:plan.width,continuations:plan.continuations,nextRip:plan.nextRip,sourceRegister:plan.sourceRegister,stackRegister:plan.stackRegister,addMemoryOperand:plan.addMemoryOperand,orMemoryOperand:plan.orMemoryOperand,divisionOperand:plan.divisionOperand});
+        const generation=this.sparseBroker.beginInstruction(s.token,{rip,operation:plan.operation,width:plan.width,continuations:plan.continuations,nextRip:plan.nextRip,sourceRegister:plan.sourceRegister,stackRegister:plan.stackRegister,addMemoryOperand:plan.addMemoryOperand,subMemoryOperand:plan.subMemoryOperand,orMemoryOperand:plan.orMemoryOperand,divisionOperand:plan.divisionOperand});
         s.active=plan;
         view.setBigUint64(scratch+B.FIELD.checkpoint,generation,true);
         view.setBigUint64(scratch+B.FIELD.checkpointRip,rip,true);

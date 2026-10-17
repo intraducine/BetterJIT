@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 4, Coverage = 22;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 4, Coverage = 23;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
@@ -166,9 +166,9 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
       // Non-LOCK ADD r/m32,r32 and r/m64,r64 only. A dedicated broker
       // transaction links the complete FEX load/add/store and preserves flags.
       if (!Register && Op == 0x01) return {true, 11, Width};
-      // Register-destination ADD and non-LOCK memory-destination OR, 32/64
+      // Register-destination ADD/SUB and non-LOCK memory-destination OR, 32/64
       // bits. Decode the complete encoding and selected GPR independently.
-      if (!Register && (Op == 0x03 || Op == 0x09)) {
+      if (!Register && (Op == 0x03 || Op == 0x2b || Op == 0x09)) {
         const uint8_t M = Bytes[I], Mod = M >> 6, RM = M & 7;
         size_t End = I + 1, Displacement = Mod == 1 ? 1 : Mod == 2 ? 4 : 0;
         if (RM == 4) {
@@ -181,7 +181,7 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
           }
         } else if (Mod == 0 && RM == 5) Displacement = 4;
         if (Displacement > Size - End) return {};
-        return {true, Op == 0x03 ? 15u : 16u, Width, 0, false, uint32_t(End + Displacement), uint32_t((M >> 3 & 7) + ((Rex & 4) ? 8 : 0))};
+        return {true, Op == 0x03 ? 15u : Op == 0x2b ? 18u : 16u, Width, 0, false, uint32_t(End + Displacement), uint32_t((M >> 3 & 7) + ((Rex & 4) ? 8 : 0))};
       }
       if (Op == 0x84 || Op == 0x85 || Op == 0x38 || Op == 0x39 || Op == 0x3a || Op == 0x3b)
         return {true, Register ? 6u : 8u, Register ? 0u : ((Op & 1) ? Width : 1u)};

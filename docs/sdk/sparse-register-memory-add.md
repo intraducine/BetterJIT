@@ -1,5 +1,9 @@
 # Checked register-destination memory-source ADD
 
+For the current shared ADD/SUB family and semantic FINISH flag validation, see
+[register-memory arithmetic](sparse-register-memory-arithmetic.md). The following
+describes the original coverage-15 ADD milestone and its historical receipts.
+
 Coverage 15 adds `ADD r32,r/m32` and `ADD r64,r/m64` with a memory source
 (`03 /r`, optionally prefixed by one REX). The memory/checkpoint/step ABIs remain
 1/1/3 and the header stays 96 bytes. Operation 15 has width four or eight,

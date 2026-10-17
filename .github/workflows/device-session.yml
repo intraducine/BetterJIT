@@ -134,6 +134,7 @@ jobs:
       - name: Validate SDK and complete device-session orchestration
         run: |
           bash scripts/check-sdk.sh
+          node --test tests/fexhost/read-arithmetic-materializer.test.mjs
           bash scripts/check-fexhost.sh
           swift test -j 2 --filter AppleHostTests
           python3 scripts/export-sdk.py --check
@@ -246,6 +247,8 @@ jobs:
           node tests/sdk/linux-host/sparse-memory-or.cjs .build/host-fex/fexserve .build/sparse-memory-or-results.json
           .build/host-fex/sparse-memory-or-ir > .build/sparse-memory-or-ir-results.log
           node tests/sdk/linux-host/sparse-read-add.cjs .build/host-fex/fexserve .build/sparse-read-add-results.json
+          node tests/sdk/linux-host/sparse-read-add.cjs .build/host-fex/fexserve .build/sparse-read-sub-results.json SUB
+          node tests/sdk/linux-host/sparse-read-arithmetic-program.cjs .build/host-fex/fexserve .build/sparse-read-arithmetic-program-results.json
           .build/host-fex/sparse-register-memory-add-ir > .build/sparse-read-add-ir-results.log
           node tests/sdk/linux-host/sparse-jump.cjs .build/host-fex/fexserve .build/sparse-jump-results.json
           .build/host-fex/sparse-register-jump-ir > .build/sparse-jump-ir-results.log
@@ -305,6 +308,8 @@ jobs:
             .build/sparse-memory-or-results.json
             .build/sparse-memory-or-ir-results.log
             .build/sparse-read-add-results.json
+            .build/sparse-read-sub-results.json
+            .build/sparse-read-arithmetic-program-results.json
             .build/sparse-read-add-ir-results.log
             .build/sparse-jump-results.json
             .build/sparse-jump-ir-results.log

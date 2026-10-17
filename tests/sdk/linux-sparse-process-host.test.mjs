@@ -5,6 +5,15 @@ vm.runInThisContext(fs.readFileSync(new URL('../../Sources/BetterJITLinux/Resour
 const tick=()=>new Promise(r=>setImmediate(r));
 function spec(slot=0){const q=new SharedArrayBuffer(16);new Int32Array(q)[1]=1;new BigUint64Array(q)[1]=BigInt(slot+1);const ksab=new SharedArrayBuffer(4096);Atomics.store(new Int32Array(ksab),((256+slot*128)>>2)+26,1);return{pid:100,tid:100,slot,lease:BigInt(slot+1),space:1,ksab,quiescence:q,stopControl:new SharedArrayBuffer(4)};}
 function fixture(get=async()=>({ok:true,json:async()=>({})}),options={}){const errors=[],workers=[];const host=new BetterJITSparseProcessHost({get,cfg:{},onFailure:e=>errors.push(e),workerFactory:()=>{const w={messages:[],terminated:0,postMessage:m=>w.messages.push(m),terminate:()=>w.terminated++};workers.push(w);return w;},...options});return{host,errors,workers};}
+async function settleRequests(f,label,timeoutMs=5000){
+ const pending=f.host.history.flatMap(r=>[...r.pending]);let timer;
+ try{return await Promise.race([Promise.allSettled(pending),new Promise((_resolve,reject)=>{
+  timer=setTimeout(()=>reject(Error('Timed out after '+timeoutMs+'ms waiting for '+label+'; '+JSON.stringify({
+   owners:f.host.history.map(r=>({slot:r.spec.slot,space:r.spec.space,pending:r.pending.size,requests:[...r.requests]})),
+   replies:f.workers.flatMap(w=>w.messages.filter(m=>m.op==='unit-reply').map(m=>m.id)),errors:f.errors.map(e=>e.message),cache:f.host.cacheStats()
+  }))),timeoutMs);
+ })]);}finally{clearTimeout(timer);}
+}
 const result=(w,d,extra={})=>w.onmessage({data:{op:'thread-result',lease:d.lease,slot:d.slot,tid:d.tid,pendingRequests:0,result:{status:0},...extra}});
 test('owned completion certifies guest quiescence without clearing occupancy or terminating its worker',async()=>{
  const f=fixture(),d=spec();f.host.spawn(d);await tick();result(f.workers[0],d);assert.equal(new Int32Array(d.quiescence)[0],1);assert.equal(Atomics.load(new Int32Array(d.ksab),((256+d.slot*128)>>2)+26),1);assert.equal(f.workers[0].terminated,0);assert.equal(f.errors.length,0);f.host.close();assert.equal(f.workers[0].terminated,1);
@@ -93,7 +102,9 @@ test('settled LRU entries evict across multiple capacities; hits refresh order a
  globalThis.FexLinuxThread={parseBrokerStep:bytes=>({status:0,header:bytes.slice(0,96),code:wasm.slice()})};
  const f=fixture(async()=>{fetches++;return{arrayBuffer:async()=>new Uint8Array(104).fill(7).buffer};},{translationBudget:{maximumUnits:2,maximumBytes:2097152}}),d=spec();
  try{f.host.spawn(d);await tick();const w=f.workers[0];w.postMessage=m=>w.messages.push(structuredClone(m));let id=0;
-  const ask=async rip=>{const request=++id;w.onmessage({data:{op:'unit-request',id:request,space:1,rip}});for(let n=0;n<100&&!w.messages.some(m=>m.id===request);n++)await tick();assert.equal(f.errors.length,0);return w.messages.find(m=>m.id===request).unit;};
+  const ask=async rip=>{const request=++id;w.onmessage({data:{op:'unit-request',id:request,space:1,rip}});
+   await settleRequests(f,'LRU unit reply id='+request+' rip=0x'+rip.toString(16));assert.equal(f.errors.length,0);
+   const reply=w.messages.find(m=>m.op==='unit-reply'&&m.id===request);assert(reply,'Completed LRU request '+request+' must deliver its owned unit reply');return reply.unit;};
   const first=await ask(4096n),entry=f.host.cache.get('1:4096');await ask(4097n);await ask(4096n);await ask(4098n);
   assert(f.host.cache.has('1:4096'));assert(!f.host.cache.has('1:4097'));assert.equal(fetches,3);
   for(let i=0;i<12;i++){await ask(8192n+BigInt(i));assert.equal(f.host.cache.size,2);assert.equal(f.host.retainedBytes,208);}
@@ -101,6 +112,17 @@ test('settled LRU entries evict across multiple capacities; hits refresh order a
   const again=await ask(4096n);assert.notEqual(again.module,first.module);assert.deepEqual(again.header,new Uint8Array(104).fill(7).slice(0,96));
   const s=f.host.cacheStats();assert.equal(s.hits,1);assert.equal(s.fetches,16);assert.equal(s.compiled,16);assert.equal(s.evictions,14);assert.equal(s.peakEntries,2);assert.equal(s.peakRetainedBytes,208);assert.equal(s.pendingEntries,0);assert.equal(s.pinnedRequests,0);
   result(w,d);f.host.drop({space:1});await Promise.all(f.host.drops);assert.equal(f.host.retainedBytes,0);
+ }finally{f.host.close();globalThis.FexLinuxThread=old;}
+});
+
+test('bounded request completion reports a stalled owner and drains after release',async()=>{
+ const old=globalThis.FexLinuxThread;globalThis.FexLinuxThread={parseBrokerStep:()=>({status:2,code:new Uint8Array(0)})};let release;
+ const held=new Promise(resolve=>{release=resolve;}),f=fixture(async()=>({arrayBuffer:()=>held})),d=spec();
+ try{f.host.spawn(d);await tick();f.workers[0].onmessage({data:{op:'unit-request',id:7,space:1,rip:4096n}});
+  await assert.rejects(settleRequests(f,'deliberately stalled unit id=7 rip=0x1000',10),error=>
+   /Timed out after 10ms.*id=7.*rip=0x1000/.test(error.message)&&error.message.includes('"pending":1')&&error.message.includes('"requests":[7]'));
+  release(new ArrayBuffer(96));await settleRequests(f,'released unit id=7');assert.equal(f.errors.length,0);
+  assert.equal(f.workers[0].messages.filter(m=>m.op==='unit-reply'&&m.id===7).length,1);assert.equal(f.host.cacheStats().pinnedRequests,0);assert.equal(f.host.history[0].pending.size,0);
  }finally{f.host.close();globalThis.FexLinuxThread=old;}
 });
 
@@ -134,7 +156,7 @@ test('shared failed fetches release the entry only after every waiter and cannot
 });
 
 test('parse and compile failures remove charged entries and retain the cumulative byte debit',async()=>{
- const old=globalThis.FexLinuxThread;try{for(const mode of ['parse','compile']){globalThis.FexLinuxThread={parseBrokerStep:()=>{if(mode==='parse')throw Error('parse failed');return{status:0,code:Uint8Array.of(255)};}};const f=fixture(async()=>({arrayBuffer:async()=>new ArrayBuffer(96)})),d=spec();try{f.host.spawn(d);await tick();f.workers[0].onmessage({data:{op:'unit-request',id:1,space:1,rip:4096n}});for(let n=0;n<100&&!f.errors.length;n++)await tick();assert.equal(f.errors.length,1);assert.equal(f.host.cache.size,0);assert.equal(f.host.retainedBytes,0);assert.equal(f.host.cacheBytes,96);assert.equal(f.host.cacheStats().pendingEntries,0);assert.equal(f.host.cacheStats().pinnedRequests,0);assert.equal(f.host.cacheStats().failedRemovals,1);}finally{f.host.close();}}}finally{globalThis.FexLinuxThread=old;}
+ const old=globalThis.FexLinuxThread;try{for(const mode of ['parse','compile']){globalThis.FexLinuxThread={parseBrokerStep:()=>{if(mode==='parse')throw Error('parse failed');return{status:0,code:Uint8Array.of(255)};}};const f=fixture(async()=>({arrayBuffer:async()=>new ArrayBuffer(96)})),d=spec();try{f.host.spawn(d);await tick();f.workers[0].onmessage({data:{op:'unit-request',id:1,space:1,rip:4096n}});await settleRequests(f,mode+' failure completion');assert.equal(f.errors.length,1);assert.equal(f.host.cache.size,0);assert.equal(f.host.retainedBytes,0);assert.equal(f.host.cacheBytes,96);assert.equal(f.host.cacheStats().pendingEntries,0);assert.equal(f.host.cacheStats().pinnedRequests,0);assert.equal(f.host.cacheStats().failedRemovals,1);}finally{f.host.close();}}}finally{globalThis.FexLinuxThread=old;}
 });
 
 test('close leaves pending/pinned accounting visible and late fetches never parse, compile or reinsert',async()=>{

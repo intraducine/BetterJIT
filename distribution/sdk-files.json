@@ -341,6 +341,11 @@
     "tests/sdk/linux-host/sparse-div.cjs": "tests/sdk/linux-host/sparse-div.cjs",
     "tests/sdk/linux-host/sparse-div-oracle.c": "tests/sdk/linux-host/sparse-div-oracle.c",
     "tests/sdk/linux-host/sparse-div-oracle.json": "tests/sdk/linux-host/sparse-div-oracle.json",
-    "tests/sdk/linux-sparse-div.test.mjs": "tests/sdk/linux-sparse-div.test.mjs"
+    "tests/sdk/linux-sparse-div.test.mjs": "tests/sdk/linux-sparse-div.test.mjs",
+    "docs/sdk/sparse-register-memory-arithmetic.md": "docs/sdk/sparse-register-memory-arithmetic.md",
+    "tests/sdk/linux-sparse-read-arithmetic.test.mjs": "tests/sdk/linux-sparse-read-arithmetic.test.mjs",
+    "tests/sdk/linux-host/sparse-read-sub-oracle.c": "tests/sdk/linux-host/sparse-read-sub-oracle.c",
+    "tests/sdk/linux-host/sparse-read-sub-oracle.json": "tests/sdk/linux-host/sparse-read-sub-oracle.json",
+    "tests/sdk/linux-host/sparse-read-arithmetic-program.cjs": "tests/sdk/linux-host/sparse-read-arithmetic-program.cjs"
   }
 }

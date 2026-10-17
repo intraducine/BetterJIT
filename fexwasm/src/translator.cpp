@@ -609,7 +609,7 @@ fexwasm_bytes fexwasm_step(fexwasm_translator* T, uint64_t RIP) {
     if (Length != Plan.Length || Plan.Register >= 16 || RIP + Length >= (1ull << 47)) {
       return Reject("register DIV instruction address/length");
     }
-  } else if (Plan.Operation == 15 || Plan.Operation == 16) {
+  } else if (Plan.Operation == 15 || Plan.Operation == 16 || Plan.Operation == 18) {
     if (Length != Plan.Length || Plan.Register >= 16 || RIP + Length >= (1ull << 47)) {
       return Reject("memory arithmetic instruction address/length");
     }
