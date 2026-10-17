@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 4, Coverage = 24;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 4, Coverage = 25;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
@@ -21,6 +21,12 @@ struct Admission {
   uint32_t BitWidth = 0, BitRegister = 16, BitIndex = 0; // BT; register 16 selects imm8
   uint32_t LogicalWidth = 0, LogicalKind = 0; // group-1 /1 OR, /4 AND, /6 XOR
   uint64_t LogicalMask = 0; // decoded, width-masked signed immediate
+  bool WordCompare = false; // 66 81/83 /7, memory source, no operand write
+  uint32_t CompareImmediate = 0; // imm16 or sign-extended imm8, masked to16 bits
+  int32_t CompareBase = -1, CompareIndex = -1;
+  uint32_t CompareScale = 1;
+  int64_t CompareDisplacement = 0;
+  bool CompareRIPRelative = false;
 };
 // Bounded architectural NOP encodings. Legacy prefixes may repeat, followed
 // by at most one REX. REP/LOCK and a REX before a legacy prefix are excluded.
@@ -154,6 +160,38 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
     if (TestWidth == 8) Mask = uint64_t(int64_t(int32_t(Mask)));
     Admission A {true, 6, 0, 0, false, uint32_t(I + ImmediateBytes), Register};
     A.TestWidth = TestWidth; A.TestShift = Shift; A.TestMask = Mask; return A;
+  }
+  if (Word && !Segment && !Lock && !(Rex & 8) && (Op == 0x81 || Op == 0x83)) {
+    if (I >= Size) return {};
+    const uint8_t M = Bytes[I++], Mod = M >> 6, RM = M & 7;
+    if (Mod == 3 || (M & 0x38) != 0x38) return {};
+    int32_t Base = -1, Index = -1; uint32_t Scale = 1; bool RIPRelative = false;
+    size_t Displacement = Mod == 1 ? 1 : Mod == 2 ? 4 : 0;
+    if (RM == 4) {
+      if (I >= Size) return {};
+      const uint8_t SIB = Bytes[I++], LowBase = SIB & 7, LowIndex = SIB >> 3 & 7;
+      Scale = 1u << (SIB >> 6);
+      if (LowIndex != 4 || (Rex & 2)) Index = LowIndex + ((Rex & 2) ? 8 : 0);
+      if (LowBase == 5 && Mod == 0) {
+        // Same pinned frontend no-base SIB/REX.B defect as memory ADD/SUB.
+        if (Rex & 1) return {};
+        Displacement = 4;
+      } else Base = LowBase + ((Rex & 1) ? 8 : 0);
+    } else if (Mod == 0 && RM == 5) { Displacement = 4; RIPRelative = true; }
+    else Base = RM + ((Rex & 1) ? 8 : 0);
+    const size_t ImmediateBytes = Op == 0x83 ? 1 : 2;
+    if (Displacement + ImmediateBytes > Size - I) return {};
+    int64_t Offset = 0;
+    if (Displacement == 1) Offset = int8_t(Bytes[I]);
+    if (Displacement == 4) {
+      uint32_t Raw = 0; for (unsigned J = 0; J < 4; J++) Raw |= uint32_t(Bytes[I + J]) << (J * 8);
+      Offset = int32_t(Raw);
+    }
+    I += Displacement;
+    const uint32_t Immediate = Op == 0x83 ? uint16_t(int16_t(int8_t(Bytes[I]))) : uint32_t(Bytes[I]) | uint32_t(Bytes[I + 1]) << 8;
+    Admission A {true, 8, 2, 0, false, uint32_t(I + ImmediateBytes)};
+    A.WordCompare = true; A.CompareImmediate = Immediate; A.CompareBase = Base; A.CompareIndex = Index;
+    A.CompareScale = Scale; A.CompareDisplacement = Offset; A.CompareRIPRelative = RIPRelative; return A;
   }
   if (!Word && !Segment && !Lock) {
     // Each admitted arithmetic family has an explicit register, read-only or

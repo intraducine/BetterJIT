@@ -1,5 +1,37 @@
 # Reusable build assets
 
+For a source checkout with the exact previously prepared Wine root and its
+retained probe report, run one bounded local iteration:
+
+```sh
+# Linux x86_64 frontend diagnostics; use the normal host environment on arm64 macOS.
+BETTERJIT_HOST_DEBUG_X86=1 python3 scripts/iterate-sparse.py run \
+  --family word-compare --family read-arithmetic \
+  --wine-root .build/device-linuxroot \
+  --input-identity /path/to/retained/sparse-wine-bootstrap-results.json
+```
+
+The command verifies Wine/musl hashes, provenance and the unchanged probe
+budget before building. It fingerprints the checkout, verifies the patched FEX
+pin and recursive dependencies, and calls `Backends/FEX/build-host.sh` with only
+the selected native test tools and server. Compiler depfiles, source/header
+hashes, compiler/recipe identity and output hashes govern local object reuse.
+Changed backend code recompiles that object; changed embedded build identity
+recompiles the translator. Frontend receipts verify native libraries and generated
+headers; missing or incompatible receipts trigger a clean frontend rebuild.
+Tests always execute anew. Add `--expected-source SHA256` to require an exact
+source fingerprint, or `--regressions-only` to explicitly omit unavailable Wine inputs.
+
+Each invocation writes a fresh `.build/iterations/...` directory containing
+`result.json`, `result.txt`, source identity, selected regression reports, the
+unchanged Wine probe report and per-command logs. Nonzero subprocess exits and
+timeouts remain failures. A passing bounded Wine prefix returns nonzero with
+the first unsupported bytes/RIP; it never establishes command completion.
+Runtime retirement acknowledgement and later host teardown remain separate.
+This Linux frontend configuration is actual FEX-to-Wasm evidence, not native
+FEX JIT, Apple compilation or device execution. No full Apple build or large
+evidence archive is required for each local instruction iteration.
+
 The device-session workflow reuses prepared inputs and compiled components across
 consumer commits. It always reruns the current SDK/session tests, live host cases,
 adapter generation, SDK export, complete app build, independent consumer build and

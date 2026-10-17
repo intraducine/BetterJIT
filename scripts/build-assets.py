@@ -19,7 +19,7 @@ COMPONENTS = {
     'fex-ios': {'path': '.build/FEXNativePackage', 'step': 'build-native',
                 'inputs': COMMON + FEX + ['Backends/FEX/build-ios.sh', 'COPYING']},
     'fex-host': {'path': '.build/host-fex', 'step': 'build-host',
-                 'inputs': COMMON + FEX + ['Backends/FEX/build-host.sh', 'fexwasm/tools/fexserve.cpp']},
+                 'inputs': COMMON + FEX + ['Backends/FEX/build-host.sh', 'scripts/iterate-sparse.py', 'fexwasm/tools/fexserve.cpp']},
     'wine-inputs': {'path': '.build/wine-input-assets', 'step': 'wine-flat',
                     'inputs': COMMON + ['scripts/prepare-wine-root.py', 'scripts/prepare-wine-flat-root.py',
                         'patches/wine-flat-guest.patch', 'tests/fexhost/wine-flat-native.py',

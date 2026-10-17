@@ -350,6 +350,13 @@
     "SwiftTests/BetterJITLinuxTests/LinuxFileSystemTests.swift": "Tests/BetterJITLinuxTests/LinuxFileSystemTests.swift",
     "SwiftTests/BetterJITLinuxTests/LinuxSessionOwnershipTests.swift": "Tests/BetterJITLinuxTests/LinuxSessionOwnershipTests.swift",
     "SwiftTests/BetterJITLinuxTests/SparseWebKitHostTests.swift": "Tests/BetterJITLinuxTests/SparseWebKitHostTests.swift",
-    "SwiftTests/BetterJITLinuxTests/LinuxSparseTransportTests.swift": "Tests/BetterJITLinuxTests/LinuxSparseTransportTests.swift"
+    "SwiftTests/BetterJITLinuxTests/LinuxSparseTransportTests.swift": "Tests/BetterJITLinuxTests/LinuxSparseTransportTests.swift",
+    "tests/sdk/linux-host/sparse-word-compare.cjs": "tests/sdk/linux-host/sparse-word-compare.cjs",
+    "tests/sdk/linux-host/sparse-word-compare-oracle.c": "tests/sdk/linux-host/sparse-word-compare-oracle.c",
+    "tests/sdk/linux-host/sparse-word-compare-oracle.json": "tests/sdk/linux-host/sparse-word-compare-oracle.json",
+    "tests/sdk/linux-sparse-word-compare.test.mjs": "tests/sdk/linux-sparse-word-compare.test.mjs",
+    "docs/sdk/sparse-word-compare.md": "docs/sdk/sparse-word-compare.md",
+    "scripts/iterate-sparse.py": "scripts/iterate-sparse.py",
+    "tests/sdk/iteration.test.py": "tests/sdk/iteration.test.py"
   }
 }

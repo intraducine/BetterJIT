@@ -37,6 +37,12 @@ struct BackendConfig {
   uint32_t BrokerBitWidth = 0, BrokerBitRegister = 16, BrokerBitIndex = 0; // register BT proof
   uint32_t BrokerLogicalWidth = 0, BrokerLogicalKind = 0;
   uint64_t BrokerLogicalMask = 0; // group-1 register logical immediate proof
+  bool BrokerWordCompare = false;
+  uint32_t BrokerCompareImmediate = 0; // independently decoded word CMP immediate
+  int32_t BrokerCompareBase = -1, BrokerCompareIndex = -1;
+  uint32_t BrokerCompareScale = 1;
+  int64_t BrokerCompareDisplacement = 0;
+  bool BrokerCompareRIPRelative = false;
   uint64_t BrokerNextRIP = 0;
   uint64_t BrokerTarget = 0;
   uint32_t BrokerFlow = 0; // fallthrough/jump/conditional/direct-call/checked-return/register-jump

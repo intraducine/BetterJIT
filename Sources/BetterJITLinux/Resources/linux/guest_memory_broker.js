@@ -4,7 +4,7 @@
   'use strict';
   const storage=root.BetterJITGuestMemory;
   if(!storage||storage.STORAGE_VERSION!==1)throw new Error('Guest storage contract 1 required');
-  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:4,coverageVersion:24,stepHeaderBytes:96,
+  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:4,coverageVersion:25,stepHeaderBytes:96,
     magic:0x314d4a42,internalPages:33,threadBase:0x10000,threadBytes:0x200000,
     scratchOffset:0x1f0000,scratchBytes:128,memoryRequest:0x10003,instructionBoundary:0x10004,maximumThreads:8,parkedState:4,
     userCopyBytes:65536});
@@ -39,6 +39,7 @@
     if(p.operation===OP.SUB_REGISTER_MEMORY){subMemoryOperand(p);return Object.freeze([p.nextRip]);}
     if(p.operation===OP.OR_MEMORY){orMemoryOperand(p);return Object.freeze([p.nextRip]);}
     if(p.operation===OP.DIV_REGISTER){divisionOperand(p);return Object.freeze([p.nextRip]);}
+    if(p.operation===OP.READ_FLAGS&&p.width===2){wordCompareOperand(p);return Object.freeze([p.nextRip]);}
     if(p.operation===OP.CALL) {
       const b=p.instruction;
       if(b.length!==5||b[0]!==0xe8||kind!==3||p.width!==8)throw new TypeError('Invalid direct call metadata');
@@ -62,6 +63,26 @@
     else throw new TypeError('Uncovered branch instruction');
     if(kind!==flow||typeof target!=='bigint'||target!==BigInt.asUintN(64,p.nextRip+offset))throw new TypeError('Invalid branch continuation');
     return Object.freeze(kind===1?[target]:[p.nextRip,target]);
+  }
+  function wordCompareOperand(p) {
+    const b=p.instruction;let i=0,rex=0;
+    const fail=()=>{throw new TypeError('Invalid word memory CMP metadata');};
+    if(!(b instanceof Uint8Array)||b[i++]!==0x66)fail();
+    if(b[i]>=0x40&&b[i]<=0x47)rex=b[i++];
+    const opcode=b[i++];if((opcode!==0x81&&opcode!==0x83)||i>=b.length)fail();
+    const m=b[i++],mod=m>>6,rm=m&7;if(mod===3||(m&0x38)!==0x38)fail();
+    let base=-1,index=-1,scale=1,displacement=0n,ripRelative=false,bytes=mod===1?1:mod===2?4:0;
+    if(rm===4){if(i>=b.length)fail();const sib=b[i++],lowBase=sib&7,lowIndex=sib>>3&7;scale=1<<(sib>>6);
+      if(lowIndex!==4||(rex&2))index=lowIndex+((rex&2)?8:0);
+      if(mod===0&&lowBase===5){if(rex&1)fail();bytes=4;}else base=lowBase+((rex&1)?8:0);
+    }else if(mod===0&&rm===5){ripRelative=true;bytes=4;}else base=rm+((rex&1)?8:0);
+    const immediateBytes=opcode===0x83?1:2;if(i+bytes+immediateBytes!==b.length)fail();
+    const v=new DataView(b.buffer,b.byteOffset,b.byteLength);
+    if(bytes===1)displacement=BigInt(v.getInt8(i));if(bytes===4)displacement=BigInt(v.getInt32(i,true));i+=bytes;
+    const immediate=opcode===0x83?v.getInt8(i)&65535:v.getUint16(i,true);
+    if(p.operation!==OP.READ_FLAGS||p.width!==2||p.continuationKind!==0||p.branchTarget!==0n||
+       !canonical(p.rip)||p.nextRip!==p.rip+BigInt(b.length)||!canonical(p.nextRip)||p.length!==b.length)fail();
+    return Object.freeze({base,index,scale,displacement,ripRelative,immediate,length:b.length});
   }
   function divisionOperand(p) {
     const b=p.instruction,i=b?.length===3&&b[0]>=0x40&&b[0]<=0x4f?1:0,rex=i?b[0]:0;
@@ -161,7 +182,7 @@
     const result={status,operation,width,rip,nextRip,length,hash:v.getBigUint64(48,true),
       continuationKind:v.getUint32(88,true),branchTarget:v.getBigUint64(80,true),
       instruction:bytes.slice(64,64+length),codeBytes:size};
-    if(status===0)try{result.continuations=instructionContinuations(result);if(operation===OP.JUMP_REGISTER)result.sourceRegister=jumpSourceRegister(result);if([OP.PUSH_REGISTER,OP.POP_REGISTER].includes(operation))result.stackRegister=stackRegister(result);if(operation===OP.ADD_REGISTER_MEMORY)result.addMemoryOperand=addMemoryOperand(result);if(operation===OP.SUB_REGISTER_MEMORY)result.subMemoryOperand=subMemoryOperand(result);if(operation===OP.OR_MEMORY)result.orMemoryOperand=orMemoryOperand(result);if(operation===OP.DIV_REGISTER)result.divisionOperand=divisionOperand(result);}catch(error){throw new Error('Invalid broker continuation metadata: '+error.message);}
+    if(status===0)try{result.continuations=instructionContinuations(result);if(operation===OP.JUMP_REGISTER)result.sourceRegister=jumpSourceRegister(result);if([OP.PUSH_REGISTER,OP.POP_REGISTER].includes(operation))result.stackRegister=stackRegister(result);if(operation===OP.ADD_REGISTER_MEMORY)result.addMemoryOperand=addMemoryOperand(result);if(operation===OP.SUB_REGISTER_MEMORY)result.subMemoryOperand=subMemoryOperand(result);if(operation===OP.OR_MEMORY)result.orMemoryOperand=orMemoryOperand(result);if(operation===OP.DIV_REGISTER)result.divisionOperand=divisionOperand(result);if(operation===OP.READ_FLAGS&&width===2)result.wordCompareOperand=wordCompareOperand(result);}catch(error){throw new Error('Invalid broker continuation metadata: '+error.message);}
     return result;
   }
 
@@ -290,7 +311,7 @@
     }
     // Called at a safe boundary after native code has spilled the full CPU state.
     // operation/width must come from compile-time admission, never guest input.
-    beginInstruction(token,{rip,operation=0,width=0,continuations,nextRip,sourceRegister,stackRegister,addMemoryOperand,subMemoryOperand,orMemoryOperand,divisionOperand}) {
+    beginInstruction(token,{rip,operation=0,width=0,continuations,nextRip,sourceRegister,stackRegister,addMemoryOperand,subMemoryOperand,orMemoryOperand,divisionOperand,wordCompareOperand}) {
       const s=requireOwner(this,token);rip=u64(rip);
       if(s.preparedCopies.size)throw new BrokerInvariantError('Prepared copyout must complete before BEGIN');
       if(s.active||s.waits.size)invariant(s,'Instruction already active or parked');
@@ -303,6 +324,17 @@
         continuations=Object.freeze(continuations.map(u64));
       }
       let stackBefore,stackAfter;
+      const wordCompare=operation===OP.READ_FLAGS&&width===2,c=wordCompare&&wordCompareOperand?Object.freeze({
+        base:wordCompareOperand.base,index:wordCompareOperand.index,scale:wordCompareOperand.scale,
+        displacement:wordCompareOperand.displacement,ripRelative:wordCompareOperand.ripRelative,
+        immediate:wordCompareOperand.immediate,length:wordCompareOperand.length}):null;
+      if(wordCompare&&(s.layout.generalRegistersOffset===undefined||!s.layout.arithmeticFlags||!c||
+         !['base','index'].every(n=>Number.isInteger(c[n])&&c[n]>=-1&&c[n]<16)||![1,2,4,8].includes(c.scale)||
+         typeof c.displacement!=='bigint'||c.displacement<-(1n<<31n)||c.displacement>=(1n<<31n)||
+         typeof c.ripRelative!=='boolean'||(c.ripRelative&&(c.base!==-1||c.index!==-1))||
+         !Number.isInteger(c.immediate)||c.immediate<0||c.immediate>65535||!Number.isInteger(c.length)||c.length<4||c.length>11||
+         !canonical(rip)||!canonical(nextRip)||nextRip!==rip+BigInt(c.length)||
+         !Array.isArray(continuations)||continuations.length!==1||continuations[0]!==nextRip))throw new TypeError('Checked word memory CMP metadata required');
       if(operation===OP.DIV_REGISTER&&(s.layout.generalRegistersOffset===undefined||!divisionOperand||
          !Number.isInteger(divisionOperand.register)||divisionOperand.register<0||divisionOperand.register>=16||
          ![2,3].includes(divisionOperand.length)||!canonical(rip)||!canonical(nextRip)||nextRip!==rip+BigInt(divisionOperand.length)||
@@ -336,7 +368,9 @@
       const snapshot=s.layout.spans.map(p=>({offset:p.offset,
         bytes:new Uint8Array(s.memory.buffer,ABI.threadBase+p.offset,p.size).slice()}));
       const jumpTarget=operation===OP.JUMP_REGISTER?new DataView(snapshot[0].bytes.buffer).getBigUint64(s.layout.generalRegistersOffset+sourceRegister*8,true):undefined;
-      let memoryArithmetic,memoryOR;
+      let memoryArithmetic,memoryOR,wordComparison;
+      if(wordCompare){const cpu=new DataView(snapshot[0].bytes.buffer),reg=n=>n<0?0n:cpu.getBigUint64(s.layout.generalRegistersOffset+n*8,true);
+        wordComparison=Object.freeze({immediate:c.immediate,address:BigInt.asUintN(64,(c.ripRelative?nextRip:0n)+reg(c.base)+reg(c.index)*BigInt(c.scale)+c.displacement)});}
       if(readArithmetic){const cpu=new DataView(snapshot[0].bytes.buffer),reg=n=>n<0?0n:cpu.getBigUint64(s.layout.generalRegistersOffset+n*8,true);
         memoryArithmetic=Object.freeze({register:o.register,destinationValue:reg(o.register),
           address:BigInt.asUintN(64,(o.ripRelative?nextRip:0n)+reg(o.base)+reg(o.index)*BigInt(o.scale)+o.displacement)});}
@@ -349,7 +383,7 @@
       let division;
       if(operation===OP.DIV_REGISTER){const cpu=new DataView(snapshot[0].bytes.buffer),reg=n=>BigInt.asUintN(width*8,cpu.getBigUint64(s.layout.generalRegistersOffset+n*8,true)),low=reg(0),high=reg(2),divisor=reg(divisionOperand.register);
         division=Object.freeze({low,high,divisor,reason:divisor===0n?'zero-divisor':high>=divisor?'quotient-overflow':null});}
-      s.active={rip,generation:++s.checkpoint,operation,width,continuations,snapshot,result:null,nextRip,stackBefore,stackAfter,jumpTarget,stackRegister,stackValue,memoryArithmetic,memoryOR,division};return s.checkpoint;
+      s.active={rip,generation:++s.checkpoint,operation,width,continuations,snapshot,result:null,nextRip,stackBefore,stackAfter,jumpTarget,stackRegister,stackValue,memoryArithmetic,memoryOR,division,wordComparison};return s.checkpoint;
     }
     // The caller uses its authenticated thread record's token, not a request PID.
     // This synchronous route has no syscall, signal, redirect or await callbacks.
@@ -375,6 +409,7 @@
       if(!a||q.getBigUint64(FIELD.rip,true)!==a.rip||q.getBigUint64(FIELD.checkpoint,true)!==a.generation||
          operation!==([OP.READ_FLAGS,OP.RETURN,OP.POP_REGISTER,OP.ADD_REGISTER_MEMORY,OP.SUB_REGISTER_MEMORY].includes(a.operation)?OP.READ:[OP.CALL,OP.PUSH_REGISTER].includes(a.operation)?OP.WRITE:a.operation)||width!==a.width)return fail(REASON.CHECKPOINT);
       const address=q.getBigUint64(FIELD.address,true);
+      if(a.wordComparison&&address!==a.wordComparison.address)return fail(REASON.CHECKPOINT);
       if((a.operation===OP.ADD_REGISTER_MEMORY||a.operation===OP.SUB_REGISTER_MEMORY)&&address!==a.memoryArithmetic.address)return fail(REASON.CHECKPOINT);
       if(a.operation===OP.OR_MEMORY&&(address!==a.memoryOR.address||q.getBigUint64(FIELD.operand0,true)!==a.memoryOR.sourceValue))return fail(REASON.CHECKPOINT);
       if(a.operation===OP.PUSH_REGISTER||a.operation===OP.POP_REGISTER) {
@@ -496,6 +531,20 @@
             }else if(p.offset===s.layout.spans[1].offset){
               if(!actual.subarray(4,8).every((v,i)=>v===expected[i+4]))invariant(s,'OR memory changed lazy padding');
             }else if(!actual.every((v,i)=>v===expected[i]))invariant(s,'OR memory changed rounding state');
+          }
+        }
+        if(a.wordComparison) {
+          if(nextRip!==a.nextRip)invariant(s,'Word memory CMP fallthrough changed');
+          const value=a.result.data,immediate=BigInt(a.wordComparison.immediate),difference=BigInt.asUintN(32,value-immediate),flags=s.layout.arithmeticFlags;
+          for(const p of a.snapshot){const expected=p.bytes.slice(),actual=new Uint8Array(s.memory.buffer,ABI.threadBase+p.offset,expected.length),v=new DataView(expected.buffer);
+            if(p.offset===s.layout.spans[0].offset){
+              v.setBigUint64(s.layout.ripAddress-ABI.threadBase-p.offset,a.nextRip,true);
+              v.setUint32(flags.parityRawOffset,Number(difference),true);
+              v.setUint32(flags.auxiliaryRawOffset,Number(a.wordComparison.immediate&16?BigInt.asUintN(32,~value):value),true);
+            }else if(p.offset===s.layout.spans[1].offset){
+              v.setUint32(0,1,true);v.setBigUint64(8,value<<16n,true);v.setBigUint64(16,immediate<<16n,true);
+            }
+            if(!actual.every((n,i)=>n===expected[i]))invariant(s,'Word memory CMP changed unexpected checkpoint state');
           }
         }
         if(a.operation===OP.ADD_REGISTER_MEMORY||a.operation===OP.SUB_REGISTER_MEMORY) {
@@ -655,6 +704,6 @@
         faults:b.faults,unsupported:b.unsupported,rejected:b.rejected});
     }
   }
-  root.BetterJITGuestMemoryBroker=Object.freeze({ABI,FIELD,STATUS,REASON,OP,STEP,LIFECYCLE,jumpSourceRegister,stackRegister,addMemoryOperand,subMemoryOperand,orMemoryOperand,divisionOperand,materializeArithmeticNZCV,instructionContinuations,parseStepHeader,createInternalMemory,
+  root.BetterJITGuestMemoryBroker=Object.freeze({ABI,FIELD,STATUS,REASON,OP,STEP,LIFECYCLE,jumpSourceRegister,stackRegister,addMemoryOperand,subMemoryOperand,orMemoryOperand,divisionOperand,wordCompareOperand,materializeArithmeticNZCV,instructionContinuations,parseStepHeader,createInternalMemory,
     BrokerInvariantError,UserCopyUnsupported,GuestMemoryBroker});
 })(typeof globalThis!=='undefined'?globalThis:self);

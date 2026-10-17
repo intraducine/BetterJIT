@@ -594,6 +594,9 @@ fexwasm_bytes fexwasm_step(fexwasm_translator* T, uint64_t RIP) {
   Cfg.BrokerSetCondition = Plan.SetCondition; Cfg.BrokerSetShift = Plan.SetShift;
   Cfg.BrokerBitWidth = Plan.BitWidth; Cfg.BrokerBitRegister = Plan.BitRegister; Cfg.BrokerBitIndex = Plan.BitIndex;
   Cfg.BrokerLogicalWidth = Plan.LogicalWidth; Cfg.BrokerLogicalKind = Plan.LogicalKind; Cfg.BrokerLogicalMask = Plan.LogicalMask;
+  Cfg.BrokerWordCompare = Plan.WordCompare; Cfg.BrokerCompareImmediate = Plan.CompareImmediate;
+  Cfg.BrokerCompareBase = Plan.CompareBase; Cfg.BrokerCompareIndex = Plan.CompareIndex; Cfg.BrokerCompareScale = Plan.CompareScale;
+  Cfg.BrokerCompareDisplacement = Plan.CompareDisplacement; Cfg.BrokerCompareRIPRelative = Plan.CompareRIPRelative;
   if (Plan.Operation == 6 && Plan.Length && !Plan.TestWidth && Plan.SetCondition == 16) {
     if (Length != Plan.Length || Plan.Register >= 16 || RIP + Length >= (1ull << 47)) {
       return Reject("register arithmetic instruction address/length");
@@ -605,6 +608,10 @@ fexwasm_bytes fexwasm_step(fexwasm_translator* T, uint64_t RIP) {
   } else if (Plan.TestWidth) {
     if (Length != Plan.Length || Plan.Register >= 16 || RIP + Length >= (1ull << 47)) {
       return Reject("immediate TEST instruction address/length");
+    }
+  } else if (Plan.WordCompare) {
+    if (Length != Plan.Length || RIP + Length >= (1ull << 47)) {
+      return Reject("word memory compare instruction address/length");
     }
   } else if (Plan.Operation == 17) {
     if (Length != Plan.Length || Plan.Register >= 16 || RIP + Length >= (1ull << 47)) {

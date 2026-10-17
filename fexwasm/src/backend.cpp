@@ -11128,6 +11128,125 @@ std::vector<uint8_t> BuildDispatcher(const BackendConfig& Cfg, const std::vector
   return M.b;
 }
 
+// Word memory CMP is one checked read followed by the pinned small-width
+// NZCV/PF/AF lowering. No GPR, memory, context or other flag write belongs here.
+static CompileResult CheckBrokerWordCompare(const IRListView& IR, uint64_t EntryRIP, const BackendConfig& Cfg) {
+  auto Reject = [](const char* Why) { CompileResult R; R.Error = std::string("broker word memory CMP ") + Why; return R; };
+  if (!Cfg.BrokerWordCompare || Cfg.BrokerCompareImmediate > 0xffff || Cfg.BrokerOperation != 8 || Cfg.BrokerWidth != 2 ||
+      Cfg.BrokerFlow || Cfg.BrokerTarget || Cfg.BrokerNoEffects || Cfg.BrokerTargetRegister != 16 ||
+      Cfg.BrokerTestWidth || Cfg.BrokerTestShift || Cfg.BrokerTestMask || Cfg.BrokerSetCondition != 16 || Cfg.BrokerSetShift ||
+      Cfg.BrokerBitWidth || Cfg.BrokerBitRegister != 16 || Cfg.BrokerBitIndex ||
+      Cfg.BrokerLogicalWidth || Cfg.BrokerLogicalKind || Cfg.BrokerLogicalMask ||
+      Cfg.BrokerCompareBase < -1 || Cfg.BrokerCompareBase >= 16 || Cfg.BrokerCompareIndex < -1 || Cfg.BrokerCompareIndex >= 16 ||
+      (Cfg.BrokerCompareScale != 1 && Cfg.BrokerCompareScale != 2 && Cfg.BrokerCompareScale != 4 && Cfg.BrokerCompareScale != 8) ||
+      Cfg.BrokerCompareDisplacement < INT32_MIN || Cfg.BrokerCompareDisplacement > INT32_MAX ||
+      (Cfg.BrokerCompareRIPRelative && (Cfg.BrokerCompareBase != -1 || Cfg.BrokerCompareIndex != -1)) ||
+      EntryRIP >= (1ull << 47) || Cfg.BrokerNextRIP <= EntryRIP || Cfg.BrokerNextRIP >= (1ull << 47)) return Reject("profile");
+  OrderedNodeWrapper Load {}, Flags {}, Difference {}, Auxiliary {}, AF {}, PF {}, Exit {};
+  std::vector<OrderedNodeWrapper> AddressNodes;
+  std::unordered_map<uint32_t, uint32_t> Order; uint32_t Position = 0;
+  for (auto [Block, Header] : IR.GetBlocks()) for (auto [Node, H] : IR.GetCode(Block)) {
+    const auto W = IR.WrapNode(Node); Order.emplace(IR.GetID(Node).Value, ++Position);
+    if (!Exit.IsInvalid() && H->Op != OP_ENDBLOCK) return Reject("effect after exit");
+    auto Once = [&](OrderedNodeWrapper& Slot) { if (!Slot.IsInvalid()) return false; Slot = W; return true; };
+    switch (H->Op) {
+    case OP_IRHEADER: case OP_CODEBLOCK: case OP_BEGINBLOCK: case OP_ENDBLOCK:
+    case OP_GUESTOPCODE: case OP_INLINECONSTANT: case OP_CONSTANT: case OP_INLINEENTRYPOINTOFFSET: case OP_ENTRYPOINTOFFSET: break;
+    case OP_LOADREGISTER: case OP_ADD: case OP_ADDSHIFT: AddressNodes.push_back(W); break;
+    case OP_LOADMEM: case OP_LOADMEMTSO: if (!Once(Load)) return Reject("read count"); break;
+    case OP_SUBNZCV: if (!Once(Flags) || uint32_t(H->Size) != 2) return Reject("word flag producer"); break;
+    case OP_SUB: if (!Once(Difference) || uint32_t(H->Size) != 4) return Reject("parity difference"); break;
+    case OP_NOT: if (!Once(Auxiliary) || uint32_t(H->Size) != 4) return Reject("auxiliary complement"); break;
+    case OP_STOREAF: if (!Once(AF) || uint32_t(H->Size) != 8) return Reject("AF store"); break;
+    case OP_STOREPF: if (!Once(PF) || uint32_t(H->Size) != 8) return Reject("PF store"); break;
+    case OP_EXITFUNCTION: if (!Once(Exit)) return Reject("exit count"); break;
+    default: return Reject("uncovered effect");
+    }
+  }
+  auto Before = [&](OrderedNodeWrapper A, OrderedNodeWrapper B) {
+    if (A.IsInvalid() || B.IsInvalid()) return false;
+    const auto X = Order.find(IR.GetID(IR.GetNode(A)).Value), Y = Order.find(IR.GetID(IR.GetNode(B)).Value);
+    return X != Order.end() && Y != Order.end() && X->second < Y->second;
+  };
+  auto Constant = [&](OrderedNodeWrapper W, uint64_t Expected, OrderedNodeWrapper Use) {
+    if (!Before(W, Use)) return false;
+    const auto* H = IR.GetOp<IROp_Header>(W); if (uint32_t(H->Size) != 8) return false;
+    return (H->Op == OP_INLINECONSTANT && H->C<IROp_InlineConstant>()->Constant == Expected) ||
+           (H->Op == OP_CONSTANT && H->C<IROp_Constant>()->Constant == Expected);
+  };
+  if (!Before(Load, Flags) || !Before(Flags, Difference) || !Before(Difference, AF) || !Before(AF, PF) || !Before(PF, Exit)) return Reject("ordered effects");
+  const auto* F = IR.GetOp<IROp_Header>(Flags); const auto* D = IR.GetOp<IROp_Header>(Difference);
+  if (F->Args[0] != Load || D->Args[0] != Load || !Constant(F->Args[1], Cfg.BrokerCompareImmediate, Flags) ||
+      !Constant(D->Args[1], Cfg.BrokerCompareImmediate, Difference) || IR.GetOp<IROp_Header>(PF)->Args[0] != Difference) return Reject("compare dataflow");
+  const bool Complement = Cfg.BrokerCompareImmediate & 16;
+  if (Complement) {
+    if (!Before(Load, Auxiliary) || !Before(Auxiliary, AF) || IR.GetOp<IROp_Header>(Auxiliary)->Args[0] != Load) return Reject("auxiliary dataflow");
+  } else if (!Auxiliary.IsInvalid()) return Reject("unexpected auxiliary complement");
+  if (IR.GetOp<IROp_Header>(AF)->Args[0] != (Complement ? Auxiliary : Load)) return Reject("AF source");
+  struct Expression { uint64_t Constant = 0; uint64_t Registers[16] {}; };
+  auto Add = [](Expression A, const Expression& B, uint64_t Scale) {
+    A.Constant += B.Constant * Scale;
+    for (unsigned I = 0; I < 16; I++) A.Registers[I] += B.Registers[I] * Scale;
+    return A;
+  };
+  std::unordered_set<uint32_t> AddressUsed;
+  std::function<bool(OrderedNodeWrapper, unsigned, Expression&)> Address = [&](OrderedNodeWrapper W, unsigned Depth, Expression& Out) {
+    if (W.IsInvalid()) return true; // absent displacement is zero
+    if (Depth > 4 || !Before(W, Load)) return false;
+    const auto* H = IR.GetOp<IROp_Header>(W); if (uint32_t(H->Size) != 8) return false;
+    AddressUsed.insert(IR.GetID(IR.GetNode(W)).Value);
+    switch (H->Op) {
+    case OP_LOADREGISTER: {
+      const auto* R = H->C<IROp_LoadRegister>();
+      if (R->Class != RegClass::GPR || R->Reg >= 16) return false;
+      Out.Registers[R->Reg] = 1; return true;
+    }
+    case OP_CONSTANT: Out.Constant = H->C<IROp_Constant>()->Constant; return true;
+    case OP_INLINECONSTANT: Out.Constant = H->C<IROp_InlineConstant>()->Constant; return true;
+    case OP_ENTRYPOINTOFFSET: Out.Constant = EntryRIP + H->C<IROp_EntrypointOffset>()->Offset; return true;
+    case OP_INLINEENTRYPOINTOFFSET: Out.Constant = EntryRIP + H->C<IROp_InlineEntrypointOffset>()->Offset; return true;
+    case OP_ADDSHIFT: case OP_ADD: {
+      uint64_t Scale = 1;
+      if (H->Op == OP_ADDSHIFT) {
+        const auto* A = H->C<IROp_AddShift>(); if (A->Shift != ShiftType::LSL || A->ShiftAmount > 3) return false;
+        Scale = 1ull << A->ShiftAmount;
+      }
+      Expression A, B;
+      if (!Before(H->Args[0], W) || !Before(H->Args[1], W) || !Address(H->Args[0], Depth + 1, A) || !Address(H->Args[1], Depth + 1, B)) return false;
+      Out = Add(A, B, Scale); return true;
+    }
+    default: return false;
+    }
+  };
+  const auto* L = IR.GetOp<IROp_LoadMem>(Load);
+  Expression Base, Offset, Expected;
+  if (L->Class != RegClass::GPR || uint32_t(L->Header.Size) != 2 || uint32_t(L->Align) != 2 || L->OffsetType != MemOffsetType::SXTX ||
+      (L->OffsetScale != 1 && L->OffsetScale != 2 && L->OffsetScale != 4 && L->OffsetScale != 8) ||
+      L->Addr.IsInvalid() || !Address(L->Addr, 0, Base) || !Address(L->Offset, 0, Offset)) return Reject("address/read");
+  // Match Emitter::Address: only an inline constant is added unscaled.
+  // Constants held in locals, entrypoint offsets and registers are scaled.
+  const auto Scale = !L->Offset.IsInvalid() && IR.GetOp<IROp_Header>(L->Offset)->Op == OP_INLINECONSTANT ? 1 : L->OffsetScale;
+  const auto Actual = Add(Base, Offset, Scale);
+  Expected.Constant = uint64_t(Cfg.BrokerCompareDisplacement) + (Cfg.BrokerCompareRIPRelative ? Cfg.BrokerNextRIP : 0);
+  if (Cfg.BrokerCompareBase >= 0) Expected.Registers[Cfg.BrokerCompareBase]++;
+  if (Cfg.BrokerCompareIndex >= 0) Expected.Registers[Cfg.BrokerCompareIndex] += Cfg.BrokerCompareScale;
+  if (Actual.Constant != Expected.Constant || !std::equal(std::begin(Actual.Registers), std::end(Actual.Registers), std::begin(Expected.Registers))) return Reject("decoded address dataflow");
+  for (auto W : AddressNodes) if (!AddressUsed.contains(IR.GetID(IR.GetNode(W)).Value)) return Reject("unrelated address effect");
+  const auto* X = IR.GetOp<IROp_ExitFunction>(Exit);
+  if (X->Hint != BranchHint::None || !X->CallReturnAddress.IsInvalid() || !X->CallReturnBlock.IsInvalid() || !Before(X->NewRIP, Exit)) return Reject("exit metadata");
+  const auto* PC = IR.GetOp<IROp_Header>(X->NewRIP); uint64_t Next;
+  if (uint32_t(PC->Size) != 8) return Reject("exit width");
+  switch (PC->Op) {
+  case OP_INLINEENTRYPOINTOFFSET: Next = EntryRIP + PC->C<IROp_InlineEntrypointOffset>()->Offset; break;
+  case OP_ENTRYPOINTOFFSET: Next = EntryRIP + PC->C<IROp_EntrypointOffset>()->Offset; break;
+  case OP_INLINECONSTANT: Next = PC->C<IROp_InlineConstant>()->Constant; break;
+  case OP_CONSTANT: Next = PC->C<IROp_Constant>()->Constant; break;
+  default: return Reject("exit PC");
+  }
+  if (Next != Cfg.BrokerNextRIP) return Reject("fallthrough");
+  return {};
+}
+
 // Group-1 OR/AND/XOR remain OP6/width0. The exact decoded GPR and signed
 // immediate own both the register result and every defined logical flag.
 static CompileResult CheckBrokerImmediateLogical(const IRListView& IR, uint64_t EntryRIP, const BackendConfig& Cfg) {
@@ -11596,6 +11715,9 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
     }
     if (Cfg.BrokerSetCondition != 16 || Cfg.BrokerSetShift) {
       auto Set = CheckBrokerSetCC(IR, EntryRIP, Cfg); if (!Set.Error.empty()) return Set;
+    }
+    if (Cfg.BrokerWordCompare || Cfg.BrokerCompareImmediate || (Cfg.BrokerOperation == 8 && Cfg.BrokerWidth == 2)) {
+      auto Compare = CheckBrokerWordCompare(IR, EntryRIP, Cfg); if (!Compare.Error.empty()) return Compare;
     }
     if (Cfg.BrokerLogicalWidth || Cfg.BrokerLogicalKind || Cfg.BrokerLogicalMask) {
       auto Logical = CheckBrokerImmediateLogical(IR, EntryRIP, Cfg); if (!Logical.Error.empty()) return Logical;

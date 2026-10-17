@@ -16,6 +16,11 @@ function fixture(readOnly,fault){
  emit(0x48,3,0x46,24);check32(12);
  emit(0x48,0x2b,0x36);check64(6,BigInt.asUintN(64,DATA-first));
  mov(1,3n);mov(2,DATA-12n);emit(0x2b,0x4c,0x8a,8,0x83,0xf9,0xfc,15,0x85,0,0,0,0);branches.push(code.length-4);
+ // Word memory CMP, including the same encoding as the real probe boundary
+ // at independent synthetic addresses. The source remains read-only capable.
+ mov(0,DATA+4n);emit(0x66,0x83,0x78,6,0,15,0x85,0,0,0,0);branches.push(code.length-4);
+ mov(0,DATA);emit(0x66,0x81,0x78,6,0xff,0x7f,15,0x85,0,0,0,0);branches.push(code.length-4);
+ emit(0x66,0x83,0x78,4,0xff,15,0x85,0,0,0,0);branches.push(code.length-4);
  // Exercise new group-1 logical steps through the real kernel/worker path.
  // Deliberately different guest addresses; the same OR EAX,1 encoding is generic.
  mov(0,0xdeadbeef80000000n);emit(0x83,0xc8,1);check64(0,0x80000001n);
@@ -67,5 +72,5 @@ async function run(get,cfg,state,input){let k,host,timer,report;const workers=[]
 }
 if(!isMainThread)kernel();else{load();require('./native-step-contract.cjs').serve('guestmem=broker1',async get=>{const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer()),cases=[];
  for(const [readOnly,fault]of [[false,false],[true,false],[true,true]])cases.push(await run(get,cfg,state,fixture(readOnly,fault)));
- const report={evidence:'Synthetic dynamic ELF and interpreter, self-checking ADD/SUB32/64, group-1 OR/AND/XOR immediate sign extension/zero extension and carry clearing, old-address aliasing, deterministic stdout/normal Linux exit or exact read-fault rollback through production SDK kernel/worker. No Wine completion or device claim.',cfg,cases,native:await(await get('/xlat/totals')).json()};if(process.argv[3])fs.writeFileSync(process.argv[3],JSON.stringify(report,(_k,v)=>typeof v==='bigint'?'0x'+v.toString(16):v,2)+'\n');console.log(JSON.stringify({...report,cfg:undefined}));
+ const report={evidence:'Synthetic dynamic ELF and interpreter, self-checking ADD/SUB32/64, group-1 OR/AND/XOR immediate sign extension/zero extension and carry clearing, word memory-immediate CMP, old-address aliasing, deterministic stdout/normal Linux exit or exact read-fault rollback through production SDK kernel/worker. No Wine completion or device claim.',cfg,cases,native:await(await get('/xlat/totals')).json()};if(process.argv[3])fs.writeFileSync(process.argv[3],JSON.stringify(report,(_k,v)=>typeof v==='bigint'?'0x'+v.toString(16):v,2)+'\n');console.log(JSON.stringify({...report,cfg:undefined}));
  }).catch(e=>{console.error(e);process.exitCode=1;});}

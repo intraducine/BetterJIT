@@ -1248,6 +1248,7 @@ class Kernel {
         addMemoryOperand:p.operation===B.OP.ADD_REGISTER_MEMORY?B.addMemoryOperand(p):undefined,
         subMemoryOperand:p.operation===B.OP.SUB_REGISTER_MEMORY?B.subMemoryOperand(p):undefined,
         orMemoryOperand:p.operation===B.OP.OR_MEMORY?B.orMemoryOperand(p):undefined,
+        wordCompareOperand:p.operation===B.OP.READ_FLAGS&&p.width===2?B.wordCompareOperand(p):undefined,
         divisionOperand:p.operation===B.OP.DIV_REGISTER?B.divisionOperand(p):undefined,instruction:p.instruction.slice()}));
     }
     if(dynamic)space.executableSnapshot(entryRip,1);
@@ -1296,7 +1297,7 @@ class Kernel {
         // Refuse at this safe boundary; never deliver while Wasm locals live.
         if(this.freezing||t.pending||t.proc.pending)throw new Error('Sparse signals/snapshots are unsupported');
         const plan=this.sparsePlan(t),rip=plan.rip;
-        const generation=this.sparseBroker.beginInstruction(s.token,{rip,operation:plan.operation,width:plan.width,continuations:plan.continuations,nextRip:plan.nextRip,sourceRegister:plan.sourceRegister,stackRegister:plan.stackRegister,addMemoryOperand:plan.addMemoryOperand,subMemoryOperand:plan.subMemoryOperand,orMemoryOperand:plan.orMemoryOperand,divisionOperand:plan.divisionOperand});
+        const generation=this.sparseBroker.beginInstruction(s.token,{rip,operation:plan.operation,width:plan.width,continuations:plan.continuations,nextRip:plan.nextRip,sourceRegister:plan.sourceRegister,stackRegister:plan.stackRegister,addMemoryOperand:plan.addMemoryOperand,subMemoryOperand:plan.subMemoryOperand,orMemoryOperand:plan.orMemoryOperand,divisionOperand:plan.divisionOperand,wordCompareOperand:plan.wordCompareOperand});
         s.active=plan;
         view.setBigUint64(scratch+B.FIELD.checkpoint,generation,true);
         view.setBigUint64(scratch+B.FIELD.checkpointRip,rip,true);
