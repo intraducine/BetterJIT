@@ -11166,6 +11166,93 @@ struct BrokerScalarProof {
   }
 };
 
+// Unary register operands share the scalar ordering/constant/exit primitives.
+// Every admitted effect below is linked to the independently decoded operand.
+static CompileResult CheckBrokerUnary(const IRListView& IR,uint64_t EntryRIP,const BackendConfig& Cfg) {
+  auto Reject=[](const char* Why){CompileResult R;R.Error=std::string("broker register unary ")+Why;return R;};
+  const auto Kind=Cfg.BrokerUnaryKind,Width=Cfg.BrokerUnaryWidth,Shift=Cfg.BrokerUnaryShift;
+  const bool Not=Kind==2,KeepC=Kind==3||Kind==4,Small=Width<4,High=Shift==8;
+  if(Kind<1||Kind>4||(Width!=1&&Width!=2&&Width!=4&&Width!=8)||
+     (Shift!=0&&(Width!=1||Shift!=8||Cfg.BrokerTargetRegister>=4))||Cfg.BrokerTargetRegister>=16||
+     Cfg.BrokerOperation!=6||Cfg.BrokerWidth||Cfg.BrokerFlow||Cfg.BrokerTarget||Cfg.BrokerNoEffects||
+     Cfg.BrokerWordCompare||Cfg.BrokerCompareKind||Cfg.BrokerCompareLeftRegister!=16||Cfg.BrokerCompareRightRegister!=16||Cfg.BrokerCompareImmediate||
+     Cfg.BrokerCompareBase!=-1||Cfg.BrokerCompareIndex!=-1||Cfg.BrokerCompareScale!=1||Cfg.BrokerCompareDisplacement||Cfg.BrokerCompareRIPRelative||
+     Cfg.BrokerTestWidth||Cfg.BrokerTestMask||Cfg.BrokerTestShift||Cfg.BrokerSetCondition!=16||Cfg.BrokerSetShift||
+     Cfg.BrokerBitWidth||Cfg.BrokerBitRegister!=16||Cfg.BrokerBitIndex||Cfg.BrokerLogicalWidth||Cfg.BrokerLogicalKind||Cfg.BrokerLogicalMask||
+     Cfg.BrokerConditionCode!=16||Cfg.BrokerConditionalMoveWidth||Cfg.BrokerConditionSourceRegister!=16||
+     EntryRIP>=(1ull<<47)||Cfg.BrokerNextRIP<=EntryRIP||Cfg.BrokerNextRIP>=(1ull<<47)||Cfg.BrokerNextRIP-EntryRIP<2||Cfg.BrokerNextRIP-EntryRIP>4)return Reject("profile");
+  BrokerScalarProof P(IR,EntryRIP);
+  OrderedNodeWrapper Reg{},Extract{},Flags{},Result{},Save{},Read{},Carry{},Merge{},NZCV{},AF{},PF{},Store{},Exit{};
+  unsigned Blocks=0;
+  for(auto [Block,Header]:IR.GetBlocks()){if(++Blocks!=1)return Reject("block count");for(auto [Node,H]:IR.GetCode(Block)) {
+    const auto W=IR.WrapNode(Node);if(!Exit.IsInvalid()&&H->Op!=OP_ENDBLOCK)return Reject("effect after exit");
+    auto Once=[&](OrderedNodeWrapper& S){if(!S.IsInvalid())return false;S=W;return true;};
+    switch(H->Op){
+    case OP_IRHEADER:case OP_CODEBLOCK:case OP_BEGINBLOCK:case OP_ENDBLOCK:case OP_GUESTOPCODE:
+    case OP_INLINECONSTANT:case OP_CONSTANT:case OP_INLINEENTRYPOINTOFFSET:case OP_ENTRYPOINTOFFSET:break;
+    case OP_LOADREGISTER:
+      if(!Once(Reg)||uint32_t(H->Size)!=8||H->C<IROp_LoadRegister>()->Class!=RegClass::GPR||H->C<IROp_LoadRegister>()->Reg!=Cfg.BrokerTargetRegister)return Reject("operand register");break;
+    case OP_BFE:
+      if(Not||!KeepC||!Small||!Once(Extract)||uint32_t(H->Size)!=4)return Reject("operand extraction");break;
+    case OP_LSHR:
+      if(Kind!=1||!High||!Once(Extract)||uint32_t(H->Size)!=4)return Reject("high-byte extraction");break;
+    case OP_SUBNZCV:case OP_ADDNZCV:
+      if(Not||!Small||!Once(Flags)||uint32_t(H->Size)!=Width||H->Op!=(Kind==3?OP_ADDNZCV:OP_SUBNZCV))return Reject("small flag producer");break;
+    case OP_SUBWITHFLAGS:case OP_ADDWITHFLAGS:
+      if(Not||Small||!Once(Flags)||!Once(Result)||uint32_t(H->Size)!=Width||H->Op!=(Kind==3?OP_ADDWITHFLAGS:OP_SUBWITHFLAGS))return Reject("wide flag/result producer");break;
+    case OP_SUB:case OP_ADD:
+      if(Not||!Small||!Once(Result)||uint32_t(H->Size)!=4||H->Op!=(Kind==3?OP_ADD:OP_SUB))return Reject("small result");break;
+    case OP_NOT:case OP_XOR:
+      if(!Not||!Once(Result)||uint32_t(H->Size)!=(Small?8:Width)||H->Op!=(Small?OP_XOR:OP_NOT))return Reject("NOT result");break;
+    case OP_NZCVSELECT:if(!KeepC||!Once(Save)||uint32_t(H->Size)!=8)return Reject("carry save");break;
+    case OP_LOADNZCV:if(!KeepC||!Once(Read)||uint32_t(H->Size)!=4)return Reject("NZCV read");break;
+    case OP_BFI:
+      if(uint32_t(H->Size)==4){if(!KeepC||!Once(Carry))return Reject("carry merge");}
+      else if(uint32_t(H->Size)!=8||Not||!Small||!Once(Merge))return Reject("partial-register merge");break;
+    case OP_STORENZCV:if(!KeepC||!Once(NZCV)||uint32_t(H->Size)!=4)return Reject("NZCV store");break;
+    case OP_STOREAF:if(Not||!Once(AF)||uint32_t(H->Size)!=8)return Reject("AF store");break;
+    case OP_STOREPF:if(Not||!Once(PF)||uint32_t(H->Size)!=8)return Reject("PF store");break;
+    case OP_STOREREGISTER:{const auto R=PhysicalRegister(Node);if(!Once(Store)||uint32_t(H->Size)!=8||R.AsRegClass()!=RegClass::GPRFixed||R.Reg!=Cfg.BrokerTargetRegister)return Reject("destination store");break;}
+    case OP_EXITFUNCTION:if(!Once(Exit))return Reject("exit count");break;
+    default:return Reject("uncovered effect");
+    }
+  }
+  }
+  if(!P.Before(Reg,Result)||!P.Before(Result,Store)||!P.Before(Store,Exit)||!P.Exit(Exit,Cfg.BrokerNextRIP))return Reject("result/fallthrough order");
+  const auto* R=IR.GetOp<IROp_Header>(Result);const auto Destination=IR.GetOp<IROp_StoreRegister>(Store)->Value;
+  if(Not){
+    const uint64_t Mask=Small?((1ull<<(Width*8))-1)<<Shift:0;
+    if(R->Args[0]!=Reg||(Small&&!P.Constant(R->Args[1],Mask,Result))||Destination!=Result)return Reject("NOT dataflow");
+    return {};
+  }
+  if(Flags.IsInvalid()||AF.IsInvalid()||PF.IsInvalid())return Reject("missing flag effects");
+  OrderedNodeWrapper Value=Reg;
+  if(Small&&(KeepC||High)){
+    if(!P.Before(Reg,Extract)||!P.Before(Extract,Flags)||!P.Before(Extract,Result))return Reject("operand order");Value=Extract;
+    if(KeepC){const auto* E=IR.GetOp<IROp_Bfe>(Extract);if(E->Src!=Reg||E->Width!=Width*8||E->lsb!=Shift)return Reject("decoded operand extraction");}
+    else if(IR.GetOp<IROp_Header>(Extract)->Args[0]!=Reg||!P.Constant(IR.GetOp<IROp_Header>(Extract)->Args[1],8,Extract))return Reject("high-byte dataflow");
+  }
+  const auto* F=IR.GetOp<IROp_Header>(Flags);
+  auto Operands=[&](const IROp_Header* H,OrderedNodeWrapper Use){return Kind==1?
+    (P.Constant(H->Args[0],0,Use)&&H->Args[1]==Value&&P.Before(Value,Use)):
+    (H->Args[0]==Value&&P.Before(Value,Use)&&P.Constant(H->Args[1],1,Use));};
+  if(!Operands(F,Flags)||!Operands(R,Result)||(Small&&!P.Before(Flags,Result))||
+     IR.GetOp<IROp_Header>(AF)->Args[0]!=Value||IR.GetOp<IROp_Header>(PF)->Args[0]!=Result||
+     !P.Before(Result,AF)||!P.Before(AF,PF)||!P.Before(PF,Store))return Reject("flag/result dataflow");
+  if(Small){
+    if(!P.Before(Result,Merge)||!P.Before(Merge,AF))return Reject("partial-register order");const auto* M=IR.GetOp<IROp_Bfi>(Merge);
+    if(M->Dest!=Reg||M->Src!=Result||M->Width!=Width*8||M->lsb!=Shift||Destination!=Merge)return Reject("partial-register dataflow");
+  }else if(Destination!=Result)return Reject("wide destination");
+  if(KeepC){
+    if(!P.Before(Value,Save)||!P.Before(Save,Flags)||!P.Before(Result,Read)||!P.Before(Read,Carry)||!P.Before(Carry,NZCV)||!P.Before(NZCV,AF)||
+       (Small&&(!P.Before(Carry,Merge)||!P.Before(Merge,NZCV))))return Reject("carry preservation order");
+    const auto* S=IR.GetOp<IROp_NZCVSelect>(Save);const auto* C=IR.GetOp<IROp_Bfi>(Carry);
+    if(S->Cond!=CondClass::UGE||!P.Constant(S->TrueVal,1,Save)||!P.Constant(S->FalseVal,0,Save)||
+       C->Dest!=Read||C->Src!=Save||C->Width!=1||C->lsb!=29||IR.GetOp<IROp_Header>(NZCV)->Args[0]!=Carry)return Reject("carry preservation dataflow");
+  }
+  return {};
+}
+
 // All word CMP forms preserve every GPR. Memory forms have exactly one read;
 // register forms have none. Operand roles come from the independent decoder.
 static CompileResult CheckBrokerWordCompare(const IRListView& IR, uint64_t EntryRIP, const BackendConfig& Cfg) {
@@ -11952,6 +12039,9 @@ static CompileResult CheckBrokerDivide(const IRListView& IR, uint64_t EntryRIP, 
 CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConfig& Cfg) {
   OrderedNodeWrapper BrokerAddend {};
   if (Cfg.BrokerMemory) {
+    if (Cfg.BrokerUnaryKind || Cfg.BrokerUnaryWidth || Cfg.BrokerUnaryShift) {
+      auto Unary=CheckBrokerUnary(IR,EntryRIP,Cfg);if(!Unary.Error.empty())return Unary;
+    }
     if (Cfg.BrokerFlow == 6) {
       auto Call = CheckBrokerRegisterCall(IR, EntryRIP, Cfg); if (!Call.Error.empty()) return Call;
     }
@@ -12436,6 +12526,11 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
             (O->Shift != ShiftType::LSL && O->Shift != ShiftType::LSR && O->Shift != ShiftType::ASR)) return Reject(H);
         break;
       }
+      case OP_ADDNZCV:
+        // The unary proof binds the decoded small INC operand and all flag
+        // preservation effects before this new emitter route is admitted.
+        if(Cfg.BrokerOperation!=6||Cfg.BrokerUnaryKind!=3||Cfg.BrokerUnaryWidth>=4||uint32_t(H->Size)!=Cfg.BrokerUnaryWidth)return Reject(H);
+        break;
       case OP_ANDWITHFLAGS: case OP_SUBNZCV: case OP_TESTNZ:
         if ((Cfg.BrokerOperation != 6 && Cfg.BrokerOperation != 8) || (uint32_t(H->Size) != 1 && uint32_t(H->Size) != 2 && uint32_t(H->Size) != 4 && uint32_t(H->Size) != 8)) return Reject(H);
         break;

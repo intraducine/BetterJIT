@@ -88,8 +88,10 @@ int main(){
  for(unsigned Rex=0;Rex<17;Rex++)for(unsigned M=0;M<256;M++){
   std::vector<unsigned char> B;if(Rex)B.push_back(0x3f+Rex);B.insert(B.end(),{0xf7,(unsigned char)M});
   const auto A=fexwasm::broker::Admit(B.data(),B.size());const bool Supported=(M&0xf8)==0xf0;
-  if(A.Supported!=Supported||(Supported&&(A.Operation!=17||A.Width!=((Rex&&((Rex-1)&8))?8u:4u)||A.Register!=((M&7)+((Rex&&((Rex-1)&1))?8:0))||A.Length!=B.size())))return 6;
-  if(!Supported)RawRefused++;for(unsigned N=0;N<B.size();N++)if(fexwasm::broker::Admit(B.data(),N).Supported)return 7;
+  const bool Unary=(M&0xf8)==0xd0||(M&0xf8)==0xd8;
+  if(Unary){if(!A.Supported||A.Operation!=6||A.Width||A.UnaryKind!=((M&0xf8)==0xd8?1u:2u)||A.UnaryWidth!=((Rex&&((Rex-1)&8))?8u:4u)||A.UnaryShift||A.Register!=((M&7)+((Rex&&((Rex-1)&1))?8:0))||A.Length!=B.size())return 6;}
+  else if(A.Supported!=Supported||(Supported&&(A.Operation!=17||A.Width!=((Rex&&((Rex-1)&8))?8u:4u)||A.Register!=((M&7)+((Rex&&((Rex-1)&1))?8:0))||A.Length!=B.size())))return 6;
+  if(!Supported&&!Unary)RawRefused++;for(unsigned N=0;N<B.size();N++)if(fexwasm::broker::Admit(B.data(),N).Supported)return 7;
  }
  for(const auto& Prefix:std::vector<std::vector<unsigned char>>{{0x66},{0x67},{0x64},{0x65},{0xf0},{0xf2},{0xf3},{0x2e},{0x66,0x48},{0x40,0x41},{0x40,0x66}}){auto B=Prefix;B.insert(B.end(),{0xf7,0xf1});if(fexwasm::broker::Admit(B.data(),B.size()).Supported)return 8;RawRefused++;}
  printf("checked %u actual DIV IR copies; valid %u; unexpected %u; raw refused %u\n",Checked,Valid,Unexpected,RawRefused);return Unexpected?1:0;

@@ -363,6 +363,14 @@
     "tests/sdk/linux-host/sparse-conditions-oracle.c": "tests/sdk/linux-host/sparse-conditions-oracle.c",
     "tests/sdk/linux-host/sparse-conditions-oracle.json": "tests/sdk/linux-host/sparse-conditions-oracle.json",
     "tests/sdk/linux-sparse-conditions.test.mjs": "tests/sdk/linux-sparse-conditions.test.mjs",
-    "docs/sdk/sparse-scalar-conditions.md": "docs/sdk/sparse-scalar-conditions.md"
+    "docs/sdk/sparse-scalar-conditions.md": "docs/sdk/sparse-scalar-conditions.md",
+    "docs/sdk/sparse-register-unary.md": "docs/sdk/sparse-register-unary.md",
+    "fexwasm/src/testing/register-unary-ir.cpp": "fexwasm/src/testing/register-unary-ir.cpp",
+    "scripts/generate-sparse-unary-tests.py": "scripts/generate-sparse-unary-tests.py",
+    "tests/sdk/linux-host/sparse-unary-cases.json": "tests/sdk/linux-host/sparse-unary-cases.json",
+    "tests/sdk/linux-host/sparse-unary-oracle.c": "tests/sdk/linux-host/sparse-unary-oracle.c",
+    "tests/sdk/linux-host/sparse-unary-oracle.json": "tests/sdk/linux-host/sparse-unary-oracle.json",
+    "tests/sdk/linux-host/sparse-unary.cjs": "tests/sdk/linux-host/sparse-unary.cjs",
+    "tests/sdk/linux-sparse-unary.test.mjs": "tests/sdk/linux-sparse-unary.test.mjs"
   }
 }

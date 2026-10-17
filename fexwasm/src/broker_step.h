@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 4, Coverage = 26;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 4, Coverage = 27;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
@@ -30,6 +30,7 @@ struct Admission {
   int64_t CompareDisplacement = 0;
   bool CompareRIPRelative = false;
   uint32_t ConditionCode = 16, ConditionalMoveWidth = 0, ConditionSourceRegister = 16;
+  uint32_t UnaryKind = 0, UnaryWidth = 0, UnaryShift = 0; // NEG/NOT/INC/DEC = 1/2/3/4
 };
 // Bounded architectural NOP encodings. Legacy prefixes may repeat, followed
 // by at most one REX. REP/LOCK and a REX before a legacy prefix are excluded.
@@ -114,6 +115,16 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
     Admission A {true, 7, 0, 2}; A.ConditionCode = (Op == 0x0f ? Bytes[I] : Op) & 15; return A;
   }
   const uint32_t Width = Rex & 8 ? 8 : Word ? 2 : 4;
+  if (!Segment && !Lock && (Op==0xf6 || Op==0xf7 || Op==0xfe || Op==0xff) && I<Size && (Bytes[I]&0xc0)==0xc0) {
+    const uint32_t Group=Bytes[I]>>3&7;const bool Byte=Op==0xf6 || Op==0xfe;
+    const uint32_t Kind=(Op==0xf6 || Op==0xf7)?(Group==3?1:Group==2?2:0):(Group<=1?Group+3:0);
+    if (Kind) {
+      const uint32_t Low=Bytes[I]&7,Shift=Byte&&!Rex&&Low>=4?8:0;
+      Admission A {true,6,0,0,false,uint32_t(I+1),Shift?Low-4:Low+((Rex&1)?8:0)};
+      A.UnaryKind=Kind;A.UnaryWidth=Byte?1:Width;A.UnaryShift=Shift;return A;
+    }
+  }
+
   if (!Segment && !Lock && Op == 0x0f && I + 1 < Size && (Bytes[I] == 0xa3 || Bytes[I] == 0xba)) {
     // BT only: the base is a register and the bit index is a register or
     // imm8 modulo the operand width. BTS/BTR/BTC and memory stay excluded.

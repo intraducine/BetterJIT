@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "operations": [
+    {
+      "kind": 1,
+      "name": "NEG",
+      "byteOpcode": 246,
+      "wideOpcode": 247,
+      "group": 3
+    },
+    {
+      "kind": 2,
+      "name": "NOT",
+      "byteOpcode": 246,
+      "wideOpcode": 247,
+      "group": 2
+    },
+    {
+      "kind": 3,
+      "name": "INC",
+      "byteOpcode": 254,
+      "wideOpcode": 255,
+      "group": 0
+    },
+    {
+      "kind": 4,
+      "name": "DEC",
+      "byteOpcode": 254,
+      "wideOpcode": 255,
+      "group": 1
+    }
+  ],
+  "forms": [
+    {
+      "width": 1,
+      "shift": 0
+    },
+    {
+      "width": 1,
+      "shift": 8
+    },
+    {
+      "width": 2,
+      "shift": 0
+    },
+    {
+      "width": 4,
+      "shift": 0
+    },
+    {
+      "width": 8,
+      "shift": 0
+    }
+  ],
+  "flagSeeds": [
+    0,
+    3285,
+    2049,
+    68
+  ],
+  "inputCount": 16,
+  "unrelatedBits": "0x89abcdef76543210",
+  "sequences": [
+    [
+      1,
+      3
+    ],
+    [
+      3,
+      4
+    ],
+    [
+      4,
+      3
+    ],
+    [
+      3,
+      2,
+      4
+    ]
+  ]
+}

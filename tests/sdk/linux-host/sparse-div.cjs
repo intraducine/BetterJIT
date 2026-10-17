@@ -22,7 +22,7 @@ function oracle(){
  }finally{fs.rmSync(dir,{recursive:true,force:true});}
 }
 async function main(){const nativeOracle=oracle();await serve('guestmem=broker1',async(get,log)=>{
- const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.stepABI,4);assert.equal(cfg.coverageVersion,26);
+ const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.stepABI,4);assert.equal(cfg.coverageVersion,27);
  const budget=new M.BackingBudget(),space=new M.GuestAddressSpace(budget),memory=B.createInternalMemory(),broker=new B.GuestMemoryBroker(),token=broker.register(0,{space,memory,checkpointLayout:cfg.checkpoint}),view=new DataView(memory.buffer),tb=B.ABI.threadBase,g=tb+cfg.ctx+cfg.gregsOff,ripAt=tb+cfg.ctx+cfg.ripOff,units=new Map();
  let checks=0,divideErrors=0,wide64=0,nativeChecks=0;const refused=[],records=[];
  async function request(code,rip=RIP){await get('/xlat/code?addr='+rip.toString(16),{method:'POST',body:Uint8Array.from(code)});return FexLinuxThread.parseBrokerStep(new Uint8Array(await(await get('/xlat/step?rip='+rip)).arrayBuffer()));}
@@ -48,7 +48,7 @@ async function main(){const nativeOracle=oracle();await serve('guestmem=broker1'
     check(u,low,high,d);if(u.width===4)check(u,low|0xaabbccdd00000000n,high|0x1234567800000000n,d|0xdeadbeef00000000n);
    }records.push({instruction:code,width:u.width,source:u.divisionOperand.register});
   }
-  const bad=[];for(const prefix of [[],[0x48],[0x41],[0x4f]]){for(let m=0;m<0xc0;m++)bad.push([...prefix,0xf7,m]);for(const group of [1,2,3,4,5,7])bad.push([...prefix,0xf7,0xc0+(group<<3)]);for(const n of [0,1])bad.push([...prefix,0xf7,0xf1].slice(0,prefix.length+n));}
+  const bad=[];for(const prefix of [[],[0x48],[0x41],[0x4f]]){for(let m=0;m<0xc0;m++)bad.push([...prefix,0xf7,m]);for(const group of [1,4,5,7])bad.push([...prefix,0xf7,0xc0+(group<<3)]);for(const n of [0,1])bad.push([...prefix,0xf7,0xf1].slice(0,prefix.length+n));}
   for(const prefix of [[0x66],[0x67],[0x64],[0x65],[0xf0],[0xf2],[0xf3],[0x2e],[0x66,0x48],[0x40,0x41],[0x40,0x66]])bad.push([...prefix,0xf7,0xf1]);bad.push([0xf6,0xf1]);
   for(const code of bad){const u=await request(code);assert.equal(u.status,2,Buffer.from(code).toString('hex'));assert.equal(u.code.length,0);refused.push(code);}
   for(const code of [[0xf7,0xf1],[0x48,0xf7,0xf1]])for(const valid of [true,false]){const u=await request(code,(1n<<47n)-BigInt(code.length)-(valid?1n:0n));assert.equal(u.status,valid?0:2);}

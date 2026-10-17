@@ -598,6 +598,7 @@ fexwasm_bytes fexwasm_step(fexwasm_translator* T, uint64_t RIP) {
   Cfg.BrokerCompareKind = Plan.CompareKind; Cfg.BrokerCompareLeftRegister = Plan.CompareLeftRegister; Cfg.BrokerCompareRightRegister = Plan.CompareRightRegister;
   Cfg.BrokerCompareBase = Plan.CompareBase; Cfg.BrokerCompareIndex = Plan.CompareIndex; Cfg.BrokerCompareScale = Plan.CompareScale;
   Cfg.BrokerCompareDisplacement = Plan.CompareDisplacement; Cfg.BrokerCompareRIPRelative = Plan.CompareRIPRelative;
+  Cfg.BrokerUnaryKind = Plan.UnaryKind; Cfg.BrokerUnaryWidth = Plan.UnaryWidth; Cfg.BrokerUnaryShift = Plan.UnaryShift;
   Cfg.BrokerConditionCode = Plan.ConditionCode; Cfg.BrokerConditionalMoveWidth = Plan.ConditionalMoveWidth; Cfg.BrokerConditionSourceRegister = Plan.ConditionSourceRegister;
   if (Plan.WordCompare) {
     if (Length != Plan.Length || RIP + Length >= (1ull << 47)) {

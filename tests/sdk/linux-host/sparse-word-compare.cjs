@@ -34,7 +34,7 @@ async function main(){
  for(const [id,seed,input,flags]of golden){assert.equal(flags,independentFlags(values[input],immediate(definitions[id]),seed));assert.equal(flags,rows.get([id-id%3,seed,input].join(':'))[3]);}
  let report;
  await serve('guestmem=broker1',async(get,log)=>{
-  const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.coverageVersion,26);
+  const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.coverageVersion,27);
   async function request(code,rip=CODE){await get('/xlat/code?addr='+rip.toString(16),{method:'POST',body:Uint8Array.from(code)});return FexLinuxThread.parseBrokerStep(new Uint8Array(await(await get('/xlat/step?rip='+rip)).arrayBuffer()));}
   async function compile(code,rip=CODE){const u=await request(code,rip);assert.equal(u.status,0,Buffer.from(code).toString('hex')+': '+log());u.module=await WebAssembly.compile(u.code);assert(WebAssembly.Module.imports(u.module).every(i=>i.module==='e'&&['mem','tb','memory'].includes(i.name)));return u;}
   const syscall=await compile([15,5],SC),seeds=[await compile([0x45,1,0xd2],SC+32n),await compile([0x49,0x83,0xea,1],SC+64n)],sets=[],branches=[];

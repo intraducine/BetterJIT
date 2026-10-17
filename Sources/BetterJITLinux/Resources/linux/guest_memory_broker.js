@@ -4,7 +4,7 @@
   'use strict';
   const storage=root.BetterJITGuestMemory;
   if(!storage||storage.STORAGE_VERSION!==1)throw new Error('Guest storage contract 1 required');
-  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:4,coverageVersion:26,stepHeaderBytes:96,
+  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:4,coverageVersion:27,stepHeaderBytes:96,
     magic:0x314d4a42,internalPages:33,threadBase:0x10000,threadBytes:0x200000,
     scratchOffset:0x1f0000,scratchBytes:128,memoryRequest:0x10003,instructionBoundary:0x10004,maximumThreads:8,parkedState:4,
     userCopyBytes:65536});
@@ -72,6 +72,40 @@
     if(!canonical(p.rip)||!canonical(p.nextRip)||p.nextRip!==p.rip+BigInt(b.length)||!canonical(target)||kind!==flow||typeof target!=='bigint'||target!==p.nextRip+offset)throw new TypeError('Invalid branch continuation');
     return Object.freeze(kind===1?[target]:[p.nextRip,target]);
   }
+  function unaryOperand(p) {
+    const b=p.instruction;let i=0,word=false,rex=0;const fail=()=>{throw new TypeError('Invalid register unary metadata');};
+    if(!(b instanceof Uint8Array))fail();if(b[i]===0x66){word=true;i++;}if(b[i]>=0x40&&b[i]<=0x4f)rex=b[i++];
+    if(i+2!==b.length)fail();const op=b[i++],m=b[i],group=m>>3&7,byte=op===0xf6||op===0xfe;
+    const kind=op===0xf6||op===0xf7?(group===3?1:group===2?2:0):op===0xfe||op===0xff?(group<=1?group+3:0):0;
+    if(m<0xc0||!kind||p.operation!==OP.FLAGS||p.width!==0||p.continuationKind!==0||p.branchTarget!==0n||p.length!==b.length||
+       !canonical(p.rip)||!canonical(p.nextRip)||p.nextRip!==p.rip+BigInt(b.length))fail();
+    const low=m&7,shift=byte&&!rex&&low>=4?8:0;
+    return Object.freeze({kind,width:byte?1:rex&8?8:word?2:4,shift,register:shift?low-4:low+((rex&1)?8:0),length:b.length});
+  }
+  function validateUnaryPostState(s,a,nextRip) {
+    const u=a.unary,f=s.layout.arithmeticFlags,bits=u.width*8,mask=(1n<<BigInt(bits))-1n,shift=BigInt(u.shift),old=u.input,
+      value=u.kind===1?(u.shift?BigInt.asUintN(32,old)>>8n:old):(old>>shift)&mask,
+      low=u.kind===1?(-value)&mask:u.kind===2?(~value)&mask:u.kind===3?(value+1n)&mask:(value-1n)&mask,
+      result=u.width<4?(old&~(mask<<shift))|(low<<shift):low,
+      pf=u.kind===1?BigInt.asUintN(u.width===8?64:32,-value):u.width<4?BigInt.asUintN(32,u.kind===3?value+1n:value-1n):low;
+    if(nextRip!==a.nextRip)invariant(s,'Register unary changed fallthrough');
+    for(const p of a.snapshot){const expected=p.bytes.slice(),v=new DataView(expected.buffer),actual=new Uint8Array(s.memory.buffer,ABI.threadBase+p.offset,expected.length);
+      if(p.offset===s.layout.spans[0].offset){
+        v.setBigUint64(s.layout.ripAddress-ABI.threadBase-p.offset,a.nextRip,true);v.setBigUint64(s.layout.generalRegistersOffset+u.register*8,result,true);
+        if(u.kind!==2){v.setUint32(f.parityRawOffset,Number(pf&0xffffffffn),true);v.setUint32(f.auxiliaryRawOffset,Number(value&0xffffffffn),true);}
+        if(u.kind>=3){
+          const sign=1n<<BigInt(bits-1),overflow=u.kind===3?value===sign-1n:value===sign;
+          const nzcv=u.width<4?((Number(!!(low&sign))<<31)|(Number(low===0n)<<30)|(u.oldNZCV&0x20000000)|(Number(overflow)<<28))>>>0:u.oldNZCV&0x20000000;
+          v.setUint32(f.nzcvOffset,nzcv,true);
+        }
+      }else if(p.offset===s.layout.spans[1].offset&&u.kind!==2){
+        const scale=u.width<4?BigInt(32-bits):0n;
+        const kind=u.kind===1?(u.width===8?2:1):u.width<4?0:u.kind===3?(u.width===8?10:9):(u.width===8?8:7);
+        v.setUint32(0,kind,true);v.setBigUint64(8,u.kind===1?0n:(value&mask)<<scale,true);v.setBigUint64(16,u.kind===1?(value&mask)<<scale:1n<<scale,true);
+      }
+      if(!actual.every((n,i)=>n===expected[i]))invariant(s,'Register unary changed unexpected checkpoint state');
+    }
+  }
   function wordCompareOperand(p) {
     const b=p.instruction;let i=0,rex=0;
     const fail=()=>{throw new TypeError('Invalid word CMP metadata');};
@@ -133,6 +167,10 @@
     const b=p.instruction;if(p.operation===OP.READ_FLAGS&&p.width===2)return {wordCompareOperand:wordCompareOperand(p)};
     if(p.operation===OP.BRANCH&&p.continuationKind===2)return {conditionOperand:conditionOperand(p)};
     if(p.operation!==OP.FLAGS)return {};
+    {let i=b[0]===0x66?1:0;if(b[i]>=0x40&&b[i]<=0x4f)i++;const op=b[i],group=b[i+1]>>3&7;
+      if(([0xf6,0xf7].includes(op)&&[2,3].includes(group))||([0xfe,0xff].includes(op)&&group<=1))return {unaryOperand:unaryOperand(p)};
+    }
+
     if(b[0]===0x66){const i=b[1]>=0x40&&b[1]<=0x47?2:1,op=b[i],group=b[i+1]>>3&7;
       if([0x39,0x3b,0x3d].includes(op)||[0x81,0x83].includes(op)&&group===7)return {wordCompareOperand:wordCompareOperand(p)};
       if([0x0d,0x25,0x35].includes(op)||[0x81,0x83].includes(op)&&[1,4,6].includes(group))return {wordLogicalOperand:wordLogicalOperand(p)};
@@ -416,7 +454,7 @@
     }
     // Called at a safe boundary after native code has spilled the full CPU state.
     // operation/width must come from compile-time admission, never guest input.
-    beginInstruction(token,{rip,operation=0,width=0,continuations,nextRip,sourceRegister,stackRegister,addMemoryOperand,subMemoryOperand,orMemoryOperand,divisionOperand,wordCompareOperand,wordLogicalOperand,conditionOperand}) {
+    beginInstruction(token,{rip,operation=0,width=0,continuations,nextRip,sourceRegister,stackRegister,addMemoryOperand,subMemoryOperand,orMemoryOperand,divisionOperand,wordCompareOperand,wordLogicalOperand,conditionOperand,unaryOperand}) {
       const s=requireOwner(this,token);rip=u64(rip);
       if(s.preparedCopies.size)throw new BrokerInvariantError('Prepared copyout must complete before BEGIN');
       if(s.active||s.waits.size)invariant(s,'Instruction already active or parked');
@@ -455,6 +493,11 @@
            (operation!==OP.FLAGS||![4,8].includes(conditional.width)||!reg(conditional.register)||!reg(conditional.source)||![3,4].includes(conditional.length)||
             !Array.isArray(continuations)||continuations.length!==1||continuations[0]!==nextRip))||
          !canonical(rip)||!canonical(nextRip)||nextRip!==rip+BigInt(conditional.length)))throw new TypeError('Checked scalar condition metadata required');
+      const unary=unaryOperand?Object.freeze({...unaryOperand}):null;
+      if(unary&&(wordCompare||logical||conditional||operation!==OP.FLAGS||width||s.layout.generalRegistersOffset===undefined||!s.layout.arithmeticFlags||
+         !reg(unary.register)||![1,2,3,4].includes(unary.kind)||![1,2,4,8].includes(unary.width)||
+         (unary.shift!==0&&(unary.width!==1||unary.shift!==8||unary.register>=4))||![2,3,4].includes(unary.length)||
+         !canonical(rip)||!canonical(nextRip)||nextRip!==rip+BigInt(unary.length)||!Array.isArray(continuations)||continuations.length!==1||continuations[0]!==nextRip))throw new TypeError('Checked register unary metadata required');
       if(operation===OP.DIV_REGISTER&&(s.layout.generalRegistersOffset===undefined||!divisionOperand||
          !Number.isInteger(divisionOperand.register)||divisionOperand.register<0||divisionOperand.register>=16||
          ![2,3].includes(divisionOperand.length)||!canonical(rip)||!canonical(nextRip)||nextRip!==rip+BigInt(divisionOperand.length)||
@@ -495,6 +538,9 @@
       const ownedCPU=new DataView(snapshot[0].bytes.buffer),ownedReg=n=>n<0||n===16?0n:ownedCPU.getBigUint64(s.layout.generalRegistersOffset+n*8,true);
       if(wordCompare)wordComparison=Object.freeze({...c,left:ownedReg(c.leftRegister),right:ownedReg(c.rightRegister),
         address:c.kind<3?BigInt.asUintN(64,(c.ripRelative?nextRip:0n)+ownedReg(c.base)+ownedReg(c.index)*BigInt(c.scale)+c.displacement):undefined});
+      let ownedUnary;
+      if(unary){const f=s.layout.arithmeticFlags,lazy=new DataView(snapshot[1].bytes.buffer),oldNZCV=unary.kind>=3?materializeScalarNZCV(lazy.getUint32(0,true),lazy.getBigUint64(8,true),lazy.getBigUint64(16,true),ownedCPU.getUint32(f.nzcvOffset,true)):undefined;
+        ownedUnary=Object.freeze({...unary,input:ownedReg(unary.register),oldNZCV});}
       const wordLogical=logical?Object.freeze({...logical,input:ownedReg(logical.register)}):null;
       let scalarCondition;
       if(conditional){const f=s.layout.arithmeticFlags,lazy=new DataView(snapshot[1].bytes.buffer),kind=lazy.getUint32(0,true),fa=lazy.getBigUint64(8,true),fb=lazy.getBigUint64(16,true),
@@ -513,7 +559,7 @@
       let division;
       if(operation===OP.DIV_REGISTER){const cpu=new DataView(snapshot[0].bytes.buffer),reg=n=>BigInt.asUintN(width*8,cpu.getBigUint64(s.layout.generalRegistersOffset+n*8,true)),low=reg(0),high=reg(2),divisor=reg(divisionOperand.register);
         division=Object.freeze({low,high,divisor,reason:divisor===0n?'zero-divisor':high>=divisor?'quotient-overflow':null});}
-      s.active={rip,generation:++s.checkpoint,operation,width,continuations,snapshot,result:null,nextRip,stackBefore,stackAfter,jumpTarget,stackRegister,stackValue,memoryArithmetic,memoryOR,division,wordComparison,wordLogical,scalarCondition,indirectCall};return s.checkpoint;
+      s.active={rip,generation:++s.checkpoint,operation,width,continuations,snapshot,result:null,nextRip,stackBefore,stackAfter,jumpTarget,stackRegister,stackValue,memoryArithmetic,memoryOR,division,wordComparison,wordLogical,scalarCondition,unary:ownedUnary,indirectCall};return s.checkpoint;
     }
     // The caller uses its authenticated thread record's token, not a request PID.
     // This synchronous route has no syscall, signal, redirect or await callbacks.
@@ -674,6 +720,7 @@
             }else if(!actual.every((v,i)=>v===expected[i]))invariant(s,'OR memory changed rounding state');
           }
         }
+        if(a.unary)validateUnaryPostState(s,a,nextRip);
         if(a.wordComparison||a.wordLogical||a.scalarCondition)validateScalarPostState(s,a,nextRip);
         if(a.operation===OP.ADD_REGISTER_MEMORY||a.operation===OP.SUB_REGISTER_MEMORY) {
           if(nextRip!==a.nextRip)invariant(s,'Register memory arithmetic fallthrough changed');
@@ -832,6 +879,6 @@
         faults:b.faults,unsupported:b.unsupported,rejected:b.rejected});
     }
   }
-  root.BetterJITGuestMemoryBroker=Object.freeze({ABI,FIELD,STATUS,REASON,OP,STEP,LIFECYCLE,jumpSourceRegister,callSourceRegister,stackRegister,addMemoryOperand,subMemoryOperand,orMemoryOperand,divisionOperand,wordCompareOperand,wordLogicalOperand,conditionOperand,scalarOperands,materializeScalarNZCV,conditionHolds,materializeArithmeticNZCV,instructionContinuations,parseStepHeader,createInternalMemory,
+  root.BetterJITGuestMemoryBroker=Object.freeze({ABI,FIELD,STATUS,REASON,OP,STEP,LIFECYCLE,jumpSourceRegister,callSourceRegister,stackRegister,addMemoryOperand,subMemoryOperand,orMemoryOperand,divisionOperand,wordCompareOperand,wordLogicalOperand,conditionOperand,unaryOperand,scalarOperands,materializeScalarNZCV,conditionHolds,materializeArithmeticNZCV,instructionContinuations,parseStepHeader,createInternalMemory,
     BrokerInvariantError,UserCopyUnsupported,GuestMemoryBroker});
 })(typeof globalThis!=='undefined'?globalThis:self);
