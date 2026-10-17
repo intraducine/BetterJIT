@@ -1,0 +1,85 @@
+BetterJIT product milestones and current gaps
+Evidence checkpoint: 2026-10-17; no new device or guest execution in this patch.
+
+1. Complete real program execution — PARTIAL
+
+Small compiled static Linux commands and fork/exec/cat are verified within their
+bounded profiles. The earlier phone milestone 8a79eec includes inherited input,
+4,133-byte output and clean exit. That milestone remains unchanged.
+
+The real sparse Wine bootstrap still has no completed Windows-program result.
+Parent-verified run 38963048133 at 9694b4e executed the same input through DIV and
+then refused SUB EAX,dword [RSI+4], bytes 2b4604, RIP 0x7f000003680c; guest exit
+was null. Current broker_step.h admits register SUB and selected memory ADD/OR,
+but excludes this memory-source SUB form. This is a demonstrated next-path gap.
+
+Next bounded acceptance: after a separate reviewed production change, rerun the
+same immutable sparse Wine input with the existing budgets, verify the exact SUB
+state/flags/read effects against an independent reference, and record the next
+real boundary. The program milestone requires known deterministic Windows command
+output AND a real guest exit status, with loader/interpreter, syscall and cleanup
+receipts. Additional instruction or service gaps are unknown until reached.
+This admission patch does not implement SUB or advance the Wine bootstrap.
+
+2. Functioning SDK/host integration on iPhone — PARTIAL
+
+The SDK is application-independent: BetterJIT, BetterJITWebKit, optional BetterJITFEX
+and BetterJITLinux are separate products. MinimalHost and FEXHost exist. The old
+sparse phone proof establishes its specific compiled-command/process route, not
+current SDK integration into Madeira, PPSSPP or MeloNX. Dense Wine was memory
+limited; sparse success does not erase that result or measure process RSS.
+
+Blocker: no current exact-binary consumer receipt establishing the host lifecycle,
+renderer/audio/input/native-service bindings and real workload in a selected app.
+Next bounded acceptance: use a separately reviewed app-independent consumer with
+the exact SDK/backend hashes on iPhone; verify deterministic workload output,
+service calls, cancellation, restart and cleanup. Then test each consumer's actual
+adapter. Keep signing/device work outside this source-only task. Madeira/Wine is
+one integration lane; PPSSPP/MeloNX need their own workload/adapter contracts.
+
+3. Chosen game reaches user-controlled gameplay — UNPROVED
+
+No title/build, complete game boot, rendered gameplay with user input, or playable
+IPA has been established by these receipts. A native DXMT/Metal command handler
+is application-supplied in the current SDK contract. Graphics, audio, timing,
+input and game-specific runtime dependencies cannot be inferred from scalar tests.
+
+Next bounded acceptance: name a permitted title/build and integration lane, pin
+the app/SDK/backend/game identities, and demonstrate a repeatable boot into a
+fixed scene where user input changes gameplay. Preserve bounded diagnostics and
+the first blocking graphics/service/runtime boundary. No such run occurs here.
+
+4. Measured speed and stability — UNPROVED FOR GAMEPLAY
+
+There is no verified gameplay frame-time, sustained-speed, crash-free-duration or
+RSS/thermal result for that selected integration. Instruction counts and corpus
+pass ratios do not predict these outcomes. A 256 MiB linear memory ceiling and
+64 MiB JIT arena ceiling do not cap application RSS, engine code, native frontend,
+graphics, worker or allocator memory.
+
+Next bounded acceptance after gameplay works: fix device/OS and app identities,
+scene/input replay, warmup and duration; collect frame-time distribution, speed,
+audio continuity, crashes and process memory under those exact conditions, plus
+repeat-run lifecycle behavior. Agree concrete playable speed/stability thresholds
+for that workload rather than inventing an overall release percentage.
+
+How the corpus work contributes
+
+Directly relevant to the next real-program milestone: the observed sparse broker
+memory-source SUB gap, followed by whatever loader/service/ISA boundary the same
+real input demonstrates. The new register-only corpus cannot measure that sparse
+memory transaction and does not replace that acceptance test.
+
+The 127-candidate review improves evidence quality for scalar widths, flags,
+undefined flag propagation, decoded prefixes, control flow and divide preconditions.
+It can detect regressions before another production change. It is measurement
+infrastructure, not a playable product milestone. The AF normalization correction
+prevents false incompatibility reports; it adds no execution capability by itself.
+
+Broader compatibility research: mode32/GW32, AVX/YMM, additional x87/precision,
+macro/raw-encoding groups, SMC, absolute-memory profiles and nondeterministic tests.
+They remain valuable separate lanes. No supplied trace proves all of them block
+the next sparse Wine command, and none is a completion denominator for BetterJIT.
+
+Evidence: playable-path.json binds public source/doc hashes and existing milestone
+receipt facts. Original phone receipts and private logs are not copied or uploaded.

@@ -25,13 +25,22 @@ jobs:
         with:
           node-version: '24'
       - name: Verify measurement failure, gate, timeout and hash handling
-        run: python3 research/corpus/test-pilot.py
+        run: |
+          python3 research/corpus/test-pilot.py
+          python3 research/corpus/test-cohort.py
       - name: Fetch immutable public fixture source
         run: python3 research/corpus/source.py .build/corpus-source/fex
       - name: Assemble the frozen pilot once
         run: python3 research/corpus/pilot.py prepare --fex .build/corpus-source/fex --nasm nasm --output .build/corpus-pilot/inputs
       - name: Build independent native x86 oracle
         run: cc -O2 -mno-red-zone -Wall -Wextra -Werror research/corpus/native-x86.c research/corpus/native-x86.S -o .build/corpus-pilot/corpus-native-x86
+      - name: Bind the one reference binary for this run
+        run: python3 research/corpus/cohort_ci.py reference-pack --output .build/cohort-reference
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: corpus-reference-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .build/cohort-reference/
+          retention-days: 7
       - name: Execute oracle and preserve raw outcomes
         id: oracle
         run: python3 research/corpus/pilot.py run --inputs .build/corpus-pilot/inputs --layer oracle --executable .build/corpus-pilot/corpus-native-x86 --output .build/corpus-pilot/results/oracle.jsonl
@@ -111,6 +120,16 @@ jobs:
         with:
           path: .build/corpus-native-asset
           key: ${{ steps.native-key.outputs.key }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Bind one shared runtime asset set before measurement
+        id: shared-assets
+        if: always() && (steps.host-asset.outputs.hit == 'true' || steps.host-build.outcome == 'success') && (steps.native-asset.outputs.hit == 'true' || steps.native-build.outcome == 'success')
+        run: python3 research/corpus/cohort_assets.py pack --root .build/cohort-runtime-assets --host-build '${{ steps.host-build.outcome }}'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && steps.shared-assets.outcome == 'success'
+        with:
+          name: corpus-runtime-assets-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .build/cohort-runtime-assets/
+          retention-days: 7
       - name: Measure all native profiles without hiding failures
         if: always() && (steps.native-asset.outputs.hit == 'true' || steps.native-build.outcome == 'success')
         run: |
@@ -132,4 +151,131 @@ jobs:
           name: corpus-measurement-${{ github.run_id }}-${{ github.run_attempt }}
           path: .build/corpus-pilot/export/
           if-no-files-found: error
+          retention-days: 7
+  cohort-plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      enabled: ${{ steps.plan.outputs.enabled }}
+      admission: ${{ steps.plan.outputs.admission }}
+      oracle: ${{ steps.plan.outputs.oracle }}
+      execution: ${{ steps.plan.outputs.execution }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 research/corpus/source.py .build/corpus-source/fex
+      - name: Verify all source hashes and pack the external admission
+        id: plan
+        run: python3 research/corpus/cohort_ci.py plan --admission research/corpus/register-admission.json --fex .build/corpus-source/fex --output .build/cohort-plan
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: corpus-cohort-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .build/cohort-plan/
+          retention-days: 7
+  cohort-oracle:
+    # Finish the baseline/asset producer before fanout so total runner
+    # concurrency remains bounded, including cold builds.
+    needs: [cohort-plan, oracle, arm64-and-wasm]
+    if: always() && needs.cohort-plan.outputs.enabled == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.cohort-plan.outputs.oracle) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install -y nasm
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: corpus-cohort-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .build/cohort-plan
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: corpus-reference-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .build/cohort-reference
+      - run: python3 research/corpus/cohort_ci.py reference-verify --output .build/cohort-reference
+      - run: python3 research/corpus/source.py .build/corpus-source/fex
+      - name: Reproduce the exact reviewed source, bytes, decode and assertions
+        run: python3 research/corpus/measure_cohort.py prepare --admission .build/cohort-plan/admission.json --admission-sha256 '${{ needs.cohort-plan.outputs.admission }}' --plan .build/cohort-plan/plan.json --kind oracle --shard '${{ matrix.shard }}' --fex .build/corpus-source/fex --nasm nasm --ndisasm ndisasm --output .build/cohort-shard
+      - name: Independent reference outcomes
+        run: python3 research/corpus/measure_cohort.py run --admission .build/cohort-plan/admission.json --admission-sha256 '${{ needs.cohort-plan.outputs.admission }}' --plan .build/cohort-plan/plan.json --kind oracle --shard '${{ matrix.shard }}' --oracle-executable .build/cohort-reference/corpus-native-x86 --output .build/cohort-shard
+      - name: Complete skeletons and enforce export cap
+        if: always()
+        run: python3 research/corpus/cohort_ci.py seal --admission .build/cohort-plan/admission.json --admission-sha256 '${{ needs.cohort-plan.outputs.admission }}' --plan .build/cohort-plan/plan.json --kind oracle --shard '${{ matrix.shard }}' --output .build/cohort-shard
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: corpus-cohort-oracle-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          path: .build/cohort-shard/
+          retention-days: 7
+  cohort-execution:
+    needs: [cohort-plan, cohort-oracle, arm64-and-wasm]
+    if: always() && needs.cohort-plan.outputs.enabled == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.cohort-plan.outputs.execution) }}
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - run: brew install cmake ninja
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: corpus-cohort-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .build/cohort-plan
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: corpus-runtime-assets-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .build/cohort-runtime-assets
+      - run: python3 research/corpus/cohort_assets.py verify --root .build/cohort-runtime-assets
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: corpus-cohort-oracle-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: .build/cohort-oracles
+      - name: Gather only exact reviewed bytes from this run's oracle artifacts
+        run: python3 research/corpus/cohort_ci.py gather --admission .build/cohort-plan/admission.json --admission-sha256 '${{ needs.cohort-plan.outputs.admission }}' --plan .build/cohort-plan/plan.json --shard '${{ matrix.shard }}' --downloads .build/cohort-oracles --output .build/cohort-shard
+      - name: Run four profiles with independent raw outcomes
+        run: python3 research/corpus/measure_cohort.py run --admission .build/cohort-plan/admission.json --admission-sha256 '${{ needs.cohort-plan.outputs.admission }}' --plan .build/cohort-plan/plan.json --kind execution --shard '${{ matrix.shard }}' --native-executable .build/cohort-runtime-assets/corpus-native-arm64 --wasm-executable .build/cohort-runtime-assets/fexserve --oracle-ledgers .build/cohort-oracles/*/results/oracle.jsonl --output .build/cohort-shard
+      - name: Complete skeletons and enforce export cap
+        if: always()
+        run: python3 research/corpus/cohort_ci.py seal --admission .build/cohort-plan/admission.json --admission-sha256 '${{ needs.cohort-plan.outputs.admission }}' --plan .build/cohort-plan/plan.json --kind execution --shard '${{ matrix.shard }}' --output .build/cohort-shard
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: corpus-cohort-execution-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          path: .build/cohort-shard/
+          retention-days: 7
+  cohort-aggregate:
+    needs: [cohort-plan, cohort-oracle, cohort-execution]
+    if: always() && needs.cohort-plan.outputs.enabled == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: corpus-cohort-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .build/cohort-plan
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: corpus-cohort-*-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: .build/cohort-results
+      - run: python3 research/corpus/cohort_ci.py aggregate --admission .build/cohort-plan/admission.json --admission-sha256 '${{ needs.cohort-plan.outputs.admission }}' --plan .build/cohort-plan/plan.json --classification .build/cohort-plan/classification/corpus-classification.jsonl --downloads .build/cohort-results --output .build/cohort-aggregate
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: corpus-cohort-aggregate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .build/cohort-aggregate/
           retention-days: 7

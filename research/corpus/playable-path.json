@@ -1,0 +1,117 @@
+{
+  "asOfUTC": "2026-10-17",
+  "compatibilityResearch": [
+    "127 register/control-flow candidates and AF definedness normalization",
+    "mode32/GW32",
+    "AVX/YMM and optional features",
+    "broader x87/precision",
+    "SMC/raw forms/macros",
+    "absolute-memory profiles",
+    "nondeterministic/exception/service contracts"
+  ],
+  "existingWineReceiptSHA256": "658d46b65123d8bf0ed6f76e1c32e6398c1b235b73180554d998921fbbae570f",
+  "milestones": [
+    {
+      "exactBlocker": {
+        "assembly": "SUB EAX,dword [RSI+4]",
+        "bytes": "2b4604",
+        "rip": "0x7f000003680c"
+      },
+      "guestExit": null,
+      "name": "Complete real program execution",
+      "nextBoundedAcceptance": "Separately review sparse memory-source SUB, verify effects/flags independently, then rerun same immutable Wine input to next boundary under unchanged budgets. Real milestone needs expected Windows-program output and real exit with ownership cleanup.",
+      "status": "partial",
+      "unproved": "Complete Windows program through actual Wine input.",
+      "verified": "Bounded static C command/process phone milestone 8a79eec; sparse fork/exec/cat 4133 bytes and clean exit."
+    },
+    {
+      "exactBlocker": "No current consumer receipt for workload/lifecycle/native services/renderer/audio/input bindings. Dense Wine memory limit remains distinct.",
+      "name": "Functioning SDK/host integration on iPhone",
+      "nextBoundedAcceptance": "Reviewed exact-hash app-independent iPhone consumer workload; verify output, services, cancellation/restart/cleanup, then actual per-consumer adapter.",
+      "status": "partial",
+      "unproved": "Current exact-binary Madeira/PPSSPP/MeloNX consumer integration and complete real workload.",
+      "verified": "Existing specific sparse phone command/process proof and source app-independent SDK products/sample hosts."
+    },
+    {
+      "exactBlocker": "No selected title/build or verified complete boot, renderer/audio/input and gameplay path; application supplies native graphics services.",
+      "name": "Chosen game reaches user-controlled gameplay",
+      "nextBoundedAcceptance": "Pin permitted title/build and integration identities; repeatable fixed-scene boot and user input altering gameplay; preserve first concrete boundary.",
+      "status": "unproved"
+    },
+    {
+      "exactBlocker": "No selected gameplay workload with verified frame-time/speed/crash duration/RSS/thermal measurements.",
+      "name": "Measured gameplay speed and stability",
+      "nextBoundedAcceptance": "Fixed device/OS/hashes/scene/input replay and warmup/duration; measure frame-time distribution, speed/audio, stability and memory; agree workload thresholds.",
+      "status": "unproved"
+    }
+  ],
+  "nextRealProgramBlockers": [
+    {
+      "classification": "demonstrated blocker",
+      "evidence": {
+        "archiveSHA256": "28836db60a245ed654bcc4efb60ca550ef1b565a02494e0286812862e176be89",
+        "commit": "9694b4e202efaa044ffd0c927ceed2040ae6e2ec",
+        "run": 38963048133,
+        "source": "parent independently verified archive receipt; not re-executed here",
+        "stop": {
+          "assembly": "SUB EAX,dword [RSI+4]",
+          "bytes": "2b4604",
+          "rip": "0x7f000003680c"
+        }
+      },
+      "group": "Sparse memory-source SUB"
+    },
+    {
+      "classification": "unknown until next proven boundary",
+      "group": "Subsequent Linux services/loader/ISA gaps",
+      "reason": "No unsupported list is a proven critical path before the current stop is passed."
+    }
+  ],
+  "phoneEvidenceSource": "Trusted earlier parent conversation and preserved milestone facts; no private phone logs included.",
+  "qualification": "Evidence-backed milestones, no overall completion percentage. No new guest/device execution. Universal SDK; each consumer is an integration lane.",
+  "researchQualification": "Corpus fixture/step counts are not release percentages. The scalar corpus does not establish sparse broker memory-source SUB, graphics, consumer integration or gameplay.",
+  "resourceQualification": "Linear memory and JIT arena limits are not RSS limits; unique asset-set cap is not cumulative transfer traffic.",
+  "schema": 1,
+  "sourceEvidence": [
+    {
+      "baseCommit": "60c4dae805c52a0503537085e699524875d697c4",
+      "lines": [
+        3
+      ],
+      "path": "README.md",
+      "sha256": "f2e0f5976f8e240201c010682c232c83896214787b46d619a3283e7b4a304d26"
+    },
+    {
+      "baseCommit": "60c4dae805c52a0503537085e699524875d697c4",
+      "lines": [
+        74
+      ],
+      "path": "README.md",
+      "sha256": "f2e0f5976f8e240201c010682c232c83896214787b46d619a3283e7b4a304d26"
+    },
+    {
+      "baseCommit": "60c4dae805c52a0503537085e699524875d697c4",
+      "lines": [
+        99
+      ],
+      "path": "docs/sdk/README.md",
+      "sha256": "c4fe543d208f894310989c5ecc22a545b1e0a1214bff4b82eb3172d3b90fc0fa"
+    },
+    {
+      "baseCommit": "60c4dae805c52a0503537085e699524875d697c4",
+      "lines": [
+        41
+      ],
+      "path": "docs/sdk/sparse-processes.md",
+      "sha256": "337bfda958c9ec20ca0d14e4b64f246f735c671c64f086eb8f0076c7d4943a9c"
+    },
+    {
+      "baseCommit": "60c4dae805c52a0503537085e699524875d697c4",
+      "lines": [
+        195
+      ],
+      "path": "fexwasm/src/broker_step.h",
+      "sha256": "504b2d880cc5a8c202d19ec043cd3291018b4030fdb77a38fc48e5ee6a1c4769"
+    }
+  ]
+}

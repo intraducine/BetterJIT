@@ -1,0 +1,515 @@
+{
+  "schema": 1,
+  "sourcePin": "f59cab95659e8add0c88f0c76ec1cf483c536dbf",
+  "qualification": "Explicit 127-source review list, never execution admission. Includes DB encodings and undefinedness/control-flow review requirements.",
+  "fixtures": [
+    {
+      "path": "unittests/ASM/FEX_bugs/Divide32.asm",
+      "sourceSHA256": "3127272bfe29c8001cc85626a2c345422be4dbdb588d986d3f2184cc0b74fbe7"
+    },
+    {
+      "path": "unittests/ASM/FEX_bugs/LargeRotatesForSmallSizes_More.asm",
+      "sourceSHA256": "32b94fdb81cb3fb3b9dc3253543bc441e2dd73c194dd9035e545a155a8052dcf"
+    },
+    {
+      "path": "unittests/ASM/FEX_bugs/LongSignedDivide.asm",
+      "sourceSHA256": "3f275abbb35db16b7f7b943848c374f28a31479436d5fd40e86eff7a5942e17d"
+    },
+    {
+      "path": "unittests/ASM/FEX_bugs/LoopAddressSizeCheck.asm",
+      "sourceSHA256": "dc5dc944a3241db4c00aad3a13d9e5dce79dc4a4a6a3a3a168edbfe5daba46fa"
+    },
+    {
+      "path": "unittests/ASM/FEX_bugs/MoveMerging.asm",
+      "sourceSHA256": "ea28d68a447b68d295bd6be027e72a30d2c749b1212ce5eb3b7a673f4081fed0"
+    },
+    {
+      "path": "unittests/ASM/FEX_bugs/OptSizeConfusion.asm",
+      "sourceSHA256": "c5bea1c1ef060c565eb64900ff39900317d6361746fded8f262e5fb9cb8d203f"
+    },
+    {
+      "path": "unittests/ASM/FEX_bugs/REX/TwoByte.asm",
+      "sourceSHA256": "8eb8026ed5d61e1b4ad7141eb052f7f256183a396e568eb4a32609bc3b1688c1"
+    },
+    {
+      "path": "unittests/ASM/FEX_bugs/SHRD_OF.asm",
+      "sourceSHA256": "de3a81177fba05ed6ac17beb902642b7db3931d0d0f084829670221f76739059"
+    },
+    {
+      "path": "unittests/ASM/FEX_bugs/ShiftConstantBug.asm",
+      "sourceSHA256": "5a39d5a1dbf05b36f229c90b4f55c6ea3b46bec10ac852f63a551370860d86a6"
+    },
+    {
+      "path": "unittests/ASM/FEX_bugs/ShiftPF.asm",
+      "sourceSHA256": "d64f3a9afd5680ecb240b483b423da8712752807718936408f49841ce1f97785"
+    },
+    {
+      "path": "unittests/ASM/FEX_bugs/mov_address_size_override.asm",
+      "sourceSHA256": "242c3ee8636812cd9e9b91a8c9647b6bf03e77ef5fb589c7f4c8c349416e999b"
+    },
+    {
+      "path": "unittests/ASM/FEX_bugs/xor_flags.asm",
+      "sourceSHA256": "58e8ff13cec36cfb70f4e9a07daf7323bb309a368ff08b97683f84aabfd63cbc"
+    },
+    {
+      "path": "unittests/ASM/Primary/Primary_63.asm",
+      "sourceSHA256": "d0cfbe1a4850640a413bb0b86c5465c3164b7c732a2fcb116889a0f1e5c89a4c"
+    },
+    {
+      "path": "unittests/ASM/Primary/Primary_84.asm",
+      "sourceSHA256": "a7869b326015fb6f0fbc32242529b9d77b75a672413d745af5eabf7e9030a820"
+    },
+    {
+      "path": "unittests/ASM/Primary/Primary_85.asm",
+      "sourceSHA256": "99173044c68e2ecd1acbf9778739a5c391d89b3ac375eecd14247f99c62e9b08"
+    },
+    {
+      "path": "unittests/ASM/Primary/Primary_98_2.asm",
+      "sourceSHA256": "03048e530b09d8db6321d677aaefb3cec46b5b7cf3b4c034f762a33dbe66d345"
+    },
+    {
+      "path": "unittests/ASM/Primary/Primary_99.asm",
+      "sourceSHA256": "69ea1ce4fc704ae9739ea821c643156fbd5d9b8ee3f33a1b81b8d7f838061add"
+    },
+    {
+      "path": "unittests/ASM/Primary/Primary_99_2.asm",
+      "sourceSHA256": "1b4ebfc04a4a0f8c76c524e4ff25652e9c5464f6d08827bada6d7062a80c8dd3"
+    },
+    {
+      "path": "unittests/ASM/Primary/Primary_9E.asm",
+      "sourceSHA256": "47a983e2e4b65a55db38262434b4ebf0c5f3763d6e8ae64c9de5725db13b7519"
+    },
+    {
+      "path": "unittests/ASM/Primary/Primary_A8.asm",
+      "sourceSHA256": "8c28a05e0e573cbae0f3203d113796fd1530bd32d40e884e7e5f61b458844915"
+    },
+    {
+      "path": "unittests/ASM/Primary/Primary_A9.asm",
+      "sourceSHA256": "3f4cbb8f3f99a6a39661dae61f475a5b5cd638018ff7c548388b30be327b3e73"
+    },
+    {
+      "path": "unittests/ASM/Primary/Primary_B0.asm",
+      "sourceSHA256": "ab85a1891b8ea4b9d082f6cc2237286ec5ba89e16f7e002450dc0c5ae06536b1"
+    },
+    {
+      "path": "unittests/ASM/Primary/Primary_B8.asm",
+      "sourceSHA256": "fcc6aa195ab49374ffb5f996eb9619f1bf2245181bda4ef22688cbf2e0c0e152"
+    },
+    {
+      "path": "unittests/ASM/Primary/Primary_B8_2.asm",
+      "sourceSHA256": "1757c6204d580b902af0a428251f08377172e476f6f6c199ebc908457aff0456"
+    },
+    {
+      "path": "unittests/ASM/Primary/Primary_B8_3.asm",
+      "sourceSHA256": "0a75f6bb2ad1e6e4e629f22091e6af944c03acf4b94636cc7799f1d8de8437cb"
+    },
+    {
+      "path": "unittests/ASM/Primary/Primary_E2.asm",
+      "sourceSHA256": "e265ca9230f980173b05b20b6a09f28f83cea16fa3a17b2c1c713acca114717b"
+    },
+    {
+      "path": "unittests/ASM/Primary/Primary_E3.asm",
+      "sourceSHA256": "af6abb888ba36deb3b38a10f8023d793fbe543369b07b8e0dc120297140b4565"
+    },
+    {
+      "path": "unittests/ASM/Primary/Primary_F5.asm",
+      "sourceSHA256": "89e1943e274fa8fc0b6ba84e99b614bc523d7211033bd80bcec528e56661b328"
+    },
+    {
+      "path": "unittests/ASM/Primary/Primary_F8.asm",
+      "sourceSHA256": "b85c64cda62a0448fef7989450a879a8179603b671a0553ec83610c6ad13bb8e"
+    },
+    {
+      "path": "unittests/ASM/Primary/Primary_F9.asm",
+      "sourceSHA256": "c4c7c41a2c38e76ac5177434992d685a3e2946c846360ce9b3adbba7406368d8"
+    },
+    {
+      "path": "unittests/ASM/Primary/SHR.asm",
+      "sourceSHA256": "2220a9a1f51b44cdfd086c38a125aa89d91e39abaf2f5faab69fcfcb47abac01"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_C0_02.asm",
+      "sourceSHA256": "e898d3c997c5016880e33964666247bafc541e956f3ede44172926cea316fb8d"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_C0_02_2.asm",
+      "sourceSHA256": "1b2264318dd8b9f4387d51ed1bcabc985256589e4cab919fd82da675674d624e"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_C0_02_3.asm",
+      "sourceSHA256": "27e92de3bb43f2f1155de2b4820f0cc51638c556e0ee6da55a42e7a3302e0c01"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_C0_02_4.asm",
+      "sourceSHA256": "b6e38d0ed15d57b4ce660ef35e75ea4be5aef8fd7ffee3e112f1ff70722b16ce"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_C0_03.asm",
+      "sourceSHA256": "a6862a2b34101e0ab956009d5970db96f1e3f6d53dde048ff8bac397f09ec064"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_C0_03_2.asm",
+      "sourceSHA256": "e010c0d43fcc47548a7dc7d5ffea9a035c71aefb77694f0fbb7bcb2413c08066"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_C0_03_3.asm",
+      "sourceSHA256": "e91c48960bb20bfa93beb94f414e0a58e07d2548b996a0ab938d9e047e1f931c"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_C0_03_4.asm",
+      "sourceSHA256": "01e38058e490db84dbdc5ee2975674874ab871392845836a175f027842569a66"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_C0_07_2.asm",
+      "sourceSHA256": "8720ef337f713e62700939891c9363865172dc174a36127a17149cce7aec2296"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_C1_05_2.asm",
+      "sourceSHA256": "0af8d442cfaadfed7576b5b07242ef50190a3314ba09b82159cbef5340815772"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D0_02.asm",
+      "sourceSHA256": "d7cd0f2f77006b558cab52b75889c8f12d0a3159f7541eb2485ce06f6c356291"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D0_02_2.asm",
+      "sourceSHA256": "5232cbce9c914a7155c916373d7bee35bb9f30766a41098e8ef7fd234e5d7d69"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D0_03.asm",
+      "sourceSHA256": "20528e8826e91cace373a4f124b4d01d8989b288e78892568d5114dde713a7be"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D0_03_2.asm",
+      "sourceSHA256": "11629ef2f18ecf8e4e23324ffad250cbcb877ab9a18b14ccafb88120c238e73f"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D1_02.asm",
+      "sourceSHA256": "7e1b4cb4c3a75b9f2a1dd32417a0c40866cff64b6d96c4f9c38ec19358906d5f"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D1_02_2.asm",
+      "sourceSHA256": "c2a7c7ae460552bd7ce2169954d37e0eedfd3c2ab5693f66cfe4c52db116c8b6"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D1_02_3.asm",
+      "sourceSHA256": "8f993d1d22dee69a82063a54d826c52bfce1fd4d8ffe7fb40593c5cf09cfb1fb"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D1_02_4.asm",
+      "sourceSHA256": "b24e8385f7fb7ea3938e71d88923c79dd139398a740895ff3d40561708d24df7"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D1_02_5.asm",
+      "sourceSHA256": "49c8246bfa7ddd669c692f411ad1e4d1191a8438c6d2f33938bd8883517cf810"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D1_02_6.asm",
+      "sourceSHA256": "f45ad8ac3a2210fb85f34b2628201d677a53e38d8458ca3518c6a06fed8f30d4"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D1_03.asm",
+      "sourceSHA256": "15e7701bddf81b88672968fa90857d074d42a79e0d82107a2c595e939015d402"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D1_03_2.asm",
+      "sourceSHA256": "b7d91538ad683b302297e325d5dea406b157ca7d1f7c79b8f1ca76fee18ec88d"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D1_03_3.asm",
+      "sourceSHA256": "5483fc69999d843bac9646a939545a252a9397555e9a338eef54b8bc7f5c60f3"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D1_03_4.asm",
+      "sourceSHA256": "5585cdec05dcab0dcf4051204f1abf54851c7e659fc45192edc0de484a65983d"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D1_03_5.asm",
+      "sourceSHA256": "4e64c0702b3b1d49643b7f4fdd9c03a49041c084eddfe3c8c992e63d8e400353"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D1_03_6.asm",
+      "sourceSHA256": "22dc22068f51f65081a15c3e163a1563748cf43cd57add650506fa45270d3c15"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D1_07_2.asm",
+      "sourceSHA256": "11be10dedbb765800f94f02d77cebed359d0a28dcf8108bc7940141ecbb8ef33"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D2_02.asm",
+      "sourceSHA256": "3aec219f6e73380e4a74d691e3bcf95c5ca2fcf959dc13a5f4bc60207a85a38e"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D2_02_2.asm",
+      "sourceSHA256": "8d53cbf5febc4264d492cee040ffe96d7dba70ec635865bc4322ad6c4419c77d"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D2_02_3.asm",
+      "sourceSHA256": "55d8c5cc714293d86322eb373ff86976884f0375cc30c890e815fc64d31146c7"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D2_03.asm",
+      "sourceSHA256": "84fdc3bc8f3f891601a8e3cae89177f5d8afd99e3736d7a08c7e814e69ed6b40"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D2_03_2.asm",
+      "sourceSHA256": "bcfeda46891c8a179fa158af8a5d759f6bcf5addbe6d22b21c149ab58cf19898"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D2_03_3.asm",
+      "sourceSHA256": "fd71ca5d032b69d2731400cbe3fa0dffe9e9f41afe765ddc353c6af5f4ad8502"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D3_00_2.asm",
+      "sourceSHA256": "5ea79e700b6a4fb7d429b481a5015d236093ae50ae4f3ef0a4e4a7f26a7836be"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D3_00_3.asm",
+      "sourceSHA256": "7b18c86baa8f3a301859bdd4ef53c1971edaa33f3b0501d0a19cc0ee8c8bc551"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D3_01_2.asm",
+      "sourceSHA256": "baeaeef50491972f23d8633e1ff06dc613850dd8f02030add2b2ebc5a14e865f"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D3_01_3.asm",
+      "sourceSHA256": "c6107c9bb70ce3840f3347a5e14fd4a00dfe31c70635566f1bb68d29732ac6c3"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D3_02.asm",
+      "sourceSHA256": "712cec78fbc2370ab137a5b8f492a0612423b8f80425821e5ec954007a18edb1"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D3_02_2.asm",
+      "sourceSHA256": "e55359c1f5c0b396806fafe53a135f28bbc9fcdac348b286945a8848888cd61b"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D3_02_3.asm",
+      "sourceSHA256": "de4dbb71bb321dc5be57c981bcbb6021e0d1035ec033d97f3a08dd6cca775f7e"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D3_02_4.asm",
+      "sourceSHA256": "125021840571b51a3b38ee9cc6bb94fbcc75fc2ea668d78c960afb8652e24812"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D3_02_5.asm",
+      "sourceSHA256": "b5774e77dd222287828ab23e74c58e79d03fe10d286e3effdc66f71bea582cdf"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D3_03.asm",
+      "sourceSHA256": "c4cfa5e1245c39ca5b4989bce1c36b6351dbbbf57c4c38234694c0956fe4b21e"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D3_03_2.asm",
+      "sourceSHA256": "c65b6c9dbbb136c605f799146e3c065804164739e9de17e144ad7c1ef2af9b7d"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D3_03_3.asm",
+      "sourceSHA256": "de1d05c15cdbcdbbce39b8c744c9d949349c9eca1a1e82f97ee676ffdbd05791"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D3_03_4.asm",
+      "sourceSHA256": "d4c786697c94d3bc5076e69ab134cd4b4aad8e1e8343c031d7f4a71c532faf20"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D3_03_5.asm",
+      "sourceSHA256": "3b6592d528626390b134933dc0f01b2c42e051e6673785698c51360b499e4b26"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D3_03_6.asm",
+      "sourceSHA256": "22df35c30b4e7b3b72a1e8f6cbbec618bf7edcc705632d024db1f2f7456c3173"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D3_03_7.asm",
+      "sourceSHA256": "92690220b2c094d54a20579bebc8cf683f7a8ad1a710f3aa7947248c87508bcf"
+    },
+    {
+      "path": "unittests/ASM/PrimaryGroup/2_D3_03_8.asm",
+      "sourceSHA256": "8e42284fd4d607de233289d349bfede09b4074d8be82b157b6e110dabc2ed2bd"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_80.asm",
+      "sourceSHA256": "0f9b4ca8405a29561f6ecb0d3daf6cad2db69fbc2ae4f7d8cc733f1de341d1c3"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_81.asm",
+      "sourceSHA256": "3896f645687042156de5a1f5b200e8955358ed3a60f7e81ed00a880499ffcb54"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_82.asm",
+      "sourceSHA256": "1c4c6f9f90968d8b1f15a793691ffa1f44e1189f59b5ad19039196e58e986b52"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_83.asm",
+      "sourceSHA256": "4592f3177f34a3faecad3eca186525355cd82325f70d221199190831f4325351"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_85.asm",
+      "sourceSHA256": "d2193d0c9831bbf46f4aa55e7eef5a8480e3113001c84938cf571518e5c8d85b"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_86.asm",
+      "sourceSHA256": "fc7f87a558ee5579e0114379bae34f904bd9fd624469545c4ceaca9c6a8f1d42"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_87.asm",
+      "sourceSHA256": "5e3d540465add72c33154b10ef9e7cf98bf593b394fac60512ab62a45e09b0f5"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_88.asm",
+      "sourceSHA256": "6c4aebf7a1299a6ddb153bd14604056b895bf4e92f0ef18d70b9f3f7db5a6d4b"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_89.asm",
+      "sourceSHA256": "0224eb7fddfea6195421deb463b50b581787acbe0dba5a4fe6030934a147dbbf"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_8A.asm",
+      "sourceSHA256": "858643a969b275d7a3785fdf0aa7057e16ffc8b0e39f62db2f9a537caa52126a"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_8B.asm",
+      "sourceSHA256": "d90897f75c14cde1a76058ed414d5896f7cfcce68f0f1c277ca70b50b20aaa1c"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_8C.asm",
+      "sourceSHA256": "7500debe6d5b51e94f91fd6ef5a80677e0eb59d52c79469af61bfd895bea2c2b"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_8D.asm",
+      "sourceSHA256": "6eae6c5f75af23776b08148bc64294cebfb6c1fb1634bbda829c697aa952d9a2"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_8E.asm",
+      "sourceSHA256": "ab2c3858db08bcf672775bb921b14a707335d65c89973328f47535c91ee171df"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_8F.asm",
+      "sourceSHA256": "58c0494eb085beb9d8c8322003b5a03fabe3c005f43c675ff02c4a8afb6875b5"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_90.asm",
+      "sourceSHA256": "ccd8d28043115a5679f0976d8026c57312e4615b7e43927bffc1bf3ceaa679bf"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_91.asm",
+      "sourceSHA256": "5488de71bea9223a3fd301d4742124334424af228759246c35e730f63a6cf106"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_92.asm",
+      "sourceSHA256": "08ebea501504d138d86a738b3cb79f358ec1d53a17032ab1b58392bab5042073"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_93.asm",
+      "sourceSHA256": "a68676413dcb4ef23e47efe49c7e0a7dbd32870a08d57ecddf74dd42e6be851a"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_94.asm",
+      "sourceSHA256": "625894e8c623852d5d19df493ee8d42c5146096499459f1e932324315ce1a3b6"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_95.asm",
+      "sourceSHA256": "096116192f8af9174949e39c73430e50c2e2414e9fc370d9008c8fbd5125f02d"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_96.asm",
+      "sourceSHA256": "4d2ac60a6e5b6738d0f3667b074d6fb74e2e04aa436e08ce2cbdf63b514f7a24"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_97.asm",
+      "sourceSHA256": "e38a01d84bca1501d9c9f92b243693e17ea513760e1b5ec5b8548218ad04eceb"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_98.asm",
+      "sourceSHA256": "be9ecf48ba721894c530e09c357ef35610da0955f26088655eea103104f92689"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_99.asm",
+      "sourceSHA256": "72fa653d477bcc5ef950cd74ff540034fd3b42061592a9d9f8a38ff6003fa50b"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_9A.asm",
+      "sourceSHA256": "83b1dade58a870e1bec7cae729a4c2014a6ebe0686299c80d1a8688f46f97c03"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_9B.asm",
+      "sourceSHA256": "28b7930bb3891b4746230e47e71a27991744358ebabd7929d30544c57601a607"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_9C.asm",
+      "sourceSHA256": "a38435c54a0dbaaf00f9f46388fad83c046cd9918aa099b1eedf50c2c692f84c"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_9D.asm",
+      "sourceSHA256": "d5339dfb6355b4afecdcd7146f08236f13ded04647b1faf6b73dc854dd04d694"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_9E.asm",
+      "sourceSHA256": "22b4eb62982220ca7252e60156dd706d5f5597c22e16ecfda9c8386ed2a2f816"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_9F.asm",
+      "sourceSHA256": "8688114bedfecd90774c75d8c93e678498591b8ac50120ed2f1f7e8a8fabf63e"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_A4_2.asm",
+      "sourceSHA256": "d019962683744e77f4bb1ab42e6d9ad38cbe541e495a194dbf9edcd78f65f649"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_A5_2.asm",
+      "sourceSHA256": "cc4ebcacd9c6de93936e92ed3681bcd32f41d7f1e4a25f50eb2537ebdc69b92b"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_A5_3.asm",
+      "sourceSHA256": "3ce336724794454f2ef02f922a7888dd125b8c52556563e54335de2e94e87f58"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_A5_5.asm",
+      "sourceSHA256": "899b7b3fcfdd1c9c59747bca4cb3a5f198d8c68e4b741b22d882eff4878ebdaa"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_A5_6.asm",
+      "sourceSHA256": "28bd935217dabbc2a9859271117d0b7a50cd207367f5b59fd6ed12df80f0084d"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_A5_7.asm",
+      "sourceSHA256": "c18ebe3ca944c21827e8d450515bc68b5d0427233629607a148c0dbc0d1e4f52"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_AC_2.asm",
+      "sourceSHA256": "2f8036d09b0a1e5fe6be76a3d305c967b6cd38a69b985cfc44681e498d903fcc"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_AD_2.asm",
+      "sourceSHA256": "0d3b63e57477cbcbd504b829bde44c97e26f337e1216993d4d2697547b3c9add"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_AD_5.asm",
+      "sourceSHA256": "4f7acc44ff4e68023f28b0ef05aa246edc6e46455a422390b3edf8127eba7804"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_AD_6.asm",
+      "sourceSHA256": "9f4192e2f384354e796f39c9974d7a0ed232531dcf1fa7ab8c8c2def4aa4d731"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_AD_7.asm",
+      "sourceSHA256": "9692066398910bc65b204ad06c175761a1bd7549875e2e228f2d47227ff766e0"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_B0_10.asm",
+      "sourceSHA256": "d1dc68135463b41e7f29f5aa273cd60268aac852a14dbe474028893486fc651f"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_B0_11.asm",
+      "sourceSHA256": "dd4e813939d0b340628b0c46c4c58a298b3824564402972360faa53555558590"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_B0_2.asm",
+      "sourceSHA256": "05792951699d7232fa975865189b30a09c0a53bcde6b518e13b94c9aeda3d27f"
+    },
+    {
+      "path": "unittests/ASM/TwoByte/0F_C6.asm",
+      "sourceSHA256": "fd7ca141de436a833f5c0bdc9044b8d47fbdeed29a773aa3eba2535485b703e8"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "approvedSHA256": [
+    "a67049e7a54ff43c6e66585cb7f3b2773e121b415112a403c24e41fe6aae8462"
+  ],
+  "qualification": "Independently reviewed bounded register-defined-state-v3 cohort: 127 native x86 oracle fixtures and 126 fixtures in each backend profile. The large loop remains excluded from all backend profiles as recorded in this exact unchanged admission. No other admission is approved."
+}
