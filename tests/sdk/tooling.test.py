@@ -51,6 +51,26 @@ class ExportTests(unittest.TestCase):
     def test_symlink_is_not_followed(self):
         (self.root/'link').symlink_to('README.md');self.files['link']='link';self.commit()
         with self.assertRaisesRegex(ValueError,'regular'): exporter.collect(self.root,'HEAD')
+    def test_case_aliases_at_any_destination_component_are_rejected(self):
+        for names in [('Tests/Swift.swift','tests/sdk/node.mjs'),
+                      ('tests/SDK/a','tests/sdk/b'),('docs/README.md','docs/readme.md'),
+                      ('source-manifest.json','SOURCE-MANIFEST.json')]:
+            with self.subTest(names=names),self.assertRaisesRegex(ValueError,'casing conflict'):
+                exporter.validate_destination_casing(names)
+        self.files.update({'Tests/example.swift':'README.md','tests/sdk/example.mjs':'README.md'})
+        self.commit()
+        with self.assertRaisesRegex(ValueError,'casing conflict'):exporter.collect(self.root,'HEAD')
+    def test_distinct_swift_and_node_test_roots_preserve_exact_archive_paths(self):
+        self.files.update({'SwiftTests/Example/a.swift':'README.md','tests/sdk/example.mjs':'COPYING'})
+        self.commit()
+        files=exporter.collect(self.root,'HEAD')
+        with tarfile.open(fileobj=io.BytesIO(exporter.archive(files)),mode='r:gz') as archive:
+            manifest=json.load(archive.extractfile('BetterJIT-SDK/SOURCE-MANIFEST.json'))
+            expected={'BetterJIT-SDK/'+name for name in manifest['files']}
+            self.assertEqual(set(archive.getnames()),expected|{'BetterJIT-SDK/SOURCE-MANIFEST.json'})
+            for name,entry in manifest['files'].items():
+                import hashlib
+                self.assertEqual(hashlib.sha256(archive.extractfile('BetterJIT-SDK/'+name).read()).hexdigest(),entry['sha256'])
     def test_missing_source_and_notice_fail(self):
         self.files['gone']='absent';self.commit()
         with self.assertRaisesRegex(ValueError,'Missing'):exporter.collect(self.root,'HEAD')

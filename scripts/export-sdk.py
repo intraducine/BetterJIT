@@ -23,10 +23,22 @@ def safe_path(name):
     if any(c in name for c in '\r\n\\'): raise ValueError('Invalid export path.')
     return name
 
+def validate_destination_casing(names):
+    seen = {}
+    for name in names:
+        safe_path(name)
+        parts = name.split('/')
+        for length in range(1, len(parts) + 1):
+            prefix = '/'.join(parts[:length])
+            previous = seen.setdefault(prefix.casefold(), prefix)
+            if previous != prefix:
+                raise ValueError('SDK destination casing conflict: ' + previous + ' / ' + prefix)
+
 def collect(root, ref):
     revision = git(root, 'rev-parse', '--verify', '--end-of-options', ref + '^{commit}').decode().strip()
     spec = json.loads(git(root, 'show', revision + ':distribution/sdk-files.json'))
     if spec.get('schema') != 1 or not isinstance(spec.get('files'), dict): raise ValueError('Invalid SDK allowlist.')
+    validate_destination_casing([*spec['files'], 'SOURCE-MANIFEST.json'])
     result = {}; hashes = {}
     for destination, source in sorted(spec['files'].items()):
         safe_path(destination); safe_path(source)

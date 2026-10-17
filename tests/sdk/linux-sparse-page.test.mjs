@@ -10,7 +10,7 @@ async function page({paused=false}={}) {
   get textContent(){return this.nodes.join('');},
   set textContent(value){this.replacements++;this.removedCharacters+=this.nodes.join('').length;this.nodes=[value];},
   appendChild(node){this.nodes.push(node.textContent);}};
- const abi={version:1,stepVersion:4,coverageVersion:23};
+ const abi={version:1,stepVersion:4,coverageVersion:24};
  const context=vm.createContext({URLSearchParams,AbortController,WebAssembly,Uint8Array,TextDecoder,TextEncoder,Map,Promise,
   SharedArrayBuffer,crossOriginIsolated:true,location:{origin:'http://fixture',search:'?argv=%5B%22%2Ftest%2Fcat%22%5D&stdin=1'},
   BetterJITGuestMemoryBroker:{ABI:abi,STEP:{DIVIDE_ERROR:5}},FexLinuxThread:{},
@@ -18,7 +18,7 @@ async function page({paused=false}={}) {
   addEventListener:(name,fn)=>listeners.set(name,fn),removeEventListener:(name,fn)=>{if(listeners.get(name)===fn)listeners.delete(name);},
   fetch:async(url,options={})=>{
    if(url.endsWith('/events')){events.push(JSON.parse(options.body));return {ok:true};}
-   return {ok:true,json:async()=>{await configuration;return {guestMemory:'broker1',memoryABI:1,stepABI:4,coverageVersion:23};},arrayBuffer:async()=>new ArrayBuffer(0)};
+   return {ok:true,json:async()=>{await configuration;return {guestMemory:'broker1',memoryABI:1,stepABI:4,coverageVersion:24};},arrayBuffer:async()=>new ArrayBuffer(0)};
   },Worker:class {constructor(name){this.name=name;this.messages=[];this.terminated=0;workers.push(this);}postMessage(m){this.messages.push(m);}terminate(){this.terminated++;}}
  });vm.runInContext(source,context);await tick();
  const stop=context.betterjitClose;

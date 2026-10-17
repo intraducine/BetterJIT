@@ -40,7 +40,7 @@ function forms(width,opcode=3){const rex=width===8?[0x48]:[],disp=pack(DATA-(COD
  ];
 }
 async function main(operation='ADD'){assert(['ADD','SUB'].includes(operation));arithmetic=operation;golden=require(operation==='ADD'?'./sparse-read-add-oracle.json':'./sparse-read-sub-oracle.json');const expectedOperation=operation==='ADD'?B.OP.ADD_REGISTER_MEMORY:B.OP.SUB_REGISTER_MEMORY,opcode=operation==='ADD'?3:0x2b,nativeOracle=oracle();await serve('guestmem=broker1',async(get,log)=>{
- const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.coverageVersion,23);
+ const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.coverageVersion,24);
  async function compile(code,rip=CODE){await get('/xlat/code?addr='+rip.toString(16),{method:'POST',body:Uint8Array.from(code)});const u=FexLinuxThread.parseBrokerStep(new Uint8Array(await(await get('/xlat/step?rip='+rip)).arrayBuffer()));assert.equal(u.status,0,Buffer.from(code).toString('hex')+': '+log());u.module=await WebAssembly.compile(u.code);assert(WebAssembly.Module.imports(u.module).every(i=>i.module==='e'&&['mem','tb','memory'].includes(i.name)));return u;}
  const syscall=await compile([15,5],SC),seeds=[await compile([0x45,1,0xc9],SC+0x100n),await compile([0x49,0x83,0xe9,1],SC+0x120n)],units={};let executedWasmSteps=0,checkedArithmetic=0,flagConsumerChecks=0;
  const sets=[],branches=[];for(const [cc,bit]of [[0x92,0],[0x9a,2],[0x94,6],[0x98,7],[0x90,11]])sets.push({u:await compile([0x41,15,cc,0xc0],SC+0x200n+BigInt(bit*16)),bit});

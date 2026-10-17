@@ -18,6 +18,13 @@ not the compiler, its native archives, or transitive dependencies. Native FEX
 builds require the full research checkout and its source/notices separately.
 Imported benchmark dumps are not included in the SDK-only export.
 
+Exported Swift tests use `SwiftTests/`; Node/Python tests retain `tests/`.
+The SDK package declares the Swift test paths explicitly. These distinct roots
+keep the source-manifest paths exact on both case-sensitive and case-insensitive
+filesystems. The exporter rejects case aliases in any destination component
+before materialization. Earlier macOS consumer bundles merged `Tests/` and
+`tests/`: those file bytes matched after case mapping, not by exact path.
+
 The C guest/reference example and small Wasm test emitters are source fixtures.
 The native-binding C shim is only a failure/ownership test double. The separate
 Swift stdio service is only a desktop integration-test adapter. Neither is a

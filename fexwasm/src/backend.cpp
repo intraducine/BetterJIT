@@ -11128,6 +11128,101 @@ std::vector<uint8_t> BuildDispatcher(const BackendConfig& Cfg, const std::vector
   return M.b;
 }
 
+// Group-1 OR/AND/XOR remain OP6/width0. The exact decoded GPR and signed
+// immediate own both the register result and every defined logical flag.
+static CompileResult CheckBrokerImmediateLogical(const IRListView& IR, uint64_t EntryRIP, const BackendConfig& Cfg) {
+  auto Reject = [](const char* Why) { CompileResult R; R.Error = std::string("broker immediate logical ") + Why; return R; };
+  const auto Width = Cfg.BrokerLogicalWidth, Kind = Cfg.BrokerLogicalKind;
+  if ((Width != 4 && Width != 8) || (Kind != 1 && Kind != 4 && Kind != 6) ||
+      Cfg.BrokerOperation != 6 || Cfg.BrokerWidth || Cfg.BrokerFlow || Cfg.BrokerTarget || Cfg.BrokerNoEffects ||
+      Cfg.BrokerTargetRegister >= 16 || Cfg.BrokerTestWidth || Cfg.BrokerTestShift || Cfg.BrokerTestMask ||
+      Cfg.BrokerSetCondition != 16 || Cfg.BrokerSetShift || Cfg.BrokerBitWidth || Cfg.BrokerBitRegister != 16 || Cfg.BrokerBitIndex)
+    return Reject("profile");
+  const uint64_t Mask = Cfg.BrokerLogicalMask;
+  if ((Width == 4 && Mask > UINT32_MAX) || (Width == 8 && uint64_t(int64_t(int32_t(Mask))) != Mask)) return Reject("immediate width");
+  OrderedNodeWrapper Source {}, Result {}, Flags {}, Invalidate {}, PF {}, ReadNZCV {}, Carry {}, StoreNZCV {}, Store {}, Exit {};
+  std::unordered_map<uint32_t, uint32_t> Order; uint32_t Position = 0;
+  for (auto [Block, Header] : IR.GetBlocks()) for (auto [Node, H] : IR.GetCode(Block)) {
+    const auto W = IR.WrapNode(Node); Order.emplace(IR.GetID(Node).Value, ++Position);
+    if (!Exit.IsInvalid() && H->Op != OP_ENDBLOCK) return Reject("effect after exit");
+    auto Once = [&](OrderedNodeWrapper& Slot) { if (!Slot.IsInvalid()) return false; Slot = W; return true; };
+    switch (H->Op) {
+    case OP_IRHEADER: case OP_CODEBLOCK: case OP_BEGINBLOCK: case OP_ENDBLOCK:
+    case OP_GUESTOPCODE: case OP_INLINECONSTANT: case OP_CONSTANT: case OP_INLINEENTRYPOINTOFFSET: case OP_ENTRYPOINTOFFSET: break;
+    case OP_LOADREGISTER:
+      if (!Once(Source) || H->C<IROp_LoadRegister>()->Class != RegClass::GPR ||
+          H->C<IROp_LoadRegister>()->Reg != Cfg.BrokerTargetRegister || uint32_t(H->Size) != 8) return Reject("source");
+      break;
+    case OP_ANDWITHFLAGS:
+      if (Kind != 4 || !Once(Result) || !Once(Flags)) return Reject("AND flags");
+      break;
+    case OP_OR: case OP_NOT:
+      if (!Once(Result)) return Reject("result count");
+      break;
+    case OP_XOR:
+      if (!(Kind == 4 ? Once(Carry) : Once(Result))) return Reject("XOR count");
+      break;
+    case OP_SUBWITHFLAGS: if (Kind == 4 || !Once(Flags)) return Reject("logical flags"); break;
+    case OP_INVALIDATEFLAGS:
+      if (!Once(Invalidate) || uint32_t(H->Size) || H->C<IROp_InvalidateFlags>()->Flags != (1u << FEXCore::X86State::RFLAG_AF_RAW_LOC)) return Reject("AF invalidation");
+      break;
+    case OP_STOREPF: if (!Once(PF) || uint32_t(H->Size) != 8) return Reject("PF store"); break;
+    case OP_LOADNZCV: if (Kind != 4 || !Once(ReadNZCV) || uint32_t(H->Size) != 4) return Reject("NZCV read"); break;
+    case OP_STORENZCV: if (Kind != 4 || !Once(StoreNZCV) || uint32_t(H->Size) != 4) return Reject("NZCV store"); break;
+    case OP_STOREREGISTER: {
+      const auto R = PhysicalRegister(Node);
+      if (!Once(Store) || R.AsRegClass() != RegClass::GPRFixed || R.Reg != Cfg.BrokerTargetRegister || uint32_t(H->Size) != 8) return Reject("destination");
+      break;
+    }
+    case OP_EXITFUNCTION: if (!Once(Exit)) return Reject("exit count"); break;
+    default: return Reject("uncovered effect");
+    }
+  }
+  auto Before = [&](OrderedNodeWrapper A, OrderedNodeWrapper B) {
+    if (A.IsInvalid() || B.IsInvalid()) return false;
+    const auto X = Order.find(IR.GetID(IR.GetNode(A)).Value), Y = Order.find(IR.GetID(IR.GetNode(B)).Value);
+    return X != Order.end() && Y != Order.end() && X->second < Y->second;
+  };
+  auto Constant = [&](OrderedNodeWrapper W, uint64_t Expected, OrderedNodeWrapper Use) {
+    if (!Before(W, Use)) return false;
+    const auto* H = IR.GetOp<IROp_Header>(W); if (uint32_t(H->Size) != 8) return false;
+    return (H->Op == OP_INLINECONSTANT && H->C<IROp_InlineConstant>()->Constant == Expected) ||
+           (H->Op == OP_CONSTANT && H->C<IROp_Constant>()->Constant == Expected);
+  };
+  if (!Before(Source, Result) || Flags.IsInvalid() || Invalidate.IsInvalid() || !Before(Result, PF) ||
+      !Before(PF, Store) || !Before(Store, Exit)) return Reject("ordered effects");
+  const auto* R = IR.GetOp<IROp_Header>(Result);
+  const bool Complement = Kind == 6 && Mask == (Width == 8 ? ~0ull : UINT32_MAX);
+  const auto Expected = Kind == 4 ? OP_ANDWITHFLAGS : Kind == 1 ? OP_OR : Complement ? OP_NOT : OP_XOR;
+  if (R->Op != Expected || uint32_t(R->Size) != Width || R->Args[0] != Source ||
+      (!Complement && !Constant(R->Args[1], Mask, Result))) return Reject("result dataflow");
+  if (Kind == 4) {
+    if (Flags != Result || !Before(Flags, Invalidate) || !Before(Invalidate, ReadNZCV) || !Before(ReadNZCV, Carry) ||
+        !Before(Carry, StoreNZCV) || !Before(StoreNZCV, PF)) return Reject("AND flag ordering");
+    const auto* C = IR.GetOp<IROp_Header>(Carry);
+    if (uint32_t(C->Size) != 4 || C->Args[0] != ReadNZCV || !Constant(C->Args[1], 0x20000000, Carry) ||
+        IR.GetOp<IROp_Header>(StoreNZCV)->Args[0] != Carry) return Reject("carry normalization");
+  } else {
+    const auto* F = IR.GetOp<IROp_Header>(Flags);
+    if (!Before(Result, Invalidate) || !Before(Invalidate, Flags) || !Before(Flags, PF) ||
+        uint32_t(F->Size) != Width || F->Args[0] != Result || !Constant(F->Args[1], 0, Flags)) return Reject("logical flag dataflow");
+  }
+  if (IR.GetOp<IROp_Header>(PF)->Args[0] != Flags || IR.GetOp<IROp_StoreRegister>(Store)->Value != Result) return Reject("result stores");
+  const auto* X = IR.GetOp<IROp_ExitFunction>(Exit);
+  if (X->Hint != BranchHint::None || !X->CallReturnAddress.IsInvalid() || !X->CallReturnBlock.IsInvalid() || !Before(X->NewRIP, Exit)) return Reject("exit metadata");
+  const auto* PC = IR.GetOp<IROp_Header>(X->NewRIP); uint64_t Next;
+  if (uint32_t(PC->Size) != 8) return Reject("exit width");
+  switch (PC->Op) {
+  case OP_INLINEENTRYPOINTOFFSET: Next = EntryRIP + PC->C<IROp_InlineEntrypointOffset>()->Offset; break;
+  case OP_ENTRYPOINTOFFSET: Next = EntryRIP + PC->C<IROp_EntrypointOffset>()->Offset; break;
+  case OP_INLINECONSTANT: Next = PC->C<IROp_InlineConstant>()->Constant; break;
+  case OP_CONSTANT: Next = PC->C<IROp_Constant>()->Constant; break;
+  default: return Reject("exit PC");
+  }
+  if (Next != Cfg.BrokerNextRIP) return Reject("fallthrough");
+  return {};
+}
+
 // The immediate-TEST subprofile remains OP6/width0 on the wire. Prove the
 // decoded operand/mask and the pinned frontend's four logical flag shapes;
 // no operand, memory or context store may borrow the generic FLAGS profile.
@@ -11501,6 +11596,9 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
     }
     if (Cfg.BrokerSetCondition != 16 || Cfg.BrokerSetShift) {
       auto Set = CheckBrokerSetCC(IR, EntryRIP, Cfg); if (!Set.Error.empty()) return Set;
+    }
+    if (Cfg.BrokerLogicalWidth || Cfg.BrokerLogicalKind || Cfg.BrokerLogicalMask) {
+      auto Logical = CheckBrokerImmediateLogical(IR, EntryRIP, Cfg); if (!Logical.Error.empty()) return Logical;
     }
     if (Cfg.BrokerTestWidth || Cfg.BrokerTestMask || Cfg.BrokerTestShift) {
       auto Test = CheckBrokerImmediateTest(IR, EntryRIP, Cfg); if (!Test.Error.empty()) return Test;

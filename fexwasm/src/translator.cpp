@@ -593,6 +593,7 @@ fexwasm_bytes fexwasm_step(fexwasm_translator* T, uint64_t RIP) {
   Cfg.BrokerTestWidth = Plan.TestWidth; Cfg.BrokerTestShift = Plan.TestShift; Cfg.BrokerTestMask = Plan.TestMask;
   Cfg.BrokerSetCondition = Plan.SetCondition; Cfg.BrokerSetShift = Plan.SetShift;
   Cfg.BrokerBitWidth = Plan.BitWidth; Cfg.BrokerBitRegister = Plan.BitRegister; Cfg.BrokerBitIndex = Plan.BitIndex;
+  Cfg.BrokerLogicalWidth = Plan.LogicalWidth; Cfg.BrokerLogicalKind = Plan.LogicalKind; Cfg.BrokerLogicalMask = Plan.LogicalMask;
   if (Plan.Operation == 6 && Plan.Length && !Plan.TestWidth && Plan.SetCondition == 16) {
     if (Length != Plan.Length || Plan.Register >= 16 || RIP + Length >= (1ull << 47)) {
       return Reject("register arithmetic instruction address/length");

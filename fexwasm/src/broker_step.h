@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 4, Coverage = 23;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 4, Coverage = 24;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
@@ -19,6 +19,8 @@ struct Admission {
   uint64_t TestMask = 0;
   uint32_t SetCondition = 16, SetShift = 0; // register SETcc proof; 16 means absent
   uint32_t BitWidth = 0, BitRegister = 16, BitIndex = 0; // BT; register 16 selects imm8
+  uint32_t LogicalWidth = 0, LogicalKind = 0; // group-1 /1 OR, /4 AND, /6 XOR
+  uint64_t LogicalMask = 0; // decoded, width-masked signed immediate
 };
 // Bounded architectural NOP encodings. Legacy prefixes may repeat, followed
 // by at most one REX. REP/LOCK and a REX before a legacy prefix are excluded.
@@ -187,11 +189,20 @@ inline Admission Admit(const uint8_t* Bytes, size_t Size) {
         return {true, Register ? 6u : 8u, Register ? 0u : ((Op & 1) ? Width : 1u)};
       if ((Op == 0x80 || Op == 0x81 || Op == 0x83) && (Bytes[I] & 0x38) == 0x38)
         return {true, Register ? 6u : 8u, Register ? 0u : (Op == 0x80 ? 1u : Width)};
-      // Group-1 /4 AND, 32/64-bit GPR destination only. FEX decodes the
-      // sign-extended imm8 (83) or imm32 (81); the existing flags/effect
-      // allowlist must still validate the complete single instruction.
-      if (Register && (Op == 0x81 || Op == 0x83) && (Bytes[I] & 0x38) == 0x20)
-        return {true, 6, 0};
+      // Group-1 logical immediates, 32/64-bit GPR destination only. REX.R/X
+      // do not extend the opcode group; REX.B selects the destination. Decode
+      // the full immediate independently and prove FEX's complete dataflow.
+      if (Register && (Op == 0x81 || Op == 0x83) && (Group == 1 || Group == 4 || Group == 6)) {
+        const size_t N = Op == 0x83 ? 1 : 4;
+        if (N > Size - (I + 1)) return {};
+        uint32_t Raw = 0;
+        for (size_t J = 0; J < N; J++) Raw |= uint32_t(Bytes[I + 1 + J]) << (J * 8);
+        const uint64_t Mask = N == 1 ? uint64_t(int64_t(int8_t(Raw))) : uint64_t(int64_t(int32_t(Raw)));
+        Admission A {true, 6, 0, 0, false, uint32_t(I + 1 + N), uint32_t((Bytes[I] & 7) + ((Rex & 1) ? 8 : 0))};
+        A.LogicalWidth = Width; A.LogicalKind = Group;
+        A.LogicalMask = Width == 4 ? uint32_t(Mask) : Mask;
+        return A;
+      }
       if (Register && ((Op == 0x01 || Op == 0x03 || Op == 0x29 || Op == 0x2b || Op == 0x31 || Op == 0x33 || Op == 0x21 || Op == 0x23 || Op == 0x09 || Op == 0x0b) ||
           ((Op == 0x81 || Op == 0x83) && ((Bytes[I] >> 3 & 7) == 0 || (Bytes[I] >> 3 & 7) == 5)))) return {true, 6, 0};
       if (Op == 0x0f && Bytes[I] >= 0x42 && Bytes[I] <= 0x47 && I + 1 < Size && (Bytes[I+1] & 0xc0) == 0xc0)
