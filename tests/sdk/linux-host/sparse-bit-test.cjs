@@ -15,7 +15,7 @@ async function main(){
  const nativeOracle=oracle();assert.equal(golden.length,6192);
  for(const row of golden){const [width,kind,index,,input,value,observed,before,after]=row,base=BigInt(input),selected=kind===2?base:BigInt(index);assert.equal(value,input);assert.equal(observed,index);assert.equal(after&1,Number(base>>(selected&BigInt(width*8-1))&1n));assert.equal((after^before)&0x440,0,'native ZF/DF unaffected');}
  await serve('guestmem=broker1',async(get,log)=>{
-  const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.coverageVersion,28);
+  const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.coverageVersion,29);
   const budget=new M.BackingBudget(),space=new M.GuestAddressSpace(budget),memory=B.createInternalMemory(),broker=new B.GuestMemoryBroker(),token=broker.register(0,{space,memory,checkpointLayout:cfg.checkpoint}),v=new DataView(memory.buffer),tb=B.ABI.threadBase,g=tb+cfg.ctx+cfg.gregsOff,c=cfg.checkpoint.cpu,units=new Map();
   let executedWasmSteps=0,checkedBTs=0,nativeChecks=0,prefixChecks=0,allImmediateChecks=0,manualFlagChecks=0,lazyChecks=0,branchChecks=0;const records=[],refused=[],addressCases=[];
   async function request(code,rip=CODE){await get('/xlat/code?addr='+rip.toString(16),{method:'POST',body:Uint8Array.from(code)});return FexLinuxThread.parseBrokerStep(new Uint8Array(await(await get('/xlat/step?rip='+rip)).arrayBuffer()));}

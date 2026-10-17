@@ -1,0 +1,228 @@
+{
+  "forms": [
+    {
+      "name": "PUNPCKLBW",
+      "prefix": 102,
+      "opcode": 96,
+      "kind": 1,
+      "width": 1
+    },
+    {
+      "name": "PUNPCKHBW",
+      "prefix": 102,
+      "opcode": 104,
+      "kind": 2,
+      "width": 1
+    },
+    {
+      "name": "PUNPCKLWD",
+      "prefix": 102,
+      "opcode": 97,
+      "kind": 1,
+      "width": 2
+    },
+    {
+      "name": "PUNPCKHWD",
+      "prefix": 102,
+      "opcode": 105,
+      "kind": 2,
+      "width": 2
+    },
+    {
+      "name": "PUNPCKLDQ",
+      "prefix": 102,
+      "opcode": 98,
+      "kind": 1,
+      "width": 4
+    },
+    {
+      "name": "PUNPCKHDQ",
+      "prefix": 102,
+      "opcode": 106,
+      "kind": 2,
+      "width": 4
+    },
+    {
+      "name": "PUNPCKLQDQ",
+      "prefix": 102,
+      "opcode": 108,
+      "kind": 1,
+      "width": 8
+    },
+    {
+      "name": "PUNPCKHQDQ",
+      "prefix": 102,
+      "opcode": 109,
+      "kind": 2,
+      "width": 8
+    },
+    {
+      "name": "UNPCKLPS",
+      "prefix": 0,
+      "opcode": 20,
+      "kind": 1,
+      "width": 4
+    },
+    {
+      "name": "UNPCKHPS",
+      "prefix": 0,
+      "opcode": 21,
+      "kind": 2,
+      "width": 4
+    },
+    {
+      "name": "UNPCKLPD",
+      "prefix": 102,
+      "opcode": 20,
+      "kind": 1,
+      "width": 8
+    },
+    {
+      "name": "UNPCKHPD",
+      "prefix": 102,
+      "opcode": 21,
+      "kind": 2,
+      "width": 8
+    },
+    {
+      "name": "PAND",
+      "prefix": 102,
+      "opcode": 219,
+      "kind": 3,
+      "width": 16
+    },
+    {
+      "name": "PANDN",
+      "prefix": 102,
+      "opcode": 223,
+      "kind": 4,
+      "width": 16
+    },
+    {
+      "name": "POR",
+      "prefix": 102,
+      "opcode": 235,
+      "kind": 5,
+      "width": 16
+    },
+    {
+      "name": "PXOR",
+      "prefix": 102,
+      "opcode": 239,
+      "kind": 6,
+      "width": 16
+    },
+    {
+      "name": "ANDPS",
+      "prefix": 0,
+      "opcode": 84,
+      "kind": 3,
+      "width": 16
+    },
+    {
+      "name": "ANDNPS",
+      "prefix": 0,
+      "opcode": 85,
+      "kind": 4,
+      "width": 16
+    },
+    {
+      "name": "ORPS",
+      "prefix": 0,
+      "opcode": 86,
+      "kind": 5,
+      "width": 16
+    },
+    {
+      "name": "XORPS",
+      "prefix": 0,
+      "opcode": 87,
+      "kind": 6,
+      "width": 16
+    },
+    {
+      "name": "ANDPD",
+      "prefix": 102,
+      "opcode": 84,
+      "kind": 3,
+      "width": 16
+    },
+    {
+      "name": "ANDNPD",
+      "prefix": 102,
+      "opcode": 85,
+      "kind": 4,
+      "width": 16
+    },
+    {
+      "name": "ORPD",
+      "prefix": 102,
+      "opcode": 86,
+      "kind": 5,
+      "width": 16
+    },
+    {
+      "name": "XORPD",
+      "prefix": 102,
+      "opcode": 87,
+      "kind": 6,
+      "width": 16
+    }
+  ],
+  "patterns": [
+    [
+      "0x0706050403020100",
+      "0x0f0e0d0c0b0a0908",
+      "0x8786858483828180",
+      "0x8f8e8d8c8b8a8988"
+    ],
+    [
+      "0",
+      "0",
+      "0xffffffffffffffff",
+      "0xffffffffffffffff"
+    ],
+    [
+      "0xffffffffffffffff",
+      "0xffffffffffffffff",
+      "0",
+      "0"
+    ],
+    [
+      "0xaaaaaaaa55555555",
+      "0x55555555aaaaaaaa",
+      "0x55555555aaaaaaaa",
+      "0xaaaaaaaa55555555"
+    ],
+    [
+      "0x0123456789abcdef",
+      "0xfedcba9876543210",
+      "0x0123456789abcdef",
+      "0xfedcba9876543210"
+    ],
+    [
+      "0x800000007fffffff",
+      "0xffff00000000ffff",
+      "0x7fffffff80000000",
+      "0xffff00000000ffff"
+    ],
+    [
+      "0",
+      "0",
+      "0",
+      "0"
+    ],
+    [
+      "0x7fc012347ff80001",
+      "0xff80000080000000",
+      "0x7ff0000000000001",
+      "0xfff0000000000001"
+    ]
+  ],
+  "flagSeeds": [
+    0,
+    3285,
+    2261,
+    1024
+  ]
+}

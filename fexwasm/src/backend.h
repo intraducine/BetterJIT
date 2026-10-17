@@ -46,6 +46,7 @@ struct BackendConfig {
   bool BrokerCompareRIPRelative = false;
   uint32_t BrokerConditionCode = 16, BrokerConditionalMoveWidth = 0, BrokerConditionSourceRegister = 16;
   uint32_t BrokerUnaryKind = 0, BrokerUnaryWidth = 0, BrokerUnaryShift = 0;
+  uint32_t BrokerLaneKind = 0, BrokerLaneWidth = 0, BrokerLaneSourceRegister = 16;
   uint32_t BrokerVectorKind = 0, BrokerVectorWidth = 0, BrokerVectorSourceRegister = 16;
   uint64_t BrokerNextRIP = 0;
   uint64_t BrokerTarget = 0;

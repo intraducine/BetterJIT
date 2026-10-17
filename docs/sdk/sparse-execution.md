@@ -9,6 +9,7 @@ records remain host-created fixtures.
 The current step/coverage versions are 4/27;
 [register NEG/NOT/INC/DEC](sparse-register-unary.md),
 [register vector movement](sparse-register-vector-moves.md),
+[register vector interleave and bitwise](sparse-register-vector-lanes.md),
 [scalar conditions and register CALL](sparse-scalar-conditions.md),
 [register DIV and typed divide errors](sparse-div.md),
 [register BT](sparse-bit-test.md),

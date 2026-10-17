@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 4, Coverage = 28;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 4, Coverage = 29;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
@@ -31,6 +31,7 @@ struct Admission {
   bool CompareRIPRelative = false;
   uint32_t ConditionCode = 16, ConditionalMoveWidth = 0, ConditionSourceRegister = 16;
   uint32_t UnaryKind = 0, UnaryWidth = 0, UnaryShift = 0; // NEG/NOT/INC/DEC = 1/2/3/4
+  uint32_t LaneKind = 0, LaneWidth = 0, LaneSourceRegister = 16; // low/high zip, AND/ANDNOT/OR/XOR = 1..6
   uint32_t VectorKind = 0, VectorWidth = 0, VectorSourceRegister = 16; // GPR->XMM, XMM->GPR, copy, zero-high MOVQ, scalar merge = 1..5
 };
 // Bounded architectural NOP encodings. Legacy prefixes may repeat, followed
@@ -85,10 +86,28 @@ inline Admission AdmitVectorMove(const uint8_t* Bytes, size_t Size) {
   Admission A {true,6,0,0,false,uint32_t(I),Reverse?RM:R};
   A.VectorKind=Kind;A.VectorWidth=Width;A.VectorSourceRegister=Reverse?R:RM;return A;
 }
+// Pure legacy register interleave and bitwise operations only. PS/PD names
+// here denote bit/lane aliases; no floating-point arithmetic is admitted.
+inline Admission AdmitVectorLane(const uint8_t* Bytes,size_t Size) {
+  if(!Bytes || !Size)return {};size_t I=0;bool Word=false;uint8_t Rex=0;
+  if(Bytes[I]==0x66){Word=true;I++;}if(I<Size && Bytes[I]>=0x40 && Bytes[I]<=0x4f)Rex=Bytes[I++];
+  if(Size-I<3 || Bytes[I++]!=0x0f)return {};const auto Op=Bytes[I++],M=Bytes[I++];if(M<0xc0)return {};
+  uint32_t Kind=0,Width=16;
+  if(Word && (Op==0x60 || Op==0x61 || Op==0x62 || Op==0x6c || Op==0x68 || Op==0x69 || Op==0x6a || Op==0x6d)){
+    Kind=Op==0x60 || Op==0x61 || Op==0x62 || Op==0x6c?1:2;
+    Width=Op==0x60 || Op==0x68?1:Op==0x61 || Op==0x69?2:Op==0x62 || Op==0x6a?4:8;
+  }else if(Op==0x14 || Op==0x15){Kind=Op==0x14?1:2;Width=Word?8:4;}
+  else if(Op>=0x54 && Op<=0x57)Kind=Op-0x54+3;
+  else if(Word && (Op==0xdb || Op==0xdf || Op==0xeb || Op==0xef))Kind=Op==0xdb?3:Op==0xdf?4:Op==0xeb?5:6;
+  if(!Kind)return {};Admission A {true,6,0,0,false,uint32_t(I),uint32_t((M>>3&7)+((Rex&4)?8:0))};
+  A.LaneKind=Kind;A.LaneWidth=Width;A.LaneSourceRegister=(M&7)+((Rex&1)?8:0);return A;
+}
 // FEX supplies/validates the complete instruction length separately. This only
 // admits an explicit semantic family; unsupported prefixes/opcodes never run.
 inline Admission Admit(const uint8_t* Bytes, size_t Size) {
   if (!Bytes || !Size) return {};
+  const auto Lane = AdmitVectorLane(Bytes,Size);
+  if(Lane.Supported)return Lane;
   const auto Vector = AdmitVectorMove(Bytes, Size);
   if (Vector.Supported) return Vector;
   const auto NOP = AdmitNOP(Bytes, Size);

@@ -11166,6 +11166,53 @@ struct BrokerScalarProof {
   }
 };
 
+// Every lane/bitwise effect is bound to independently decoded register slots.
+// Only same-register XOR may use the data-independent named zero constant.
+static CompileResult CheckBrokerVectorLane(const IRListView& IR,uint64_t EntryRIP,const BackendConfig& Cfg) {
+  auto Reject=[](const char* Why){CompileResult R;R.Error=std::string("broker register vector lane ")+Why;return R;};
+  const auto K=Cfg.BrokerLaneKind,W=Cfg.BrokerLaneWidth,D=Cfg.BrokerTargetRegister,S=Cfg.BrokerLaneSourceRegister;
+  if(K<1 || K>6 || D>=16 || S>=16 || (K<=2?(W!=1 && W!=2 && W!=4 && W!=8):W!=16) ||
+     Cfg.BrokerOperation!=6 || Cfg.BrokerWidth || Cfg.BrokerFlow || Cfg.BrokerTarget || Cfg.BrokerNoEffects ||
+     Cfg.BrokerTestWidth || Cfg.BrokerTestShift || Cfg.BrokerTestMask || Cfg.BrokerSetCondition!=16 || Cfg.BrokerSetShift ||
+     Cfg.BrokerBitWidth || Cfg.BrokerBitRegister!=16 || Cfg.BrokerBitIndex ||
+     Cfg.BrokerLogicalWidth || Cfg.BrokerLogicalKind || Cfg.BrokerLogicalMask || Cfg.BrokerWordCompare ||
+     Cfg.BrokerCompareKind || Cfg.BrokerCompareLeftRegister!=16 || Cfg.BrokerCompareRightRegister!=16 || Cfg.BrokerCompareImmediate ||
+     Cfg.BrokerCompareBase!=-1 || Cfg.BrokerCompareIndex!=-1 || Cfg.BrokerCompareScale!=1 || Cfg.BrokerCompareDisplacement || Cfg.BrokerCompareRIPRelative ||
+     Cfg.BrokerConditionCode!=16 || Cfg.BrokerConditionalMoveWidth || Cfg.BrokerConditionSourceRegister!=16 ||
+     Cfg.BrokerUnaryKind || Cfg.BrokerUnaryWidth || Cfg.BrokerUnaryShift ||
+     Cfg.BrokerVectorKind || Cfg.BrokerVectorWidth || Cfg.BrokerVectorSourceRegister!=16 ||
+     EntryRIP>=(1ull<<47) || Cfg.BrokerNextRIP<=EntryRIP || Cfg.BrokerNextRIP>=(1ull<<47) || Cfg.BrokerNextRIP-EntryRIP>5)return Reject("profile");
+  BrokerScalarProof P(IR,EntryRIP);std::vector<OrderedNodeWrapper> Loads;OrderedNodeWrapper Value{},Store{},Exit{};unsigned Markers=0;
+  const bool Zero=K==6 && S==D;const auto Expected=Zero?OP_LOADNAMEDVECTORCONSTANT:K==1?OP_VZIP:K==2?OP_VZIP2:K==3?OP_VAND:K==4?OP_VANDN:K==5?OP_VOR:OP_VXOR;
+  for(auto [B,BH]:IR.GetBlocks())for(auto [N,H]:IR.GetCode(B)){
+    const auto A=IR.WrapNode(N);auto Once=[&](OrderedNodeWrapper& Slot){if(!Slot.IsInvalid())return false;Slot=A;return true;};
+    if(!Exit.IsInvalid() && H->Op!=OP_ENDBLOCK)return Reject("effect after exit");
+    switch(H->Op){
+    case OP_IRHEADER:case OP_CODEBLOCK:case OP_BEGINBLOCK:case OP_ENDBLOCK:
+    case OP_CONSTANT:case OP_INLINECONSTANT:case OP_ENTRYPOINTOFFSET:case OP_INLINEENTRYPOINTOFFSET:break;
+    case OP_GUESTOPCODE:if(++Markers!=1)return Reject("instruction count");break;
+    case OP_LOADREGISTER:Loads.push_back(A);break;
+    case OP_STOREREGISTER:if(!Once(Store))return Reject("destination count");break;
+    case OP_EXITFUNCTION:if(!Once(Exit))return Reject("exit count");break;
+    default:if(H->Op!=Expected || !Once(Value))return Reject("uncovered effect");break;
+    }
+  }
+  if(Markers!=1 || Loads.size()!=(Zero?0u:S==D?1u:2u) || !P.Before(Value,Store) || !P.Before(Store,Exit) || !P.Exit(Exit,Cfg.BrokerNextRIP))return Reject("ordered effects");
+  const auto* SH=IR.GetOp<IROp_Header>(Store);const auto R=PhysicalRegister(IR.GetNode(Store));const auto* V=IR.GetOp<IROp_Header>(Value);
+  if(R.AsRegClass()!=RegClass::FPRFixed || R.Reg!=D || uint32_t(SH->Size)!=16 || uint32_t(SH->ElementSize)!=16 ||
+     SH->C<IROp_StoreRegister>()->Value!=Value || uint32_t(V->Size)!=16 || uint32_t(V->ElementSize)!=(K<=2?W:K==4?8u:16u))return Reject("destination/operation widths");
+  if(Zero){if(V->C<IROp_LoadNamedVectorConstant>()->Constant!=NamedVectorConstant::NAMED_VECTOR_ZERO)return Reject("zero constant identity");return {};}
+  auto Load=[&](OrderedNodeWrapper N,uint32_t Reg){
+    if(!P.Before(N,Value))return false;const auto* H=IR.GetOp<IROp_Header>(N);if(H->Op!=OP_LOADREGISTER || uint32_t(H->Size)!=16 || uint32_t(H->ElementSize)!=16)return false;
+    const auto* L=H->C<IROp_LoadRegister>();return L->Class==RegClass::FPR && L->Reg==Reg;
+  };
+  // Interleaves load old destination first; the bitwise frontend loads source
+  // first. ANDNOT emits source & ~old_destination, matching Wasm andnot.
+  const auto Dest=Loads[K<=2 || S==D?0:1],Src=Loads[K<=2 && S!=D?1:0];
+  if(!Load(Dest,D) || !Load(Src,S) || V->Args[0]!=(K==4?Src:Dest) || V->Args[1]!=(K==4?Dest:Src))return Reject("exact operand dataflow");
+  return {};
+}
+
 // Register vector movement is proved before admitting any FPR or vector node.
 // No flags, context stores, memory effects or arithmetic may occur in this IR.
 static CompileResult CheckBrokerVectorMove(const IRListView& IR,uint64_t EntryRIP,const BackendConfig& Cfg) {
@@ -12093,6 +12140,9 @@ static CompileResult CheckBrokerDivide(const IRListView& IR, uint64_t EntryRIP, 
 CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConfig& Cfg) {
   OrderedNodeWrapper BrokerAddend {};
   if (Cfg.BrokerMemory) {
+    if(Cfg.BrokerLaneKind || Cfg.BrokerLaneWidth || Cfg.BrokerLaneSourceRegister!=16){
+      auto Lane=CheckBrokerVectorLane(IR,EntryRIP,Cfg);if(!Lane.Error.empty())return Lane;
+    }
     if (Cfg.BrokerVectorKind || Cfg.BrokerVectorWidth || Cfg.BrokerVectorSourceRegister!=16) {
       auto Vector=CheckBrokerVectorMove(IR,EntryRIP,Cfg);if(!Vector.Error.empty())return Vector;
     }
@@ -12594,11 +12644,14 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
       case OP_PARITY: case OP_ORNROR: case OP_ORLSHR: case OP_ANDSHIFT: case OP_ROR: case OP_EXTR:
         if (Cfg.BrokerOperation < 5 || Cfg.BrokerOperation >= 9) return Reject(H);
         break;
+      case OP_VZIP:case OP_VZIP2:case OP_VAND:case OP_VANDN:case OP_VOR:case OP_VXOR:case OP_LOADNAMEDVECTORCONSTANT:
+        if(!Cfg.BrokerLaneKind)return Reject(H);
+        break;
       case OP_VCASTFROMGPR:case OP_VEXTRACTTOGPR:case OP_VMOV:case OP_VINSELEMENT:
         if(!Cfg.BrokerVectorKind)return Reject(H);
         break;
       case OP_LOADREGISTER: {
-        if(Cfg.BrokerVectorKind)break;
+        if(Cfg.BrokerVectorKind || Cfg.BrokerLaneKind)break;
         auto O = H->C<IROp_LoadRegister>();
         if (Cfg.BrokerOperation == 12) {
           if (!JumpValue.IsInvalid() || O->Class != RegClass::GPR || O->Reg != Cfg.BrokerTargetRegister || uint32_t(H->Size) != 8) return Reject(H);
@@ -12610,7 +12663,7 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
         break;
       }
       case OP_STOREREGISTER: {
-        if(Cfg.BrokerVectorKind)break;
+        if(Cfg.BrokerVectorKind || Cfg.BrokerLaneKind)break;
         auto R = PhysicalRegister(Node);
         if (Cfg.BrokerOperation == 11 || Cfg.BrokerOperation == 16 || R.AsRegClass() != RegClass::GPRFixed || R.Reg >= (Cfg.BrokerOperation >= 3 ? NUM_STATIC : 16) ||
             (Cfg.BrokerOperation >= 9 && Cfg.BrokerOperation != 13 && Cfg.BrokerOperation != 14 && Cfg.BrokerOperation != 15 && Cfg.BrokerOperation != 17 && Cfg.BrokerOperation != 18 && (R.Reg != 4 || uint32_t(H->Size) != 8))) return Reject(H);

@@ -234,6 +234,8 @@ jobs:
           .build/host-fex/sparse-logical-immediate-ir > .build/sparse-logical-immediate-ir-results.log
           node tests/sdk/linux-host/sparse-word-compare.cjs .build/host-fex/fexserve .build/sparse-word-compare-results.json
           .build/host-fex/sparse-word-compare-ir > .build/sparse-word-compare-ir-results.log
+          node tests/sdk/linux-host/sparse-vector-lanes.cjs .build/host-fex/fexserve .build/sparse-vector-lanes-results.json
+          .build/host-fex/sparse-register-vector-lanes-ir > .build/sparse-register-vector-lanes-ir-results.log
           node tests/sdk/linux-host/sparse-vector-moves.cjs .build/host-fex/fexserve .build/sparse-vector-moves-results.json
           .build/host-fex/sparse-register-vector-moves-ir > .build/sparse-register-vector-moves-ir-results.log
           node tests/sdk/linux-host/sparse-unary.cjs .build/host-fex/fexserve .build/sparse-unary-results.json
@@ -303,6 +305,8 @@ jobs:
             .build/sparse-logical-immediate-ir-results.log
             .build/sparse-word-compare-results.json
             .build/sparse-word-compare-ir-results.log
+            .build/sparse-vector-lanes-results.json
+            .build/sparse-register-vector-lanes-ir-results.log
             .build/sparse-vector-moves-results.json
             .build/sparse-register-vector-moves-ir-results.log
             .build/sparse-unary-results.json

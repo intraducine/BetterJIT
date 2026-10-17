@@ -5,7 +5,7 @@ globalThis.self=globalThis;
 for(const name of ['guest_memory.js','guest_memory_broker.js','thread_core.js','web/linux-kernel.js'])vm.runInThisContext(fs.readFileSync(new URL('../../Sources/BetterJITLinux/Resources/linux/'+name,import.meta.url),'utf8'));
 const M=BetterJITGuestMemory,B=BetterJITGuestMemoryBroker,RIP=0x123400008000n,DATA=0x123456780000n;
 const layout={version:1,cpu:{offset:256,size:1024,ripOffset:24,stackPointerOffset:64,generalRegistersOffset:32,parityRawOffset:16,auxiliaryRawOffset:20,nzcvOffset:248},lazyFlags:{offset:64,size:24},roundMode:{offset:112,size:4}};
-const cfg={guestMemory:'broker1',memoryABI:1,stepABI:4,coverageVersion:28,stepHeaderBytes:96,memPages:33,memMaxPages:33,threadBase:65536,regArgs:0,callsViaDispatcher:false,maxInstructions:1,shared:true,ctx:256,stateSize:1024,ripOff:24,gregsOff:32,nzcvAddr:504,checkpoint:layout};
+const cfg={guestMemory:'broker1',memoryABI:1,stepABI:4,coverageVersion:29,stepHeaderBytes:96,memPages:33,memMaxPages:33,threadBase:65536,regArgs:0,callsViaDispatcher:false,maxInstructions:1,shared:true,ctx:256,stateSize:1024,ripOff:24,gregsOff:32,nzcvAddr:504,checkpoint:layout};
 function plan(code=[0x66,0x83,0x78,6,0x80]){const instruction=Uint8Array.from(code);return{status:0,operation:8,width:2,rip:RIP,nextRip:RIP+BigInt(code.length),length:code.length,instruction,continuationKind:0,branchTarget:0n,continuations:[RIP+BigInt(code.length)]};}
 function header(p){const b=new Uint8Array(96),v=new DataView(b.buffer);[0x31534a42,1,1,4,B.ABI.coverageVersion,0,p.operation,p.width].forEach((n,i)=>v.setUint32(i*4,n,true));v.setBigUint64(32,p.rip,true);v.setBigUint64(40,p.nextRip,true);v.setUint32(56,1,true);v.setUint32(60,p.length,true);b.set(p.instruction,64);v.setBigUint64(80,p.branchTarget,true);v.setUint32(88,p.continuationKind,true);return b;}
 function fixture(t,{p=plan(),source=0x8000,address=DATA}={}){
@@ -29,7 +29,7 @@ test('word CMP metadata derives signed immediates and all base/index REX forms; 
  for(const code of [[0x66,0x83,0xf8,0],[0x66,0x80,0x38,0],[0x66,0x82,0x38,0],[0x66,0x48,0x83,0x38,0],[0x66,0x41,0x83,0x3c,0x25,0,0,0,0,0],[0x48,0x66,0x83,0x38,0],...[0xf0,0xf2,0xf3,0x64,0x65,0x67,0x66].map(x=>[x,0x66,0x83,0x38,0])])assert.throws(()=>B.wordCompareOperand(plan(code)),/metadata/);
  const p=plan();for(let n=0;n<p.length;n++)assert.throws(()=>B.wordCompareOperand(plan([...p.instruction.slice(0,n)])),/metadata/);
  for(const changes of [{width:4},{operation:1},{continuationKind:1},{branchTarget:RIP},{rip:1n<<47n},{nextRip:p.nextRip+1n},{length:99}])assert.throws(()=>B.wordCompareOperand({...p,...changes}),/metadata/);
- for(const coverage of [27,29]){const b=header(p);new DataView(b.buffer).setUint32(16,coverage,true);assert.throws(()=>B.parseStepHeader(b),/ABI/);}
+ for(const coverage of [28,30]){const b=header(p);new DataView(b.buffer).setUint32(16,coverage,true);assert.throws(()=>B.parseStepHeader(b),/ABI/);}
 });
 test('word CMP BEGIN requires complete decoded operands and captures mutable caller metadata by value',t=>{
  for(const changes of [{wordCompareOperand:undefined},{wordCompareOperand:{...B.wordCompareOperand(plan()),base:16}},{wordCompareOperand:{...B.wordCompareOperand(plan()),immediate:65536}},{nextRip:RIP+99n}]){const f=fixture(t);assert.throws(()=>f.start(changes),/metadata/);}

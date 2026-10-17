@@ -4,7 +4,7 @@
   'use strict';
   const storage=root.BetterJITGuestMemory;
   if(!storage||storage.STORAGE_VERSION!==1)throw new Error('Guest storage contract 1 required');
-  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:4,coverageVersion:28,stepHeaderBytes:96,
+  const ABI=Object.freeze({version:1,checkpointVersion:1,stepVersion:4,coverageVersion:29,stepHeaderBytes:96,
     magic:0x314d4a42,internalPages:33,threadBase:0x10000,threadBytes:0x200000,
     scratchOffset:0x1f0000,scratchBytes:128,memoryRequest:0x10003,instructionBoundary:0x10004,maximumThreads:8,parkedState:4,
     userCopyBytes:65536});
@@ -71,6 +71,29 @@
     else throw new TypeError('Uncovered branch instruction');
     if(!canonical(p.rip)||!canonical(p.nextRip)||p.nextRip!==p.rip+BigInt(b.length)||!canonical(target)||kind!==flow||typeof target!=='bigint'||target!==p.nextRip+offset)throw new TypeError('Invalid branch continuation');
     return Object.freeze(kind===1?[target]:[p.nextRip,target]);
+  }
+  function vectorLaneOperand(p) {
+    const b=p.instruction;let i=0,word=false,rex=0;const fail=()=>{throw new TypeError('Invalid register vector lane metadata');};
+    if(!(b instanceof Uint8Array))fail();if(b[i]===0x66){word=true;i++;}if(b[i]>=0x40&&b[i]<=0x4f)rex=b[i++];
+    if(i+3!==b.length||b[i++]!==0x0f)fail();const op=b[i++],m=b[i];if(m<0xc0)fail();let kind=0,width=16;
+    if(word&&[0x60,0x61,0x62,0x6c,0x68,0x69,0x6a,0x6d].includes(op)){kind=[0x60,0x61,0x62,0x6c].includes(op)?1:2;width=[0x60,0x68].includes(op)?1:[0x61,0x69].includes(op)?2:[0x62,0x6a].includes(op)?4:8;}
+    else if([0x14,0x15].includes(op)){kind=op===0x14?1:2;width=word?8:4;}
+    else if(op>=0x54&&op<=0x57)kind=op-0x54+3;
+    else if(word&&[0xdb,0xdf,0xeb,0xef].includes(op))kind=op===0xdb?3:op===0xdf?4:op===0xeb?5:6;
+    if(!kind||p.operation!==OP.FLAGS||p.width!==0||p.continuationKind!==0||p.branchTarget!==0n||p.length!==b.length||
+       !canonical(p.rip)||!canonical(p.nextRip)||p.nextRip!==p.rip+BigInt(b.length))fail();
+    return Object.freeze({kind,width,register:(m>>3&7)+((rex&4)?8:0),source:(m&7)+((rex&1)?8:0),length:b.length});
+  }
+  function validateVectorLanePostState(s,a,nextRip) {
+    const u=a.vectorLane,x=s.layout.xmmRegisters,source=a.snapshot[0].bytes,dest=x.offset+u.register*16,src=x.offset+u.source*16,result=new Uint8Array(16);
+    if(nextRip!==a.nextRip)invariant(s,'Register vector lane changed fallthrough');
+    if(u.kind<=2){const start=u.kind===2?8:0;for(let i=0;i<8/u.width;i++)for(let b=0;b<u.width;b++){
+      result[2*i*u.width+b]=source[dest+start+i*u.width+b];result[(2*i+1)*u.width+b]=source[src+start+i*u.width+b];}}
+    else for(let b=0;b<16;b++){const d=source[dest+b],v=source[src+b];result[b]=u.kind===3?d&v:u.kind===4?(~d)&v:u.kind===5?d|v:d^v;}
+    for(const p of a.snapshot){const expected=p.bytes.slice(),actual=new Uint8Array(s.memory.buffer,ABI.threadBase+p.offset,expected.length);
+      if(p.offset===s.layout.spans[0].offset){new DataView(expected.buffer).setBigUint64(s.layout.ripAddress-ABI.threadBase-p.offset,a.nextRip,true);expected.set(result,dest);}
+      if(!actual.every((n,i)=>n===expected[i]))invariant(s,'Register vector lane changed unexpected checkpoint state');
+    }
   }
   function vectorMoveOperand(p) {
     const b=p.instruction;let i=0,prefix=0,rex=0;const fail=()=>{throw new TypeError('Invalid register vector movement metadata');};
@@ -190,6 +213,8 @@
     const b=p.instruction;if(p.operation===OP.READ_FLAGS&&p.width===2)return {wordCompareOperand:wordCompareOperand(p)};
     if(p.operation===OP.BRANCH&&p.continuationKind===2)return {conditionOperand:conditionOperand(p)};
     if(p.operation!==OP.FLAGS)return {};
+    {let i=b[0]===0x66?1:0;if(b[i]>=0x40&&b[i]<=0x4f)i++;
+      if(b[i]===0x0f&&[0x60,0x61,0x62,0x6c,0x68,0x69,0x6a,0x6d,0x14,0x15,0x54,0x55,0x56,0x57,0xdb,0xdf,0xeb,0xef].includes(b[i+1]))return {vectorLaneOperand:vectorLaneOperand(p)};}
     {let i=[0x66,0xf2,0xf3].includes(b[0])?1:0;if(b[i]>=0x40&&b[i]<=0x4f)i++;
       if(b[i]===0x0f&&[0x6e,0x7e,0x28,0x29,0x10,0x11,0x6f,0x7f,0xd6].includes(b[i+1]))return {vectorMoveOperand:vectorMoveOperand(p)};}
     {let i=b[0]===0x66?1:0;if(b[i]>=0x40&&b[i]<=0x4f)i++;const op=b[i],group=b[i+1]>>3&7;
@@ -484,7 +509,7 @@
     }
     // Called at a safe boundary after native code has spilled the full CPU state.
     // operation/width must come from compile-time admission, never guest input.
-    beginInstruction(token,{rip,operation=0,width=0,continuations,nextRip,sourceRegister,stackRegister,addMemoryOperand,subMemoryOperand,orMemoryOperand,divisionOperand,wordCompareOperand,wordLogicalOperand,conditionOperand,unaryOperand,vectorMoveOperand}) {
+    beginInstruction(token,{rip,operation=0,width=0,continuations,nextRip,sourceRegister,stackRegister,addMemoryOperand,subMemoryOperand,orMemoryOperand,divisionOperand,wordCompareOperand,wordLogicalOperand,conditionOperand,unaryOperand,vectorMoveOperand,vectorLaneOperand}) {
       const s=requireOwner(this,token);rip=u64(rip);
       if(s.preparedCopies.size)throw new BrokerInvariantError('Prepared copyout must complete before BEGIN');
       if(s.active||s.waits.size)invariant(s,'Instruction already active or parked');
@@ -533,6 +558,11 @@
          !reg(vectorMove.register)||!reg(vectorMove.source)||![1,2,3,4,5].includes(vectorMove.kind)||
          (vectorMove.kind===3?vectorMove.width!==16:vectorMove.kind===4?vectorMove.width!==8:![4,8].includes(vectorMove.width))||![3,4,5].includes(vectorMove.length)||
          !canonical(rip)||!canonical(nextRip)||nextRip!==rip+BigInt(vectorMove.length)||!Array.isArray(continuations)||continuations.length!==1||continuations[0]!==nextRip))throw new TypeError('Checked register vector movement metadata required');
+      const vectorLane=vectorLaneOperand?Object.freeze({...vectorLaneOperand}):null;
+      if(vectorLane&&(wordCompare||logical||conditional||unary||vectorMove||operation!==OP.FLAGS||width||!s.layout.xmmRegisters||
+         !reg(vectorLane.register)||!reg(vectorLane.source)||![1,2,3,4,5,6].includes(vectorLane.kind)||
+         (vectorLane.kind<=2?![1,2,4,8].includes(vectorLane.width):vectorLane.width!==16)||![3,4,5].includes(vectorLane.length)||
+         !canonical(rip)||!canonical(nextRip)||nextRip!==rip+BigInt(vectorLane.length)||!Array.isArray(continuations)||continuations.length!==1||continuations[0]!==nextRip))throw new TypeError('Checked register vector lane metadata required');
       if(operation===OP.DIV_REGISTER&&(s.layout.generalRegistersOffset===undefined||!divisionOperand||
          !Number.isInteger(divisionOperand.register)||divisionOperand.register<0||divisionOperand.register>=16||
          ![2,3].includes(divisionOperand.length)||!canonical(rip)||!canonical(nextRip)||nextRip!==rip+BigInt(divisionOperand.length)||
@@ -594,7 +624,7 @@
       let division;
       if(operation===OP.DIV_REGISTER){const cpu=new DataView(snapshot[0].bytes.buffer),reg=n=>BigInt.asUintN(width*8,cpu.getBigUint64(s.layout.generalRegistersOffset+n*8,true)),low=reg(0),high=reg(2),divisor=reg(divisionOperand.register);
         division=Object.freeze({low,high,divisor,reason:divisor===0n?'zero-divisor':high>=divisor?'quotient-overflow':null});}
-      s.active={rip,generation:++s.checkpoint,operation,width,continuations,snapshot,result:null,nextRip,stackBefore,stackAfter,jumpTarget,stackRegister,stackValue,memoryArithmetic,memoryOR,division,wordComparison,wordLogical,scalarCondition,unary:ownedUnary,vectorMove,indirectCall};return s.checkpoint;
+      s.active={rip,generation:++s.checkpoint,operation,width,continuations,snapshot,result:null,nextRip,stackBefore,stackAfter,jumpTarget,stackRegister,stackValue,memoryArithmetic,memoryOR,division,wordComparison,wordLogical,scalarCondition,unary:ownedUnary,vectorMove,vectorLane,indirectCall};return s.checkpoint;
     }
     // The caller uses its authenticated thread record's token, not a request PID.
     // This synchronous route has no syscall, signal, redirect or await callbacks.
@@ -755,6 +785,7 @@
             }else if(!actual.every((v,i)=>v===expected[i]))invariant(s,'OR memory changed rounding state');
           }
         }
+        if(a.vectorLane)validateVectorLanePostState(s,a,nextRip);
         if(a.vectorMove)validateVectorMovePostState(s,a,nextRip);
         if(a.unary)validateUnaryPostState(s,a,nextRip);
         if(a.wordComparison||a.wordLogical||a.scalarCondition)validateScalarPostState(s,a,nextRip);
@@ -915,6 +946,6 @@
         faults:b.faults,unsupported:b.unsupported,rejected:b.rejected});
     }
   }
-  root.BetterJITGuestMemoryBroker=Object.freeze({ABI,FIELD,STATUS,REASON,OP,STEP,LIFECYCLE,jumpSourceRegister,callSourceRegister,stackRegister,addMemoryOperand,subMemoryOperand,orMemoryOperand,divisionOperand,wordCompareOperand,wordLogicalOperand,conditionOperand,unaryOperand,vectorMoveOperand,scalarOperands,materializeScalarNZCV,conditionHolds,materializeArithmeticNZCV,instructionContinuations,parseStepHeader,createInternalMemory,
+  root.BetterJITGuestMemoryBroker=Object.freeze({ABI,FIELD,STATUS,REASON,OP,STEP,LIFECYCLE,jumpSourceRegister,callSourceRegister,stackRegister,addMemoryOperand,subMemoryOperand,orMemoryOperand,divisionOperand,wordCompareOperand,wordLogicalOperand,conditionOperand,unaryOperand,vectorMoveOperand,vectorLaneOperand,scalarOperands,materializeScalarNZCV,conditionHolds,materializeArithmeticNZCV,instructionContinuations,parseStepHeader,createInternalMemory,
     BrokerInvariantError,UserCopyUnsupported,GuestMemoryBroker});
 })(typeof globalThis!=='undefined'?globalThis:self);
