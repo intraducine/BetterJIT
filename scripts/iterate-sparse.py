@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """One bounded local sparse iteration; cache compilation, never test results."""
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -242,6 +243,21 @@ def check_inputs(current, expected):
             raise ValueError('Immutable Wine ' + key + ' mismatch or missing baseline')
 
 
+def signal_owned_group(pgid, signum):
+    # Caller retains the unreaped leader of its start_new_session group.
+    try:
+        os.killpg(pgid, signum)
+    except PermissionError as error:
+        if sys.platform != 'darwin' or error.errno != errno.EPERM:
+            raise
+        # Darwin can report EPERM for a group containing only zombies.
+        # Verify there are no live members; other permission failures propagate.
+        for line in capture(['ps', '-axo', 'pgid=,stat=']).splitlines():
+            group, state = line.split()
+            if int(group) == pgid and not state.startswith('Z'):
+                raise
+
+
 def run_stage(command, log, timeout):
     started = time.monotonic()
     with Path(log).open('w') as handle:
@@ -252,16 +268,24 @@ def run_stage(command, log, timeout):
             code = child.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             timed_out = True
+            cleanup_error = None
             try:
-                os.killpg(child.pid, signal.SIGTERM)
+                signal_owned_group(child.pid, signal.SIGTERM)
                 # Keep the leader unreaped through the grace period. Its PID
                 # reserves this owned PGID even if it exits before descendants.
                 time.sleep(5)
-                os.killpg(child.pid, signal.SIGKILL)
+                signal_owned_group(child.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass  # The owned group has already disappeared.
+            except BaseException as error:
+                cleanup_error = error
+                raise
             finally:
-                child.wait()
+                try:
+                    child.wait(timeout=5)
+                except subprocess.TimeoutExpired as error:
+                    detail = '; signalling failed: ' + str(cleanup_error) if cleanup_error is not None else ''
+                    raise RuntimeError('Timed-out stage cleanup did not reap owned leader within 5s' + detail) from error
             code = 124
     return {'command': command, 'exitCode': code, 'timedOut': timed_out,
             'seconds': round(time.monotonic() - started, 3), 'log': str(log)}

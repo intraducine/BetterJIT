@@ -13,9 +13,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('iteration', ROOT/'scripts/iterate-sparse.py')
@@ -28,15 +29,18 @@ class IterationTests(unittest.TestCase):
     def test_verified_frontend_changes_invalidate_embedded_identity_and_translator(self):
         # A tiny real Clang/static-library fixture, not production FEX evidence.
         with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
+            root = Path(d).resolve()
             b = root/'FEX/build'
             libs = [b/p for p in ('FEXCore/Source/libFEXCore.a', 'FEXCore/Source/libFEXCore_Base.a',
                     'FEXCore/Source/libJemallocLibs.a', 'External/fmt/libfmt.a',
                     'External/xxhash/cmake_unofficial/libxxhash.a', 'External/cephes/libcephes_128bit.a',
                     'External/SoftFloat-3e/libsoftfloat_3e.a')]
+            # Apple ar requires a member even for an otherwise unused archive.
+            placeholder = root/'placeholder.o'
+            subprocess.run(['clang++', '-x', 'c++', '-c', '-', '-o', str(placeholder)], input=b'', check=True)
             for lib in libs:
                 lib.parent.mkdir(parents=True, exist_ok=True)
-                subprocess.run(['ar', 'rcs', str(lib)], check=True)
+                subprocess.run(['ar', 'rcs', str(lib), str(placeholder)], check=True)
             for folder in ('fexwasm/src', 'fexwasm/tools', 'Backends/FEX', '.build'):
                 (root/folder).mkdir(parents=True, exist_ok=True)
             (root/'Backends/FEX/build-host.sh').write_text('fixture recipe')
@@ -168,6 +172,66 @@ while True: time.sleep(1)
                     os.kill(owned['pid'], signal.SIGKILL)
                 other.terminate()
                 other.wait(timeout=5)
+
+    def test_failed_signalling_has_bounded_reap_and_reports_live_child(self):
+        owned, watchdogs = [], []
+        popen = subprocess.Popen
+
+        def launch(*args, **kwargs):
+            child = popen(*args, **kwargs)
+            owned.append(child)
+            # The fixture must also terminate safely against the old hanging code.
+            watchdog = threading.Timer(10, child.kill)
+            watchdog.daemon = True
+            watchdog.start()
+            watchdogs.append(watchdog)
+            return child
+
+        with tempfile.TemporaryDirectory() as d:
+            try:
+                with patch.object(iteration.subprocess, 'Popen', side_effect=launch), \
+                     patch.object(iteration, 'signal_owned_group', side_effect=PermissionError(1, 'fixture EPERM')):
+                    with self.assertRaisesRegex(RuntimeError, 'cleanup.*within 5s.*fixture EPERM'):
+                        iteration.run_stage([sys.executable, '-c', 'import time; time.sleep(30)'],
+                                            Path(d)/'failed-cleanup.log', 0.1)
+                self.assertIsNone(owned[0].poll(), 'Fixture must verify the leader remained alive')
+            finally:
+                for watchdog in watchdogs:
+                    watchdog.cancel()
+                for child in owned:
+                    if child.poll() is None:
+                        child.kill()
+                    child.wait(timeout=5)
+
+    def test_darwin_timeout_accepts_only_verified_dead_group_on_eperm(self):
+        # Fault injection from the observed Apple CI error, not macOS execution.
+        with tempfile.TemporaryDirectory() as d:
+            for platform, states, failure in (
+                    ('darwin', '4321 Z\n9000 S\n', None),
+                    ('darwin', '', None),
+                    ('darwin', '4321 Z\n4321 S\n', PermissionError),
+                    ('darwin', OSError('ps unavailable'), OSError),
+                    ('darwin', subprocess.CalledProcessError(2, ['ps']), subprocess.CalledProcessError),
+                    ('darwin', 'malformed ps output', ValueError),
+                    ('linux', '', PermissionError)):
+                with self.subTest(platform=platform, states=states):
+                    child = Mock(pid=4321)
+                    child.wait.side_effect = [subprocess.TimeoutExpired(['fixture'], 0.1), 0]
+                    with patch.object(iteration.sys, 'platform', platform), \
+                         patch.object(iteration.subprocess, 'Popen', return_value=child), \
+                         patch.object(iteration.os, 'killpg', side_effect=[None, PermissionError(1, 'fixture EPERM')]), \
+                         patch.object(iteration.time, 'sleep'), \
+                         patch.object(iteration, 'capture', **({'side_effect': states} if isinstance(states, Exception) else {'return_value': states})) as ps:
+                        if failure:
+                            with self.assertRaises(failure):
+                                iteration.run_stage(['fixture'], Path(d)/'timeout.log', 0.1)
+                        else:
+                            result = iteration.run_stage(['fixture'], Path(d)/'timeout.log', 0.1)
+                            self.assertEqual(result['exitCode'], 124)
+                            self.assertTrue(result['timedOut'])
+                        self.assertEqual(child.wait.call_count, 2)
+                        if platform != 'darwin':
+                            ps.assert_not_called()
 
     def test_immutable_input_and_budget_baseline_required(self):
         current = {'input': {'elfSHA256': 'wine', 'interpreterSHA256': 'musl'},
