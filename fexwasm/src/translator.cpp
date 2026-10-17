@@ -404,7 +404,7 @@ const char* fexwasm_config_json(fexwasm_translator* T) {
            "\"fsOff\":%zu,\"gsOff\":%zu,\"mxcsrOff\":%zu,\"nzcvAddr\":%u,\"memoryTraceAddr\":%u,\"memoryTraceVersion\":2,"
            "\"guestMemory\":\"%s\",\"maxInstructions\":%u,\"debugGuestInstructions\":%s,"
            "\"regArgs\":%u,\"callsViaDispatcher\":%s,"
-           "\"checkpoint\":{\"version\":1,\"cpu\":{\"offset\":%u,\"size\":%zu,\"ripOffset\":%zu,\"stackPointerOffset\":%zu,\"generalRegistersOffset\":%zu,\"parityRawOffset\":%zu,\"auxiliaryRawOffset\":%zu,\"nzcvOffset\":%zu},"
+           "\"checkpoint\":{\"version\":1,\"cpu\":{\"offset\":%u,\"size\":%zu,\"ripOffset\":%zu,\"stackPointerOffset\":%zu,\"generalRegistersOffset\":%zu,\"parityRawOffset\":%zu,\"auxiliaryRawOffset\":%zu,\"nzcvOffset\":%zu,\"xmmRegisters\":{\"version\":1,\"offset\":%zu,\"stride\":16,\"count\":16,\"bytes\":16}},"
            "\"lazyFlags\":{\"offset\":%u,\"size\":24},\"roundMode\":{\"offset\":%u,\"size\":4}},"
            "\"memoryABI\":%u,\"stepABI\":%u,\"coverageVersion\":%u,\"stepHeaderBytes\":%u,\"buildID\":\"%s\"}",
            Cfg.MemPages, CTX, sizeof(CPUState), T->ImageLow, STACK_TOP, HALT, uint32_t(T->Window >> 32), offsetof(CPUState, gregs),
@@ -417,7 +417,7 @@ const char* fexwasm_config_json(fexwasm_translator* T) {
            T->SingleInstruction ? 1u : 0u, T->DebugGuestInstructions ? "true" : "false",
            Cfg.RegArgs, Cfg.CallsViaDispatcher ? "true" : "false",
            Cfg.CtxAddr, sizeof(CPUState), offsetof(CPUState, rip), offsetof(CPUState, gregs) + 4 * 8, offsetof(CPUState, gregs),
-           offsetof(CPUState, pf_raw), offsetof(CPUState, af_raw), offsetof(CPUState, flags) + FEXCore::X86State::RFLAG_NZCV_LOC, Cfg.FlagSpillAddr, Cfg.RoundModeAddr,
+           offsetof(CPUState, pf_raw), offsetof(CPUState, af_raw), offsetof(CPUState, flags) + FEXCore::X86State::RFLAG_NZCV_LOC, offsetof(CPUState, xmm), Cfg.FlagSpillAddr, Cfg.RoundModeAddr,
            Cfg.BrokerMemory ? fexwasm::broker::MemoryABI : 0, Cfg.BrokerMemory ? fexwasm::broker::StepABI : 0,
            Cfg.BrokerMemory ? fexwasm::broker::Coverage : 0, fexwasm::broker::HeaderBytes, FEXWASM_BUILD_ID);
   T->Json = B;
@@ -598,6 +598,7 @@ fexwasm_bytes fexwasm_step(fexwasm_translator* T, uint64_t RIP) {
   Cfg.BrokerCompareKind = Plan.CompareKind; Cfg.BrokerCompareLeftRegister = Plan.CompareLeftRegister; Cfg.BrokerCompareRightRegister = Plan.CompareRightRegister;
   Cfg.BrokerCompareBase = Plan.CompareBase; Cfg.BrokerCompareIndex = Plan.CompareIndex; Cfg.BrokerCompareScale = Plan.CompareScale;
   Cfg.BrokerCompareDisplacement = Plan.CompareDisplacement; Cfg.BrokerCompareRIPRelative = Plan.CompareRIPRelative;
+  Cfg.BrokerVectorKind = Plan.VectorKind; Cfg.BrokerVectorWidth = Plan.VectorWidth; Cfg.BrokerVectorSourceRegister = Plan.VectorSourceRegister;
   Cfg.BrokerUnaryKind = Plan.UnaryKind; Cfg.BrokerUnaryWidth = Plan.UnaryWidth; Cfg.BrokerUnaryShift = Plan.UnaryShift;
   Cfg.BrokerConditionCode = Plan.ConditionCode; Cfg.BrokerConditionalMoveWidth = Plan.ConditionalMoveWidth; Cfg.BrokerConditionSourceRegister = Plan.ConditionSourceRegister;
   if (Plan.WordCompare) {

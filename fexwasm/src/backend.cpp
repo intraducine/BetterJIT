@@ -11166,6 +11166,60 @@ struct BrokerScalarProof {
   }
 };
 
+// Register vector movement is proved before admitting any FPR or vector node.
+// No flags, context stores, memory effects or arithmetic may occur in this IR.
+static CompileResult CheckBrokerVectorMove(const IRListView& IR,uint64_t EntryRIP,const BackendConfig& Cfg) {
+  auto Reject=[](const char* Why){CompileResult R;R.Error=std::string("broker register vector move ")+Why;return R;};
+  const auto K=Cfg.BrokerVectorKind,W=Cfg.BrokerVectorWidth,D=Cfg.BrokerTargetRegister,S=Cfg.BrokerVectorSourceRegister;
+  if(K<1 || K>5 || D>=16 || S>=16 || (K==3?W!=16:K==4?W!=8:(W!=4 && W!=8)) ||
+     Cfg.BrokerOperation!=6 || Cfg.BrokerWidth || Cfg.BrokerFlow || Cfg.BrokerTarget || Cfg.BrokerNoEffects ||
+     Cfg.BrokerTestWidth || Cfg.BrokerTestShift || Cfg.BrokerTestMask || Cfg.BrokerSetCondition!=16 || Cfg.BrokerSetShift ||
+     Cfg.BrokerBitWidth || Cfg.BrokerBitRegister!=16 || Cfg.BrokerBitIndex ||
+     Cfg.BrokerLogicalWidth || Cfg.BrokerLogicalKind || Cfg.BrokerLogicalMask || Cfg.BrokerWordCompare ||
+     Cfg.BrokerCompareKind || Cfg.BrokerCompareLeftRegister!=16 || Cfg.BrokerCompareRightRegister!=16 || Cfg.BrokerCompareImmediate ||
+     Cfg.BrokerCompareBase!=-1 || Cfg.BrokerCompareIndex!=-1 || Cfg.BrokerCompareScale!=1 || Cfg.BrokerCompareDisplacement || Cfg.BrokerCompareRIPRelative ||
+     Cfg.BrokerConditionCode!=16 || Cfg.BrokerConditionalMoveWidth || Cfg.BrokerConditionSourceRegister!=16 ||
+     Cfg.BrokerUnaryKind || Cfg.BrokerUnaryWidth || Cfg.BrokerUnaryShift ||
+     EntryRIP>=(1ull<<47) || Cfg.BrokerNextRIP<=EntryRIP || Cfg.BrokerNextRIP>=(1ull<<47) || Cfg.BrokerNextRIP-EntryRIP>5) return Reject("profile");
+  BrokerScalarProof P(IR,EntryRIP); std::vector<OrderedNodeWrapper> Loads;
+  OrderedNodeWrapper Move{},Store{},Exit{};unsigned Markers=0;
+  const auto MoveOp=K==1?OP_VCASTFROMGPR:K==2?OP_VEXTRACTTOGPR:K==4?OP_VMOV:OP_VINSELEMENT;
+  for(auto [B,BH]:IR.GetBlocks())for(auto [N,H]:IR.GetCode(B)){
+    const auto A=IR.WrapNode(N);auto Once=[&](OrderedNodeWrapper& Slot){if(!Slot.IsInvalid())return false;Slot=A;return true;};
+    if(!Exit.IsInvalid() && H->Op!=OP_ENDBLOCK)return Reject("effect after exit");
+    switch(H->Op){
+    case OP_IRHEADER:case OP_CODEBLOCK:case OP_BEGINBLOCK:case OP_ENDBLOCK:
+    case OP_CONSTANT:case OP_INLINECONSTANT:case OP_ENTRYPOINTOFFSET:case OP_INLINEENTRYPOINTOFFSET:break;
+    case OP_GUESTOPCODE:if(++Markers!=1)return Reject("instruction count");break;
+    case OP_LOADREGISTER:Loads.push_back(A);break;
+    case OP_STOREREGISTER:if(!Once(Store))return Reject("destination count");break;
+    case OP_EXITFUNCTION:if(!Once(Exit))return Reject("exit count");break;
+    default:if(K==3 || H->Op!=MoveOp || !Once(Move))return Reject("uncovered effect");break;
+    }
+  }
+  if(Markers!=1 || !P.Exit(Exit,Cfg.BrokerNextRIP))return Reject("fallthrough");
+  if(K==3 && S==D){if(!Loads.empty() || !Move.IsInvalid() || !Store.IsInvalid())return Reject("identity copy effects");return {};}
+  if(Loads.size()!=(K==5 && S!=D?2u:1u) || !P.Before(Store,Exit) || (K!=3 && (!P.Before(Move,Store))))return Reject("ordered effect counts");
+  auto Load=[&](OrderedNodeWrapper N,uint32_t Reg,bool GPR,OrderedNodeWrapper Use){
+    if(!P.Before(N,Use))return false;const auto* H=IR.GetOp<IROp_Header>(N);const auto* L=H->C<IROp_LoadRegister>();
+    return H->Op==OP_LOADREGISTER && uint32_t(H->Size)==(GPR?8u:16u) && uint32_t(H->ElementSize)==(GPR?8u:16u) && L->Reg==Reg && L->Class==(GPR?RegClass::GPR:RegClass::FPR);
+  };
+  const auto* SH=IR.GetOp<IROp_Header>(Store);const auto R=PhysicalRegister(IR.GetNode(Store));
+  if(R.AsRegClass()!=(K==2?RegClass::GPRFixed:RegClass::FPRFixed) || R.Reg!=D ||
+     uint32_t(SH->Size)!=(K==2?8u:16u) || uint32_t(SH->ElementSize)!=(K==2?8u:16u))return Reject("destination slot/width");
+  const auto Value=SH->C<IROp_StoreRegister>()->Value;
+  if(K==3){if(Value!=Loads[0] || !Load(Loads[0],S,false,Store))return Reject("copy dataflow");return {};}
+  const auto* H=IR.GetOp<IROp_Header>(Move);
+  if(Value!=Move || uint32_t(H->Size)!=(K==2 || K==4?W:16u) || uint32_t(H->ElementSize)!=W)return Reject("movement width/dataflow");
+  if(K==1){if(H->C<IROp_VCastFromGPR>()->Src!=Loads[0] || !Load(Loads[0],S,true,Move))return Reject("GPR insert");}
+  if(K==2){const auto* O=H->C<IROp_VExtractToGPR>();if(O->Index || O->Vector!=Loads[0] || !Load(Loads[0],S,false,Move))return Reject("GPR extract");}
+  if(K==4){if(H->C<IROp_VMov>()->Source!=Loads[0] || !Load(Loads[0],S,false,Move))return Reject("MOVQ zeroing");}
+  if(K==5){const auto* O=H->C<IROp_VInsElement>();
+    if(O->DestIdx || O->SrcIdx || O->DestVector!=Loads[0] || O->SrcVector!=Loads[S==D?0:1] ||
+       !Load(O->DestVector,D,false,Move) || !Load(O->SrcVector,S,false,Move))return Reject("scalar lane merge");}
+  return {};
+}
+
 // Unary register operands share the scalar ordering/constant/exit primitives.
 // Every admitted effect below is linked to the independently decoded operand.
 static CompileResult CheckBrokerUnary(const IRListView& IR,uint64_t EntryRIP,const BackendConfig& Cfg) {
@@ -12039,6 +12093,9 @@ static CompileResult CheckBrokerDivide(const IRListView& IR, uint64_t EntryRIP, 
 CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConfig& Cfg) {
   OrderedNodeWrapper BrokerAddend {};
   if (Cfg.BrokerMemory) {
+    if (Cfg.BrokerVectorKind || Cfg.BrokerVectorWidth || Cfg.BrokerVectorSourceRegister!=16) {
+      auto Vector=CheckBrokerVectorMove(IR,EntryRIP,Cfg);if(!Vector.Error.empty())return Vector;
+    }
     if (Cfg.BrokerUnaryKind || Cfg.BrokerUnaryWidth || Cfg.BrokerUnaryShift) {
       auto Unary=CheckBrokerUnary(IR,EntryRIP,Cfg);if(!Unary.Error.empty())return Unary;
     }
@@ -12537,7 +12594,11 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
       case OP_PARITY: case OP_ORNROR: case OP_ORLSHR: case OP_ANDSHIFT: case OP_ROR: case OP_EXTR:
         if (Cfg.BrokerOperation < 5 || Cfg.BrokerOperation >= 9) return Reject(H);
         break;
+      case OP_VCASTFROMGPR:case OP_VEXTRACTTOGPR:case OP_VMOV:case OP_VINSELEMENT:
+        if(!Cfg.BrokerVectorKind)return Reject(H);
+        break;
       case OP_LOADREGISTER: {
+        if(Cfg.BrokerVectorKind)break;
         auto O = H->C<IROp_LoadRegister>();
         if (Cfg.BrokerOperation == 12) {
           if (!JumpValue.IsInvalid() || O->Class != RegClass::GPR || O->Reg != Cfg.BrokerTargetRegister || uint32_t(H->Size) != 8) return Reject(H);
@@ -12549,6 +12610,7 @@ CompileResult Compile(const IRListView& IR, uint64_t EntryRIP, const BackendConf
         break;
       }
       case OP_STOREREGISTER: {
+        if(Cfg.BrokerVectorKind)break;
         auto R = PhysicalRegister(Node);
         if (Cfg.BrokerOperation == 11 || Cfg.BrokerOperation == 16 || R.AsRegClass() != RegClass::GPRFixed || R.Reg >= (Cfg.BrokerOperation >= 3 ? NUM_STATIC : 16) ||
             (Cfg.BrokerOperation >= 9 && Cfg.BrokerOperation != 13 && Cfg.BrokerOperation != 14 && Cfg.BrokerOperation != 15 && Cfg.BrokerOperation != 17 && Cfg.BrokerOperation != 18 && (R.Reg != 4 || uint32_t(H->Size) != 8))) return Reject(H);

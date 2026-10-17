@@ -5,7 +5,7 @@
 #include <cstdint>
 
 namespace fexwasm::broker {
-constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 4, Coverage = 27;
+constexpr uint32_t MemoryABI = 1, CheckpointABI = 1, StepABI = 4, Coverage = 28;
 constexpr uint32_t Pages = 33, ThreadBase = 0x10000, Scratch = 0x1f0000;
 constexpr uint32_t StepMagic = 0x31534a42, HeaderBytes = 96;
 struct Admission {
@@ -31,6 +31,7 @@ struct Admission {
   bool CompareRIPRelative = false;
   uint32_t ConditionCode = 16, ConditionalMoveWidth = 0, ConditionSourceRegister = 16;
   uint32_t UnaryKind = 0, UnaryWidth = 0, UnaryShift = 0; // NEG/NOT/INC/DEC = 1/2/3/4
+  uint32_t VectorKind = 0, VectorWidth = 0, VectorSourceRegister = 16; // GPR->XMM, XMM->GPR, copy, zero-high MOVQ, scalar merge = 1..5
 };
 // Bounded architectural NOP encodings. Legacy prefixes may repeat, followed
 // by at most one REX. REP/LOCK and a REX before a legacy prefix are excluded.
@@ -64,10 +65,32 @@ inline Admission AdmitNOP(const uint8_t* Bytes, size_t Size) {
   if (Displacement > Size - I) return {};
   return {true, 0, 0, 0, true, uint32_t(I + Displacement)};
 }
+// Legacy register movement only. One mandatory prefix precedes at most one
+// REX; REX.R/B select slots, REX.W selects only MOVD/MOVQ's GPR width.
+inline Admission AdmitVectorMove(const uint8_t* Bytes, size_t Size) {
+  if (!Bytes || !Size) return {};
+  size_t I=0; uint8_t Prefix=0, Rex=0;
+  if (Bytes[I]==0x66 || Bytes[I]==0xf2 || Bytes[I]==0xf3) Prefix=Bytes[I++];
+  if (I<Size && Bytes[I]>=0x40 && Bytes[I]<=0x4f) Rex=Bytes[I++];
+  if (Size-I<3 || Bytes[I++]!=0x0f) return {};
+  const auto Op=Bytes[I++], M=Bytes[I++]; if (M<0xc0) return {};
+  const uint32_t R=(M>>3&7)+((Rex&4)?8:0), RM=(M&7)+((Rex&1)?8:0);
+  uint32_t Kind=0, Width=16; bool Reverse=false;
+  if (Prefix==0x66 && (Op==0x6e || Op==0x7e)) {Kind=Op==0x6e?1:2;Width=Rex&8?8:4;Reverse=Op==0x7e;}
+  else if (((!Prefix || Prefix==0x66) && (Op==0x28 || Op==0x29 || Op==0x10 || Op==0x11)) ||
+           ((Prefix==0x66 || Prefix==0xf3) && (Op==0x6f || Op==0x7f))) {Kind=3;Reverse=Op==0x29 || Op==0x11 || Op==0x7f;}
+  else if ((Prefix==0xf3 && Op==0x7e) || (Prefix==0x66 && Op==0xd6)) {Kind=4;Width=8;Reverse=Op==0xd6;}
+  else if ((Prefix==0xf2 || Prefix==0xf3) && (Op==0x10 || Op==0x11)) {Kind=5;Width=Prefix==0xf3?4:8;Reverse=Op==0x11;}
+  if (!Kind) return {};
+  Admission A {true,6,0,0,false,uint32_t(I),Reverse?RM:R};
+  A.VectorKind=Kind;A.VectorWidth=Width;A.VectorSourceRegister=Reverse?R:RM;return A;
+}
 // FEX supplies/validates the complete instruction length separately. This only
 // admits an explicit semantic family; unsupported prefixes/opcodes never run.
 inline Admission Admit(const uint8_t* Bytes, size_t Size) {
   if (!Bytes || !Size) return {};
+  const auto Vector = AdmitVectorMove(Bytes, Size);
+  if (Vector.Supported) return Vector;
   const auto NOP = AdmitNOP(Bytes, Size);
   if (NOP.Supported) return NOP;
   // Exact ENDBR64 encoding only: this profile does not enable/advertise CET,

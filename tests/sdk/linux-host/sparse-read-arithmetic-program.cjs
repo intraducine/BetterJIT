@@ -53,6 +53,13 @@ function fixture(readOnly,fault){
  mov(0,0x123456789abc12aan);emit(0xf6,0xd4);check64(0,0x123456789abcedaan);
  mov(0,0x123456789abc7fffn);mov(1,0n);emit(0x83,0xf9,1,0x66,0xff,0xc0);for(const cc of [1,3]){emit(15,0x80+cc,0,0,0,0);branches.push(code.length-4);}check64(0,0x123456789abc8000n);
  mov(1,0n);emit(0x83,0xf9,1,0xfe,0xc8,15,0x83,0,0,0,0);branches.push(code.length-4);check64(0,0x123456789abc80ffn);
+ // Register vector movement at synthetic addresses, including the reached
+ // MOVQ XMM0,RDI bytes, scalar merges and a flag-preserving move chain.
+ mov(7,0xfedcba9876543210n);mov(0,0n);emit(0x83,0xf8,0,0x66,0x48,15,0x6e,0xc7,0x66,0x44,15,0x6f,0xf8,15,0x85,0,0,0,0);branches.push(code.length-4);
+ emit(0x66,0x4c,15,0x7e,0xf8);check64(0,0xfedcba9876543210n);
+ mov(0,0x89abcdef11223344n);emit(0x66,15,0x6e,0xc8,0x66,0x48,15,0x7e,0xc8);check64(0,0x11223344n);
+ mov(0,0x89abcdef11223344n);emit(0x66,0x48,15,0x6e,0xc8,0xf3,15,0x10,0xc1,0x66,0x48,15,0x7e,0xc0);check64(0,0xfedcba9811223344n);
+ emit(0xf2,15,0x10,0xc1,0x66,0x48,15,0x7e,0xc0);check64(0,0x89abcdef11223344n);
  emit(0xb8,1,0,0,0,0xbf,1,0,0,0);mov(6,DATA+64n);emit(0xba,Buffer.byteLength(output),0,0,0,15,5);check32(Buffer.byteLength(output));
  emit(0x31,0xff,0xb8,60,0,0,0,15,5);marks.failure=code.length;emit(0xbf,99,0,0,0,0xb8,60,0,0,0,15,5);
  marks.nested=code.length;indirect(1,'leaf');emit(0xc3);marks.leaf=code.length;emit(0xc3);
@@ -97,5 +104,5 @@ async function run(get,cfg,state,input){let k,host,timer,report;const workers=[]
 }
 if(!isMainThread)kernel();else{load();require('./native-step-contract.cjs').serve('guestmem=broker1',async get=>{const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer()),cases=[];
  for(const [readOnly,fault]of [[false,false],[true,false],[true,true]])cases.push(await run(get,cfg,state,fixture(readOnly,fault)));
- const report={evidence:'Synthetic dynamic ELF and interpreter, self-checking ADD/SUB32/64, group-1 OR/AND/XOR immediate sign extension/zero extension and carry clearing, all word CMP operand directions, word logical immediates, overflow/parity/signed conditions, nested register-indirect CALL/RET, register NEG/NOT/INC/DEC with byte/word preservation and carry/overflow consumers, old-address aliasing, deterministic stdout/normal Linux exit or exact read-fault rollback through production SDK kernel/worker. No Wine completion or device claim.',cfg,cases,native:await(await get('/xlat/totals')).json()};if(process.argv[3])fs.writeFileSync(process.argv[3],JSON.stringify(report,(_k,v)=>typeof v==='bigint'?'0x'+v.toString(16):v,2)+'\n');console.log(JSON.stringify({...report,cfg:undefined}));
+ const report={evidence:'Synthetic dynamic ELF and interpreter, self-checking ADD/SUB32/64, group-1 OR/AND/XOR immediate sign extension/zero extension and carry clearing, all word CMP operand directions, word logical immediates, overflow/parity/signed conditions, nested register-indirect CALL/RET, register NEG/NOT/INC/DEC with byte/word preservation and carry/overflow consumers, register MOVD/MOVQ, full XMM copies and MOVSS/MOVSD merges with unchanged flags, old-address aliasing, deterministic stdout/normal Linux exit or exact read-fault rollback through production SDK kernel/worker. No Wine completion or device claim.',cfg,cases,native:await(await get('/xlat/totals')).json()};if(process.argv[3])fs.writeFileSync(process.argv[3],JSON.stringify(report,(_k,v)=>typeof v==='bigint'?'0x'+v.toString(16):v,2)+'\n');console.log(JSON.stringify({...report,cfg:undefined}));
  }).catch(e=>{console.error(e);process.exitCode=1;});}

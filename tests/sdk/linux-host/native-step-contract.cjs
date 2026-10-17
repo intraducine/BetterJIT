@@ -61,7 +61,7 @@ async function main() {
   assert.equal(cfg.maxInstructions,1);assert.equal(cfg.debugGuestInstructions,true);assert.equal(cfg.memoryTraceAddr,0);
   assert.equal(cfg.guestAbi,'none');assert.equal(cfg.regArgs,0);assert.equal(cfg.callsViaDispatcher,false);assert.equal(cfg.hotThreshold,0);
   assert.deepEqual(cfg.checkpoint,{version:1,cpu:{offset:cfg.ctx,size:cfg.stateSize,ripOffset:cfg.ripOff,stackPointerOffset:cfg.gregsOff+32,generalRegistersOffset:cfg.gregsOff,
-   parityRawOffset:16,auxiliaryRawOffset:20,nzcvOffset:cfg.nzcvAddr-cfg.ctx},
+   parityRawOffset:16,auxiliaryRawOffset:20,nzcvOffset:cfg.nzcvAddr-cfg.ctx,xmmRegisters:{version:1,offset:cfg.xmmOff,stride:16,count:16,bytes:16}},
    lazyFlags:{offset:cfg.flagSpillAddr,size:24},roundMode:{offset:0x70,size:4}});
   const state=new Uint8Array(await (await get('/xlat/state?space=0')).arrayBuffer());assert.equal(state.length,cfg.stateSize);
   // MOV RAX,42; ADD RAX,1; NOP; UD2. Each request must translate exactly one.

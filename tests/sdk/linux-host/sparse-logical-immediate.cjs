@@ -25,7 +25,7 @@ async function main(){
  for(const [id,seed,input,result,flags]of golden){const expected=independent(definitions[id],inputs[input],seed);assert.equal(BigInt(result),expected.result);assert.equal(flags,expected.flags);const canonical=rows.get([id-id%3,seed,input].join(':'));assert.equal(result,canonical[3]);assert.equal(flags,canonical[4]);}
  let report;
  await serve('guestmem=broker1',async(get,log)=>{
-  const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.coverageVersion,27);
+  const cfg=await(await get('/xlat/config')).json(),state=new Uint8Array(await(await get('/xlat/state')).arrayBuffer());assert.equal(cfg.coverageVersion,28);
   const memory=B.createInternalMemory(),view=new DataView(memory.buffer),tb=B.ABI.threadBase,cpu=cfg.checkpoint.cpu,g=tb+cfg.ctx+cfg.gregsOff;
   const budget=new M.BackingBudget(),space=new M.GuestAddressSpace(budget),broker=new B.GuestMemoryBroker(),token=broker.register(0,{space,memory,checkpointLayout:cfg.checkpoint});
   const spans=['cpu','lazyFlags','roundMode'],snapshot=()=>spans.map(n=>{const p=cfg.checkpoint[n];return new Uint8Array(memory.buffer,tb+p.offset,p.size).slice();});
