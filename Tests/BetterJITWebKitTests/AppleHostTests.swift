@@ -33,6 +33,15 @@ final class AppleHostTests: XCTestCase {
             XCTAssertEqual(batched, [[.i32(3)], [.i32(7)]])
         }
     }
+    @MainActor func testCopiedMemoryRoundTrip() async throws {
+        let (window, _, session) = try host()
+        defer { session.close(); window.close() }
+        try await session.start()
+        let payload = Data((0..<65_536).map { UInt8(truncatingIfNeeded: $0) })
+        try await session.writeMemory(at: 4_096, bytes: payload)
+        let result = try await session.readMemory(at: 4_096, count: payload.count)
+        XCTAssertEqual(result, payload)
+    }
     @MainActor func testNativeSwiftService() async throws {
         let (window, _, session) = try host(services: ["host.1": { input in
             guard input == .string("AQID") else { throw RuntimeFault("testMismatch", "Unexpected bytes") }

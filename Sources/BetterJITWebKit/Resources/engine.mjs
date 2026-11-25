@@ -9,13 +9,19 @@ export function decodeBytes(text, maximum) {
   }
   requireThat(typeof text === 'string' && text.length <= 4 * Math.ceil(maximum / 3) &&
     text.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(text), 'messageTooLarge', 'Invalid or oversized base64.');
+  const nativeDecoder = typeof Uint8Array.fromBase64 === 'function';
   let bytes;
-  try { bytes = Uint8Array.from(atob(text), c => c.charCodeAt(0)); }
+  try {
+    bytes = nativeDecoder
+      ? Uint8Array.fromBase64(text, {lastChunkHandling: 'strict'})
+      : Uint8Array.from(atob(text), c => c.charCodeAt(0));
+  }
   catch { throw new Fault('invalidEncoding', 'Malformed base64.'); }
-  requireThat(bytes.length <= maximum && encodeBytes(bytes) === text, 'invalidEncoding', 'Noncanonical base64.');
+  requireThat(bytes.length <= maximum && (nativeDecoder || encodeBytes(bytes) === text), 'invalidEncoding', 'Noncanonical base64.');
   return bytes;
 }
 export function encodeBytes(bytes) {
+  if (typeof bytes.toBase64 === 'function') return bytes.toBase64();
   let text = '';
   for (let i = 0; i < bytes.length; i += 16384) text += String.fromCharCode(...bytes.subarray(i, i + 16384));
   return btoa(text);

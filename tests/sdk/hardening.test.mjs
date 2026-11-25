@@ -51,8 +51,30 @@ test('sections cannot consume bytes from the following section',()=>{
  assert.throws(()=>inspectModule(new Uint8Array([...header,1,1,1,0x60,0,0])),{code:'invalidModule'});
  assert.throws(()=>inspectModule(new Uint8Array([...header,5,1,0x80,0])),{code:'invalidModule'});
 });
-test('canonical base64 and float boundaries agree across hosts',async()=>{
- for(const text of ['AB==','AAF=','A===','AQI=\n']) assert.throws(()=>decodeBytes(text,16));
+test('native and fallback base64 keep the same wire format and validation', () => {
+  const nativeDecode = Uint8Array.fromBase64;
+  const nativeEncode = Uint8Array.prototype.toBase64;
+  function check() {
+    for (const [text, bytes] of [['', []], ['AA==', [0]], ['AQI=', [1, 2]], ['AQID', [1, 2, 3]]]) {
+      assert.deepEqual(decodeBytes(text, bytes.length), Uint8Array.from(bytes));
+      assert.equal(encodeBytes(Uint8Array.from(bytes)), text);
+    }
+    for (const text of ['AB==', 'AAF=', 'A===', 'AQI=\n', 'AAA\n', 'Q Q=', 'AQI']) {
+      assert.throws(() => decodeBytes(text, 16));
+    }
+    assert.throws(() => decodeBytes('AQI=', 1), {code: 'invalidEncoding'});
+  }
+  check();
+  try {
+    if (nativeDecode) Uint8Array.fromBase64 = undefined;
+    if (nativeEncode) Uint8Array.prototype.toBase64 = undefined;
+    check();
+  } finally {
+    if (nativeDecode) Uint8Array.fromBase64 = nativeDecode;
+    if (nativeEncode) Uint8Array.prototype.toBase64 = nativeEncode;
+  }
+});
+test('float boundaries agree across hosts',async()=>{
  const e=await start();await load(e,moduleBytes({params:[0x7c],results:[0x7c],code:[0x20,0]}));
  for(const value of ['0x10',' 1','1\n','01','1e999']) await assert.rejects(()=>e.command('invoke',{module:'m',export:'run',arguments:[{type:'f64',value}],results:['f64']}),{code:'invalidValue'});
  const out=await e.command('invoke',{module:'m',export:'run',arguments:[{type:'f64',value:'-0.0'}],results:['f64']});
