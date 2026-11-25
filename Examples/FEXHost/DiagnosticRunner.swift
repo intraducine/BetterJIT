@@ -192,43 +192,22 @@ import BetterJITWebKit
         changedCall.expectedMemory = replacement
         changedCall.memoryOffset = entry
 
-        let before = DeviceExecutor(stage: stage, mount: mount)
-        abortCurrent = { before.abort() }
-        let first: CallEvidence, changed: CallEvidence
+        let executor = DeviceExecutor(stage: stage, mount: mount)
+        abortCurrent = { executor.abort() }
         do {
-            _ = try await before.start()
-            first = try await before.invoke(originalCall)
+            _ = try await executor.start()
+            let first = try await executor.invoke(originalCall)
             guard first.result == originalCall.expected else { throw SuiteFailure("Original code returned an unexpected value.") }
-            changed = try await before.invoke(changedCall)
+            let changed = try await executor.invoke(changedCall)
             guard changed.memory == replacement else { throw SuiteFailure("Replacement bytes were not visible in guest memory.") }
-            await before.close()
+            guard changed.result == expectedDifference else { throw SuiteFailure("Live update returned \(changed.result), expected \(expectedDifference).") }
+            await executor.close()
+            return .pass(details: ["original": String(first.result), "afterGuestWrite": String(changed.result)],
+                         metrics: ["originalCallMilliseconds": first.milliseconds,
+                                   "afterGuestWriteMilliseconds": changed.milliseconds])
         } catch {
-            await before.close(); throw error
+            await executor.close(); throw error
         }
-        try checkStop()
-
-        let after = DeviceExecutor(stage: stage, imageOverride: replacement, mount: mount)
-        abortCurrent = { after.abort() }
-        let fresh: CallEvidence
-        do {
-            _ = try await after.start()
-            fresh = try await after.invoke(originalCall)
-            guard fresh.result == expectedDifference else { throw SuiteFailure("Fresh session did not execute the replacement code.") }
-            await after.close()
-        } catch {
-            await after.close(); throw error
-        }
-        guard changed.result == first.result || changed.result == expectedDifference else {
-            throw SuiteFailure("Live update returned neither the original nor the replacement result.")
-        }
-        let stale = changed.result == first.result
-        return DiagnosticOutcome(status: stale ? .failed : .passed,
-            details: ["original": String(first.result), "afterGuestWrite": String(changed.result),
-                      "freshSession": String(fresh.result), "liveCodeUpdated": String(!stale)],
-            metrics: ["originalCallMilliseconds": first.milliseconds,
-                      "afterGuestWriteMilliseconds": changed.milliseconds,
-                      "freshSessionCallMilliseconds": fresh.milliseconds],
-            notes: stale ? ["A guest-memory write left the old translation installed."] : [])
     }
 
     private func fexCallBoundary() async throws -> DiagnosticOutcome {
@@ -236,11 +215,14 @@ import BetterJITWebKit
         let calls: UInt64 = 64
         let stage = DeviceStage(id: "call-boundary", title: "Win64 call boundary", kind: .baseline, abi: .win64, cases: [])
         // Append a Win64 caller that preserves RBX and loops over the leaf at image offset zero.
-        let image = stage.image + Data([
+        let loop = Data([
             0x53, 0x48, 0x83, 0xec, 0x20, 0x48, 0x89, 0xcb, 0x48, 0x89, 0xd1,
             0xba, 0x07, 0x00, 0x00, 0x00, 0xe8, 0xe4, 0xff, 0xff, 0xff, 0x48, 0x89, 0xc1,
             0x48, 0xff, 0xcb, 0x75, 0xf3, 0x48, 0x83, 0xc4, 0x20, 0x5b, 0xc3
         ])
+        // Read the first byte, invert the last one, and return their sum.
+        let buffer = Data([0x0f, 0xb6, 0x01, 0xf6, 0x54, 0x11, 0xff, 0x0f, 0xb6, 0x54, 0x11, 0xff, 0x01, 0xd0, 0xc3])
+        let image = stage.image + loop + buffer
         let executor = DeviceExecutor(stage: stage, imageOverride: image, mount: mount)
         abortCurrent = { executor.abort() }
         func invoke(_ target: UInt32, _ arguments: [UInt64], expecting expected: UInt64) async throws -> UInt64 {
@@ -260,10 +242,33 @@ import BetterJITWebKit
             }
             return Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
         }
+        func measureBuffer(_ size: Int) async throws -> Double {
+            let address: UInt32 = 0x01000000
+            let pointer = SuitePlan.addressWindow + UInt64(address)
+            let target = entry + UInt32(stage.image.count + loop.count)
+            let input = Data(repeating: 0x37, count: size)
+            var output = input
+            output[size - 1] = ~output[size - 1]
+            let test = DeviceCase(id: "buffer", title: "Win64 buffer round trip", entry: target,
+                                  arguments: [pointer, UInt64(size)], expected: 255, input: input,
+                                  expectedMemory: output, memoryOffset: address)
+            var samples = [Double]()
+            for iteration in 0...7 {
+                try checkStop()
+                let start = DispatchTime.now().uptimeNanoseconds
+                let result = try await executor.invoke(test)
+                let milliseconds = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+                guard result.result == test.expected, result.memory == output else {
+                    throw SuiteFailure("Win64 buffer round trip returned incorrect bytes or checksum.")
+                }
+                if iteration > 0 { samples.append(milliseconds) }
+            }
+            return samples.sorted()[samples.count / 2]
+        }
         do {
             _ = try await executor.start()
-            for seed: UInt64 in 1...3 { _ = try await measure(seed: seed, crossBoundary: false) }
-            _ = try await measure(seed: 0, crossBoundary: true)
+            for seed: UInt64 in 1...5 { _ = try await measure(seed: seed, crossBoundary: false) }
+            for seed: UInt64 in 1...3 { _ = try await measure(seed: seed, crossBoundary: true) }
             let before = await executor.counters()
             var hostSamples = [Double](), guestSamples = [Double]()
             for seed: UInt64 in 1...7 {
@@ -276,11 +281,14 @@ import BetterJITWebKit
                 }
             }
             let after = await executor.counters()
+            let buffer4KiB = try await measureBuffer(4_096)
+            let buffer64KiB = try await measureBuffer(65_536)
             await executor.close()
             let hostMedian = hostSamples.sorted()[hostSamples.count / 2]
             let guestMedian = guestSamples.sorted()[guestSamples.count / 2]
             return .pass(metrics: ["crossBoundaryMedianMs": hostMedian, "inGuestMedianMs": guestMedian,
-                                   "addedMicrosecondsPerBoundary": (hostMedian - guestMedian) * 1_000 / Double(calls - 1)],
+                                   "addedMicrosecondsPerBoundary": (hostMedian - guestMedian) * 1_000 / Double(calls - 1),
+                                   "buffer4KiBRoundTripMedianMs": buffer4KiB, "buffer64KiBRoundTripMedianMs": buffer64KiB],
                          counters: ["callsPerSample": Int(calls), "pairedSamples": hostSamples.count,
                                     "timedUnitRequests": after["unitRequests", default: 0] - before["unitRequests", default: 0],
                                     "timedRegionRequests": after["regionRequests", default: 0] - before["regionRequests", default: 0]])

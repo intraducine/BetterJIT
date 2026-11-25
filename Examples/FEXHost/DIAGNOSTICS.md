@@ -12,11 +12,14 @@ The minimal FEX syscall subset deliberately covers only getpid, gettid, sched_yi
 
 Every diagnostic report is checkpointed and shareable as JSON. User toggles for Home Screen/no-debugger and offline status are recorded but not independently verified.
 
-The Runtime Core preset checks a small Win64 function. It compares the original call, a call after writing replacement bytes to the same guest address, and a call in a fresh session seeded with the replacement. Both calls with changed code must return the updated result. Call timings exclude session setup and guest writes.
+The Runtime Core preset checks a small Win64 function before and after writing
+replacement bytes to the same guest address in the same session. It requires the
+updated bytes and result. Call timings exclude session setup and guest writes.
 
 The Win64 call boundary check compares 64 Swift-to-WebKit calls with a single
 call that runs the same 64 dependent additions inside the guest. The test checks
 results, alternates the measurement order, and records warm timings and translation
-requests during the samples. It measures call overhead for a small fixture.
+requests during the samples. It also measures the time to write and read back
+4 KiB and 64 KiB buffers with one checked guest call to modify each buffer.
 Launch with `--fex-bridge` or `--fex-mutation` to run just one of these diagnostics
 and print its result to the device console.
