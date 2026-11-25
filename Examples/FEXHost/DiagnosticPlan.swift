@@ -7,7 +7,7 @@ enum DiagnosticKind: String {
     case wasmMemory, wasmMemoryStress, opfsIO, pagingSafe, pagingStress
     case sharedWorkers, moduleClone, fexLayout
     case fexSysV, fexWin64, fexSIMDSysV, fexSIMDWin64, fexRegionSysV, fexRegionWin64
-    case syscallSubset, processLifecycle, fexCodeMutation
+    case syscallSubset, processLifecycle, fexCodeMutation, fexCallBoundary
     case wineReadiness, graphicsReadiness
 }
 struct DiagnosticSpec: Identifiable {
@@ -40,6 +40,7 @@ enum DiagnosticPlan {
         .init(id:"fex-region-sysv", title:"FEX hot-region install / SysV", category:"FEX", kind:.fexRegionSysV),
         .init(id:"fex-region-win64", title:"FEX hot-region install / Win64", category:"FEX", kind:.fexRegionWin64),
         .init(id:"fex-code-mutation", title:"Win64 code change at the same address", category:"FEX", kind:.fexCodeMutation),
+        .init(id:"fex-call-boundary", title:"Win64 calls across the WebKit boundary", category:"FEX", kind:.fexCallBoundary),
         .init(id:"syscall-subset", title:"Minimal Linux syscall subset through FEX", category:"Guest OS", kind:.syscallSubset),
         .init(id:"process-lifecycle", title:"Repeated WebKit session create / execute / close", category:"Lifecycle", kind:.processLifecycle),
         .init(id:"native-metal", title:"Native Metal command-queue smoke", category:"Graphics", kind:.nativeMetal),
@@ -61,7 +62,8 @@ enum DiagnosticPlan {
             result = pick(["environment","web-features","transport-mapped-required","fex-sysv","fex-win64","syscall-subset","native-metal"])
         case .runtimeCore:
             result = pick(["environment","native-vm","web-features","wasm-memory","fex-layout","fex-sysv","fex-win64",
-                           "fex-simd-sysv","fex-simd-win64","fex-region-sysv","fex-region-win64","fex-code-mutation","syscall-subset","process-lifecycle"])
+                           "fex-simd-sysv","fex-simd-win64","fex-region-sysv","fex-region-win64",
+                           "fex-code-mutation","fex-call-boundary","syscall-subset","process-lifecycle"])
         case .transport:
             result = pick(["transport-copied","transport-mapped-preferred","transport-mapped-required","transport-summary","opfs-io"])
         case .memory:

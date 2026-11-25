@@ -22,6 +22,12 @@ import BetterJITLinux
     @Published var linuxStatus = "Not started"
     @Published var linuxLog = ""
     private static var launchSmokePending = ProcessInfo.processInfo.arguments.contains("--linux-smoke")
+    private static var launchFEXDiagnostic: DiagnosticKind? = {
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("--fex-bridge") { return .fexCallBoundary }
+        if arguments.contains("--fex-mutation") { return .fexCodeMutation }
+        return nil
+    }()
     private var task: Task<Void, Never>?
     private var runner: SuiteRunner?
     private var diagnosticRunner: DiagnosticRunner?
@@ -74,10 +80,11 @@ import BetterJITLinux
             self.transport = nil; self.running = false; self.runner = nil; self.task = nil
         }
     }
-    func runDiagnostics(_ preset: DiagnosticPreset, includeStress: Bool, standalone: Bool, offline: Bool) {
+    func runDiagnostics(_ preset: DiagnosticPreset, includeStress: Bool, standalone: Bool, offline: Bool,
+                        only: DiagnosticKind? = nil) {
         guard !running else { return }
         running = true; storageError = nil; diagnosticReportURL = nil
-        let runner = DiagnosticRunner(preset:preset, includeStress:includeStress, environment:environment(),
+        let runner = DiagnosticRunner(preset:preset, includeStress:includeStress, only:only, environment:environment(),
                                       conditions:["userReportsHomeScreenNoDebugger":String(standalone),
                                                   "userReportsWiFiAndCellularOff":String(offline),
                                                   "conditionsIndependentlyVerified":"false"],
@@ -90,6 +97,9 @@ import BetterJITLinux
             result.environment["thermalAtEnd"] = String(ProcessInfo.processInfo.thermalState.rawValue)
             result.environment["lowPowerAtEnd"] = String(ProcessInfo.processInfo.isLowPowerModeEnabled)
             self.diagnosticReport = result; self.saveDiagnostic(result)
+            if only != nil, let record = result.records.first, let data = try? JSONEncoder().encode(record) {
+                FileHandle.standardOutput.write(Data("BetterJIT diagnostic ".utf8) + data + Data([10]))
+            }
             self.transport=nil; self.running=false; self.diagnosticRunner=nil; self.task=nil
         }
     }
@@ -112,10 +122,15 @@ import BetterJITLinux
             self.running = false; self.task = nil
         }
     }
-    func launchLinuxSmokeIfRequested() {
-        guard Self.launchSmokePending, !running else { return }
-        Self.launchSmokePending = false
-        runLinux(wine: false, reportToConsole: true)
+    func launchRequestedCheck() {
+        guard !running else { return }
+        if let diagnostic = Self.launchFEXDiagnostic {
+            Self.launchFEXDiagnostic = nil
+            runDiagnostics(.runtimeCore, includeStress: false, standalone: false, offline: false, only: diagnostic)
+        } else if Self.launchSmokePending {
+            Self.launchSmokePending = false
+            runLinux(wine: false, reportToConsole: true)
+        }
     }
     func stop(interrupted: Bool = false) {
         guard running || linuxSession != nil else { return }
@@ -290,7 +305,7 @@ import BetterJITLinux
         .onChange(of: scenePhase) { _, phase in
             if phase == .background { model.stop(interrupted: true) }
         }
-        .task { model.launchLinuxSmokeIfRequested() }
+        .task { model.launchRequestedCheck() }
         .onDisappear { model.stop(interrupted: true) }
     }
 }

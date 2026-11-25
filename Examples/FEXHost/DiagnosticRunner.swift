@@ -11,10 +11,10 @@ import BetterJITWebKit
     private var stopped: DiagnosticRunState?
     private var abortCurrent: (() -> Void)?
 
-    init(preset: DiagnosticPreset, includeStress: Bool, environment: [String:String],
+    init(preset: DiagnosticPreset, includeStress: Bool, only: DiagnosticKind? = nil, environment: [String:String],
          conditions: [String:String], mount: @escaping @MainActor (WebKitTransport?) -> Void,
          changed: @escaping @MainActor (DiagnosticReport) -> Void) {
-        specs = DiagnosticPlan.specs(preset, includeStress:includeStress)
+        specs = DiagnosticPlan.specs(preset, includeStress:includeStress).filter { only == nil || $0.kind == only }
         report = DiagnosticReport(preset:preset, includeStress:includeStress, environment:environment,
                                   conditions:conditions, specs:specs)
         self.mount = mount; self.changed = changed
@@ -118,6 +118,7 @@ import BetterJITWebKit
         case .fexRegionSysV: return try await fexRegion(.sysv)
         case .fexRegionWin64: return try await fexRegion(.win64)
         case .fexCodeMutation: return try await fexCodeMutation()
+        case .fexCallBoundary: return try await fexCallBoundary()
         case .syscallSubset:
             return try await SyscallDiagnosticExecutor.run(mapped:false, mount:mount)
         case .processLifecycle:
@@ -228,6 +229,65 @@ import BetterJITWebKit
                       "afterGuestWriteMilliseconds": changed.milliseconds,
                       "freshSessionCallMilliseconds": fresh.milliseconds],
             notes: stale ? ["A guest-memory write left the old translation installed."] : [])
+    }
+
+    private func fexCallBoundary() async throws -> DiagnosticOutcome {
+        let entry = UInt32(truncatingIfNeeded: SuitePlan.guestBase)
+        let calls: UInt64 = 64
+        let stage = DeviceStage(id: "call-boundary", title: "Win64 call boundary", kind: .baseline, abi: .win64, cases: [])
+        // Append a Win64 caller that preserves RBX and loops over the leaf at image offset zero.
+        let image = stage.image + Data([
+            0x53, 0x48, 0x83, 0xec, 0x20, 0x48, 0x89, 0xcb, 0x48, 0x89, 0xd1,
+            0xba, 0x07, 0x00, 0x00, 0x00, 0xe8, 0xe4, 0xff, 0xff, 0xff, 0x48, 0x89, 0xc1,
+            0x48, 0xff, 0xcb, 0x75, 0xf3, 0x48, 0x83, 0xc4, 0x20, 0x5b, 0xc3
+        ])
+        let executor = DeviceExecutor(stage: stage, imageOverride: image, mount: mount)
+        abortCurrent = { executor.abort() }
+        func invoke(_ target: UInt32, _ arguments: [UInt64], expecting expected: UInt64) async throws -> UInt64 {
+            try checkStop()
+            let input = DeviceCase(id: "boundary", title: "Win64 leaf", entry: target, arguments: arguments, expected: expected)
+            let result = try await executor.invoke(input)
+            guard result.result == expected else { throw SuiteFailure("Win64 boundary checksum did not match.") }
+            return result.result
+        }
+        func measure(seed: UInt64, crossBoundary: Bool) async throws -> Double {
+            let start = DispatchTime.now().uptimeNanoseconds
+            if crossBoundary {
+                var value = seed
+                for _ in 0..<calls { value = try await invoke(entry, [value, 7], expecting: value &+ 7) }
+            } else {
+                _ = try await invoke(entry + UInt32(stage.image.count), [calls, seed], expecting: seed &+ calls * 7)
+            }
+            return Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
+        }
+        do {
+            _ = try await executor.start()
+            for seed: UInt64 in 1...3 { _ = try await measure(seed: seed, crossBoundary: false) }
+            _ = try await measure(seed: 0, crossBoundary: true)
+            let before = await executor.counters()
+            var hostSamples = [Double](), guestSamples = [Double]()
+            for seed: UInt64 in 1...7 {
+                if seed.isMultiple(of: 2) {
+                    guestSamples.append(try await measure(seed: seed, crossBoundary: false))
+                    hostSamples.append(try await measure(seed: seed, crossBoundary: true))
+                } else {
+                    hostSamples.append(try await measure(seed: seed, crossBoundary: true))
+                    guestSamples.append(try await measure(seed: seed, crossBoundary: false))
+                }
+            }
+            let after = await executor.counters()
+            await executor.close()
+            let hostMedian = hostSamples.sorted()[hostSamples.count / 2]
+            let guestMedian = guestSamples.sorted()[guestSamples.count / 2]
+            return .pass(metrics: ["crossBoundaryMedianMs": hostMedian, "inGuestMedianMs": guestMedian,
+                                   "addedMicrosecondsPerBoundary": (hostMedian - guestMedian) * 1_000 / Double(calls - 1)],
+                         counters: ["callsPerSample": Int(calls), "pairedSamples": hostSamples.count,
+                                    "timedUnitRequests": after["unitRequests", default: 0] - before["unitRequests", default: 0],
+                                    "timedRegionRequests": after["regionRequests", default: 0] - before["regionRequests", default: 0]])
+        } catch {
+            await executor.close()
+            throw error
+        }
     }
 
     private func fexRegion(_ abi: GuestABI) async throws -> DiagnosticOutcome {
