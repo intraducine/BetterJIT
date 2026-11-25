@@ -21,7 +21,7 @@ import BetterJITLinux
     @Published var linuxSession: LinuxRuntimeSession?
     @Published var linuxStatus = "Not started"
     @Published var linuxLog = ""
-    private var launchedLinuxSmoke = false
+    private static var launchSmokePending = ProcessInfo.processInfo.arguments.contains("--linux-smoke")
     private var task: Task<Void, Never>?
     private var runner: SuiteRunner?
     private var diagnosticRunner: DiagnosticRunner?
@@ -93,19 +93,19 @@ import BetterJITLinux
             self.transport=nil; self.running=false; self.diagnosticRunner=nil; self.task=nil
         }
     }
-    func runLinux(wine: Bool) {
+    func runLinux(wine: Bool, reportToConsole: Bool = false) {
         guard !running else { return }
         running = true; storageError = nil; linuxLog = ""
         task = Task { [weak self] in
             guard let self else { return }
             do {
                 let result = try await self.linuxHarness.run(wine ? .wineCommand : .smoke)
-                if self.launchedLinuxSmoke {
+                if reportToConsole {
                     FileHandle.standardOutput.write(Data("BetterJIT smoke passed in \(result.milliseconds) ms\n".utf8))
                 }
             } catch {
                 self.storageError = error.localizedDescription
-                if self.launchedLinuxSmoke {
+                if reportToConsole {
                     FileHandle.standardOutput.write(Data("BetterJIT smoke failed: \(error.localizedDescription)\n".utf8))
                 }
             }
@@ -113,9 +113,9 @@ import BetterJITLinux
         }
     }
     func launchLinuxSmokeIfRequested() {
-        guard !launchedLinuxSmoke, ProcessInfo.processInfo.arguments.contains("--linux-smoke") else { return }
-        launchedLinuxSmoke = true
-        runLinux(wine: false)
+        guard Self.launchSmokePending, !running else { return }
+        Self.launchSmokePending = false
+        runLinux(wine: false, reportToConsole: true)
     }
     func stop(interrupted: Bool = false) {
         guard running || linuxSession != nil else { return }
