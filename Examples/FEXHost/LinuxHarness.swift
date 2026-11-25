@@ -46,6 +46,9 @@ import BetterJITLinux
         await Task.yield()
         do {
             let result=try await s.run()
+            if mode == .smoke, result.exitCode != 0 || !result.log.contains("Win64 dynamic code OK") {
+                throw LinuxRuntimeError.guest("Win64 dynamic code check failed with exit code \(result.exitCode).")
+            }
             let status="Exited \(result.exitCode) in \(String(format:"%.0f",result.milliseconds)) ms"
             changed(s,status,result.log)
             return result

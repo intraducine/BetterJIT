@@ -23,9 +23,12 @@ The package contains the promoted runtime assets under
 
 ## Device smoke
 
-The FEX Host contains a tiny bundled x86-64 ELF that writes
-`BetterJIT Linux OK` and exits through real Linux syscalls. It does not need an
-external rootfs. Use **Run Linux ELF** to exercise:
+The FEX Host contains a bundled x86-64 ELF that uses Linux syscalls to allocate
+a page, put a Win64 function there, and run it. It switches the page back to
+writable, changes one instruction, and calls the function at the same address.
+The check requires `20 + 22` to return 42 and `20 - 22` to return -2. Run
+**Run Linux ELF** or launch the app with `--linux-smoke`. This uses the bundled
+ELF without an external rootfs and exercises:
 
 1. the ELF loader;
 2. Linux address-space setup;
@@ -34,6 +37,9 @@ external rootfs. Use **Run Linux ELF** to exercise:
 5. on-demand FEX -> Wasm translation;
 6. guest syscalls through the Linux kernel worker;
 7. process exit and cleanup.
+
+To check the bundled ELF against its assembly source, run
+`python3 Examples/FEXHost/Guest/build-linux-smoke.py --check` with Clang and LLD.
 
 ## Wine
 

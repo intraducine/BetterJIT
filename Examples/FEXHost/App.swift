@@ -21,6 +21,7 @@ import BetterJITLinux
     @Published var linuxSession: LinuxRuntimeSession?
     @Published var linuxStatus = "Not started"
     @Published var linuxLog = ""
+    private var launchedLinuxSmoke = false
     private var task: Task<Void, Never>?
     private var runner: SuiteRunner?
     private var diagnosticRunner: DiagnosticRunner?
@@ -98,12 +99,23 @@ import BetterJITLinux
         task = Task { [weak self] in
             guard let self else { return }
             do {
-                _ = try await self.linuxHarness.run(wine ? .wineCommand : .smoke)
+                let result = try await self.linuxHarness.run(wine ? .wineCommand : .smoke)
+                if self.launchedLinuxSmoke {
+                    FileHandle.standardOutput.write(Data("BetterJIT smoke passed in \(result.milliseconds) ms\n".utf8))
+                }
             } catch {
                 self.storageError = error.localizedDescription
+                if self.launchedLinuxSmoke {
+                    FileHandle.standardOutput.write(Data("BetterJIT smoke failed: \(error.localizedDescription)\n".utf8))
+                }
             }
             self.running = false; self.task = nil
         }
+    }
+    func launchLinuxSmokeIfRequested() {
+        guard !launchedLinuxSmoke, ProcessInfo.processInfo.arguments.contains("--linux-smoke") else { return }
+        launchedLinuxSmoke = true
+        runLinux(wine: false)
     }
     func stop(interrupted: Bool = false) {
         guard running || linuxSession != nil else { return }
@@ -278,6 +290,7 @@ import BetterJITLinux
         .onChange(of: scenePhase) { _, phase in
             if phase == .background { model.stop(interrupted: true) }
         }
+        .task { model.launchLinuxSmokeIfRequested() }
         .onDisappear { model.stop(interrupted: true) }
     }
 }
