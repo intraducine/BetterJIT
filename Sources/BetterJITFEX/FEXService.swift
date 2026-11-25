@@ -10,7 +10,15 @@ public protocol FEXTranslator: AnyObject {
     func initialState() throws -> Data
     func unit(at rip: UInt32) throws -> Data
     func region(profile: Data) throws -> Data
+    /// Replace the original executable image in place. Its base and size stay fixed.
+    func replaceImage(_ image: Data) throws
     func close()
+}
+
+public extension FEXTranslator {
+    func replaceImage(_ image: Data) throws {
+        throw RuntimeFault("unsupported", "This FEX translator does not support image patches.")
+    }
 }
 
 public struct FEXServiceStatistics: Codable, Sendable, Equatable {
@@ -22,7 +30,7 @@ public struct FEXServiceStatistics: Codable, Sendable, Equatable {
 
 public actor FEXService {
     private var translator: (any FEXTranslator)?
-    private let image: Data
+    private var image: Data
     private let maximumBytes: Int
     private var counters = FEXServiceStatistics()
     public init(translator: any FEXTranslator, image: Data, maximumBytes: Int = 8 * 1024 * 1024) throws {
@@ -57,6 +65,9 @@ public actor FEXService {
             guard config.count <= 65536 else { throw RuntimeFault("messageTooLarge", "FEX config too large.") }
             return .json(try JSONDecoder().decode(JSONValue.self, from: config))
         case "image": data = image
+        case "patchImage":
+            try patchImage(request.payload, using: translator)
+            return .json(.bool(true))
         case "state": data = try translator.initialState()
         case "dispatcher": data = try translator.dispatcher()
         case "unit":
@@ -89,6 +100,9 @@ public actor FEXService {
             guard config.count <= 65536 else { throw RuntimeFault("messageTooLarge", "FEX config too large.") }
             return try JSONDecoder().decode(JSONValue.self, from: config)
         case "image": data = image
+        case "patchImage":
+            try patchImage(payload, using: translator)
+            return .bool(true)
         case "state": data = try translator.initialState()
         case "dispatcher": data = try translator.dispatcher()
         case "unit":
@@ -111,6 +125,24 @@ public actor FEXService {
         }
         counters.returnedBytes += data.count
         return .string(data.base64EncodedString())
+    }
+    private func patchImage(_ payload: JSONValue, using translator: any FEXTranslator) throws {
+        guard let offset = payload["offset"]?.integer.flatMap(Int.init(exactly:)),
+              offset >= 0, offset < image.count,
+              let text = payload["bytes"]?.string else {
+            throw RuntimeFault("invalidBackendRequest", "Invalid FEX image patch.")
+        }
+        let maximum = min(image.count - offset, 4 * 1024 * 1024)
+        guard text.utf8.count <= 4 * ((maximum + 2) / 3),
+              let bytes = Data(base64Encoded: text), !bytes.isEmpty, bytes.count <= maximum,
+              bytes.base64EncodedString() == text else {
+            throw RuntimeFault("invalidBackendRequest", "Invalid FEX image patch bytes.")
+        }
+        var updated = image
+        let start = updated.startIndex + offset
+        updated.replaceSubrange(start..<(start + bytes.count), with: bytes)
+        try translator.replaceImage(updated)
+        image = updated
     }
     /// Validate lengths and counts before calling the native decoder. The byte
     /// ceiling also applies to callers using this helper directly.

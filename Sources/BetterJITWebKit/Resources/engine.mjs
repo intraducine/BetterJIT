@@ -141,11 +141,33 @@ export class Engine {
       }
       case 'statistics': return { ...this.metrics, loadedModules: this.modules.size, memoryBytes: this.memory.buffer.byteLength };
       case 'read': return encodeBytes(this.range(p.offset, p.count));
-      case 'write': { const bytes = decodeBytes(p.bytes, this.limits.maximumTransferBytes); this.range(p.offset, bytes.length).set(bytes); return null; }
+      case 'write': return this.writeMemory(p);
       case 'fex.open': return this.openFEX();
       case 'fex.call': return this.callFEX(p);
       default: throw new Fault('unknownOperation', 'Unknown execution operation.');
     }
+  }
+  async writeMemory({offset, bytes: encoded}) {
+    const bytes = decodeBytes(encoded, this.limits.maximumTransferBytes);
+    const target = this.range(offset, bytes.length);
+    if (this.fex) {
+      const {cfg, imageBytes, request, runtime} = this.fex;
+      const start = Math.max(offset, cfg.imageLow);
+      const end = Math.min(offset + bytes.length, cfg.imageLow + imageBytes);
+      if (start < end) {
+        const patch = bytes.subarray(start - offset, end - offset);
+        try {
+          const result = await request('patchImage', { offset: start - cfg.imageLow, bytes: encodeBytes(patch) });
+          requireThat(result === true, 'invalidBackend', 'FEX did not acknowledge the image patch.');
+          runtime.invalidateCode();
+        } catch (error) {
+          this.close();
+          throw new Fault('fexExecution', 'FEX image patch stopped: ' + (error.code || 'backendFailure'));
+        }
+      }
+    }
+    target.set(bytes);
+    return null;
   }
   async load(p) {
     requireThat(!this.fex, 'invalidState', 'Use separate sessions for Wasm and FEX.');
@@ -260,7 +282,7 @@ export class Engine {
       // (write/yield/getpid/gettid/time) and returns -ENOSYS for everything else.
       // This is a bring-up adapter, not a Wine-capable OS layer.
       codeBudget: this.limits.maximumResidentModuleBytes, maximumTableElements: this.limits.maximumTableElements });
-    this.memory = memory; this.fex = { cfg, state, runtime, imageBytes: image.length };
+    this.memory = memory; this.fex = { cfg, state, runtime, request, imageBytes: image.length };
     return { guestABI: cfg.guestAbi, memoryPages: cfg.memPages };
   }
   async callFEX(p) {

@@ -29,6 +29,11 @@ Generic imports are limited to betterjit.memory and betterjit.call. Native
 services are registered capability names, not arbitrary APIs. The latter import
 requires the exact `(i32,i32,i32,i32,i32)->i32` signature and JSPI. The `fex` service
 exposes config/image/state/dispatcher/unit/region with bounded binary profiles.
+For a `write` that overlaps the initial FEX image, the worker sends `patchImage`
+with an image-relative `offset` and canonical base64 `bytes` for the overlap.
+The native service must return `true` after patching the image. The worker then
+discards installed units and regions before committing the write. A failed or
+unsupported patch closes the session with `fexExecution`.
 FEX compilation remains native and requires its own security review.
 
 WebKit accepts messages only from the configured main frame, exact loopback

@@ -25,11 +25,14 @@ private actor ProbeByteService {
     private let bytes = ProbeByteService()
     private var module: String?
     private var aborted = false
+    private let imageOverride: Data?
     private let mappedTransport: MappedTransportPreference
     private let mount: @MainActor (WebKitTransport?) -> Void
     init(stage: DeviceStage, mappedTransport: MappedTransportPreference = .disabled,
+         imageOverride: Data? = nil,
          mount: @escaping @MainActor (WebKitTransport?) -> Void) {
         self.stage = stage; self.mappedTransport = mappedTransport; self.mount = mount
+        self.imageOverride = imageOverride
     }
     private func now() -> UInt64 { DispatchTime.now().uptimeNanoseconds }
     private func elapsed(_ start: UInt64) -> Double { Double(now() - start) / 1_000_000 }
@@ -42,7 +45,7 @@ private actor ProbeByteService {
             transport = try WebKitTransport(services: ["host.1": { try await service.handle($0) }], mappedTransport: mappedTransport)
         } else {
             let abi: LinkedFEXTranslator.ABI = stage.abi == .win64 ? .win64 : .sysv
-            let image = stage.image
+            let image = imageOverride ?? stage.image
             let native = try LinkedFEXTranslator(image: image, guestBase: SuitePlan.guestBase, abi: abi)
             let service = try FEXService(translator: native, image: image); fex = service
             transport = try WebKitTransport(binaryServices: ["fex": { try await service.handleBinary($0) }],

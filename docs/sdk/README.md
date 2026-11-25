@@ -92,6 +92,10 @@ await fex.close()
 ```
 
 The image must fit one 4-GiB guest-address window; this is not a 4-GiB RAM grant.
+Host `writeMemory` calls that overlap the original FEX image update the native
+code bytes and discard installed WebAssembly translations. Writes outside the
+image remain data writes. Guest instructions that modify code and executable
+mappings created after startup still require a guest runtime adapter.
 Integer/pointer arguments are placed in ABI registers and stack/shadow slots.
 Floating-point/aggregate arguments are not supplied by the small direct-call
 adapter. Full guest loading, Linux syscalls/VFS and guest threads are provided

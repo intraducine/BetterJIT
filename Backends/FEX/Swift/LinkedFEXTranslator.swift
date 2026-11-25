@@ -10,12 +10,17 @@ public final class LinkedFEXTranslator: FEXTranslator, @unchecked Sendable {
     public enum ABI: String { case sysv, win64 }
     private let lock = NSLock()
     private var handle: OpaquePointer?
+    private let guestBase: UInt64
+    private let imageSize: Int
     private let maximumBytes = 16 * 1024 * 1024
     public init(image: Data, guestBase: UInt64, abi: ABI = .sysv) throws {
         guard !image.isEmpty, image.count <= maximumBytes,
+              guestBase <= UInt64.max - UInt64(image.count),
               (guestBase & 0xffffffff) + UInt64(image.count) <= 0x1_0000_0000 else {
             throw RuntimeFault("invalidImage", "Image must fit one FEX guest-address window.")
         }
+        self.guestBase = guestBase
+        imageSize = image.count
         handle = image.withUnsafeBytes { bytes in
             fexwasm_create(bytes.bindMemory(to: UInt8.self).baseAddress, image.count, guestBase,
                           "abi=\(abi.rawValue) shared=0 hot=100 depth=128")
@@ -48,6 +53,17 @@ public final class LinkedFEXTranslator: FEXTranslator, @unchecked Sendable {
         try FEXService.validateProfile(profile)
         return try withHandle { handle in
             try profile.withUnsafeBytes { try copy(fexwasm_region(handle, $0.bindMemory(to: UInt8.self).baseAddress, profile.count)) }
+        }
+    }
+    public func replaceImage(_ image: Data) throws {
+        guard image.count == imageSize else {
+            throw RuntimeFault("invalidImage", "A FEX image patch must preserve the image size.")
+        }
+        // Clear native IR throughout the image, including blocks that branch into the changed bytes.
+        try withHandle { handle in
+            image.withUnsafeBytes { bytes in
+                fexwasm_patch_code(handle, guestBase, bytes.bindMemory(to: UInt8.self).baseAddress, imageSize)
+            }
         }
     }
     public func close() {

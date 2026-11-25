@@ -6,9 +6,10 @@ import Foundation
         var checks=0
         func check(_ value:@autoclosure()->Bool,_ message:String){precondition(value(),message);checks+=1}
         check(DiagnosticPlan.specs(.quick,includeStress:false).count==7,"quick inventory")
-        check(DiagnosticPlan.specs(.full,includeStress:false).count==26,"full safe inventory")
-        check(DiagnosticPlan.specs(.full,includeStress:true).count==28,"full stress inventory")
+        check(DiagnosticPlan.specs(.full,includeStress:false).count==27,"full safe inventory")
+        check(DiagnosticPlan.specs(.full,includeStress:true).count==29,"full stress inventory")
         check(DiagnosticPlan.specs(.transport,includeStress:false).map(\.category).allSatisfy{$0=="Transport" || $0=="Storage"},"transport preset")
+        check(DiagnosticPlan.specs(.runtimeCore,includeStress:false).contains { $0.kind == .fexCodeMutation },"runtime core includes code mutation")
         let specs=DiagnosticPlan.specs(.quick,includeStress:false)
         var report=DiagnosticReport(preset:.quick,includeStress:false,environment:[:],conditions:[:],specs:specs)
         check(report.overall=="RUNNING","running report cannot pass")

@@ -25,17 +25,24 @@ def main():
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-struct fexwasm_translator { unsigned char data[4]; };
+struct fexwasm_translator { unsigned char data[4]; uint64_t base; uint8_t code; };
 static _Atomic int live;
 int check_live(void) { return atomic_load(&live); }
 fexwasm_translator* fexwasm_create(const uint8_t *image,size_t n,uint64_t base,const char* options) {
   if (!n || image[0] == 0xff) return 0;
-  fexwasm_translator *p=calloc(1,sizeof(*p));if(p) atomic_fetch_add(&live,1);return p;
+  fexwasm_translator *p=calloc(1,sizeof(*p));
+  if(p) { p->base=base; p->code=image[0]; atomic_fetch_add(&live,1); }
+  return p;
 }
 void fexwasm_destroy(fexwasm_translator* p) { if(p){atomic_fetch_sub(&live,1);free(p);} }
 const char* fexwasm_config_json(fexwasm_translator* p) { return "{}"; }
 fexwasm_bytes fexwasm_unit(fexwasm_translator* p,uint32_t rip) {
+  if(rip==(uint32_t)p->base) return (fexwasm_bytes){&p->code,1};
   memcpy(p->data,&rip,4);usleep(100);return (fexwasm_bytes){p->data,4};
+}
+void fexwasm_patch_code(fexwasm_translator* p,uint64_t addr,const uint8_t* data,size_t n) {
+  if(addr!=p->base || n!=1) abort();
+  p->code=data[0];
 }
 fexwasm_bytes fexwasm_dispatcher(fexwasm_translator* p){return (fexwasm_bytes){0,5};}
 fexwasm_bytes fexwasm_state(fexwasm_translator* p){return (fexwasm_bytes){0,0};}
@@ -51,7 +58,7 @@ final class Failures: @unchecked Sendable {
  let lock=NSLock();var values=[String]()
  func record(_ s:String){lock.lock();defer{lock.unlock()};values.append(s)}
 }
-let t=try LinkedFEXTranslator(image:Data([1]),guestBase:0x400000)
+let t=try LinkedFEXTranslator(image:Data([1]),guestBase:0x500000400000)
 let failures=Failures()
 DispatchQueue.concurrentPerform(iterations:200){i in
  do {
@@ -61,16 +68,21 @@ DispatchQueue.concurrentPerform(iterations:200){i in
  } catch { failures.record("unexpected translation error") }
 }
 precondition(failures.values.isEmpty)
+let original = try t.unit(at: 0x400000)
+try t.replaceImage(Data([7]))
+let replacement = try t.unit(at: 0x400000)
+precondition(original == Data([1]) && replacement == Data([7]))
+do { try t.replaceImage(Data([7,8]));fatalError("resized image accepted") } catch {}
 do { _=try t.dispatcher();fatalError("invalid pointer/size accepted") } catch {}
 t.close();t.close();precondition(check_live()==0)
 do { _=try t.initialState();fatalError("use after close") } catch {}
 do { _=try LinkedFEXTranslator(image:Data([0xff]),guestBase:0x400000);fatalError("null create accepted") } catch {}
 precondition(check_live()==0)
-print("PASS: 200 concurrent scratch-buffer copies, invalid C results, null creation, idempotent close; test shim, not FEX.")
+print("PASS: 200 concurrent scratch-buffer copies, image replacement, invalid C results, null creation, idempotent close; test shim, not FEX.")
 ''')
         (root/'Package.swift').write_text('''// swift-tools-version: 5.9
 import PackageDescription
-let package = Package(name: "BindingCheck", dependencies: [.package(name: "BetterJIT", path: %s)], targets: [
+let package = Package(name: "BindingCheck", platforms: [.macOS(.v13)], dependencies: [.package(name: "BetterJIT", path: %s)], targets: [
  .target(name:"CFEXWasm",publicHeadersPath:"include"),
  .executableTarget(name:"BindingCheck",dependencies:["CFEXWasm",.product(name:"BetterJIT",package:"BetterJIT"),.product(name:"BetterJITFEX",package:"BetterJIT")])])
 ''' % json.dumps(str(ROOT)))

@@ -68,7 +68,9 @@
     const hot = asyncMode ? new WebAssembly.Suspending(hotAsync) : hotSync;
     // What the dispatcher saw, for a translator that can't read our memory:
     // the successors recorded for a unit, and the call sites' targets.
+    const tbOff = host.threadBase || 0;
     const callSiteBits = host.callSiteBits || 12;
+    const callSiteBase = (host.callSiteBase || 0x120000) + tbOff;
     const profile = {
       successors(rip) {
         const dv = new DataView(host.mem.buffer), e = entryOf(dv, rip), out = [];
@@ -81,7 +83,7 @@
         return out;
       },
       callSites() {
-        const dv = new DataView(host.mem.buffer), out = [], callSiteBase = (host.callSiteBase || 0x120000) + tbOff;
+        const dv = new DataView(host.mem.buffer), out = [];
         for (let h = 0; h < 1 << callSiteBits; h++) {
           const e = callSiteBase + 32 * h, ret = dv.getUint32(e, true);
           if (ret === 0 || dv.getUint32(e + 16, true) === 0) continue;
@@ -101,7 +103,6 @@
     // Threads: each thread's Sys area (CPUState, dispatcher tables) is at
     // host.threadBase, which the modules import as e.tb when built for it.
     const tb = host.threadBase === undefined ? undefined : new WebAssembly.Global({ value: 'i32', mutable: false }, host.threadBase);
-    const tbOff = host.threadBase || 0;
     const dex = host.dispatcher
       ? new WebAssembly.Instance(host.dispatcher instanceof WebAssembly.Module ? host.dispatcher : new WebAssembly.Module(host.dispatcher),
         { e: tb ? { mem: host.mem, tbl: table, hot, tb } : { mem: host.mem, tbl: table, hot } }).exports : null;
@@ -188,6 +189,7 @@
         const c = host.unitCounterBase + tbOff;
         u8.fill(0, c, c + 4 * (1 << (host.unitCounterBits || 14)));
       }
+      if (profiling) u8.fill(0, callSiteBase, callSiteBase + 32 * (1 << callSiteBits));
       for (let i = 1; i < nextIndex; i++) table.set(i, null);
       nextIndex = 1;
       cache.clear();
@@ -345,7 +347,7 @@
       }
     }
 
-    return { run, runAsync, compile, stats };
+    return { run, runAsync, compile, stats, invalidateCode: flush };
   }
 
   G.FexRuntime = { createRuntime };

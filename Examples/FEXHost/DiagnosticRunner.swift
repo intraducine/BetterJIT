@@ -117,6 +117,7 @@ import BetterJITWebKit
         case .fexSIMDWin64: return try await fexSmoke(.win64, simd:true)
         case .fexRegionSysV: return try await fexRegion(.sysv)
         case .fexRegionWin64: return try await fexRegion(.win64)
+        case .fexCodeMutation: return try await fexCodeMutation()
         case .syscallSubset:
             return try await SyscallDiagnosticExecutor.run(mapped:false, mount:mount)
         case .processLifecycle:
@@ -173,6 +174,60 @@ import BetterJITWebKit
         } catch {
             await executor.close(); abortCurrent = nil; throw error
         }
+    }
+
+    private func fexCodeMutation() async throws -> DiagnosticOutcome {
+        let entry = UInt32(truncatingIfNeeded: SuitePlan.guestBase)
+        let originalCall = DeviceCase(id: "add", title: "Add", entry: entry,
+                                      arguments: [20, 22], expected: 42)
+        let stage = DeviceStage(id: "code-mutation", title: "Code mutation", kind: .baseline,
+                                abi: .win64, cases: [originalCall])
+        // Win64: mov rax, rcx; sub rax, rdx; ret. Construct the replacement during the test.
+        var replacement = stage.image
+        replacement[4] = 0x29
+        let expectedDifference = UInt64(20) &- 22
+        var changedCall = originalCall
+        changedCall.input = replacement
+        changedCall.expectedMemory = replacement
+        changedCall.memoryOffset = entry
+
+        let before = DeviceExecutor(stage: stage, mount: mount)
+        abortCurrent = { before.abort() }
+        let first: CallEvidence, changed: CallEvidence
+        do {
+            _ = try await before.start()
+            first = try await before.invoke(originalCall)
+            guard first.result == originalCall.expected else { throw SuiteFailure("Original code returned an unexpected value.") }
+            changed = try await before.invoke(changedCall)
+            guard changed.memory == replacement else { throw SuiteFailure("Replacement bytes were not visible in guest memory.") }
+            await before.close()
+        } catch {
+            await before.close(); throw error
+        }
+        try checkStop()
+
+        let after = DeviceExecutor(stage: stage, imageOverride: replacement, mount: mount)
+        abortCurrent = { after.abort() }
+        let fresh: CallEvidence
+        do {
+            _ = try await after.start()
+            fresh = try await after.invoke(originalCall)
+            guard fresh.result == expectedDifference else { throw SuiteFailure("Fresh session did not execute the replacement code.") }
+            await after.close()
+        } catch {
+            await after.close(); throw error
+        }
+        guard changed.result == first.result || changed.result == expectedDifference else {
+            throw SuiteFailure("Live update returned neither the original nor the replacement result.")
+        }
+        let stale = changed.result == first.result
+        return DiagnosticOutcome(status: stale ? .failed : .passed,
+            details: ["original": String(first.result), "afterGuestWrite": String(changed.result),
+                      "freshSession": String(fresh.result), "liveCodeUpdated": String(!stale)],
+            metrics: ["originalCallMilliseconds": first.milliseconds,
+                      "afterGuestWriteMilliseconds": changed.milliseconds,
+                      "freshSessionCallMilliseconds": fresh.milliseconds],
+            notes: stale ? ["A guest-memory write left the old translation installed."] : [])
     }
 
     private func fexRegion(_ abi: GuestABI) async throws -> DiagnosticOutcome {

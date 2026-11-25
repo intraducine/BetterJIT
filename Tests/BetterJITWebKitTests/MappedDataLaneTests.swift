@@ -11,7 +11,7 @@ final class MappedDataLaneTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let url = root.appendingPathComponent("betterjit-\(token).bin")
         XCTAssertTrue(FileManager.default.createFile(atPath: url.path, contents: nil))
-        let writer = try FileHandle(forWritingTo: url)
+        let writer = try FileHandle(forUpdating: url)
         try writer.truncate(atOffset: UInt64(MappedDataLane.fileSize))
         try writer.seek(toOffset: 0)
         try writer.write(contentsOf: Data("BetterJIT-mapped-v1:\(token)\n".utf8))
